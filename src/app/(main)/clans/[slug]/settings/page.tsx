@@ -515,8 +515,12 @@ export default function ClanSettingsPage() {
               <Toggle
                 checked={form.isPublic}
                 onChange={v => setField("isPublic", v)}
-                label="Public Clan"
-                description="Anyone can find and browse this clan. Turn off to make it invite-only."
+                label={form.isPublic ? "Public Clan" : "Private Clan"}
+                description={
+                  form.isPublic
+                    ? "Anyone can find and browse this clan."
+                    : "Hidden from the browse page — only accessible via direct link."
+                }
               />
               <Toggle
                 checked={form.isRecruiting}
