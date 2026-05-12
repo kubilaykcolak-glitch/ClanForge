@@ -1,0 +1,11 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "location": "europe-west2",
+    "rules": "firebase/rules/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "firebase/storage.rules"
+  }
+}

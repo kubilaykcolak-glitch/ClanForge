@@ -1,0 +1,96 @@
+// firebase/firestore.indexes.json
+{
+  "indexes": [
+
+    // ── clans ────────────────────────────────────────────────────────────────
+
+    // Browse clans: gameFocus filter + recruting + newest first
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "gameFocus",    "order": "ASCENDING"  },
+        { "fieldPath": "isRecruiting", "order": "ASCENDING"  },
+        { "fieldPath": "createdAt",    "order": "DESCENDING" }
+      ]
+    },
+
+    // Dashboard recommended clans: isRecruiting filter + largest clans first
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isRecruiting", "order": "ASCENDING"  },
+        { "fieldPath": "memberCount",  "order": "DESCENDING" }
+      ]
+    },
+
+    // Clans browse page: public clans by member count (no recruiting filter)
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic",    "order": "ASCENDING"  },
+        { "fieldPath": "memberCount", "order": "DESCENDING" }
+      ]
+    },
+
+    // Browse clans: public + recruiting + most members first (default sort)
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic",     "order": "ASCENDING"  },
+        { "fieldPath": "isRecruiting", "order": "ASCENDING"  },
+        { "fieldPath": "memberCount",  "order": "DESCENDING" }
+      ]
+    },
+
+    // ── tournaments ──────────────────────────────────────────────────────────
+
+    // Open / live / locked tabs: status filter + soonest first
+    {
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",   "order": "ASCENDING" },
+        { "fieldPath": "startsAt", "order": "ASCENDING" }
+      ]
+    },
+
+    // Completed tab: status filter + most recent first  ← was missing, caused the error
+    {
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",   "order": "ASCENDING"  },
+        { "fieldPath": "startsAt", "order": "DESCENDING" }
+      ]
+    },
+
+    // Dashboard active tournaments: status IN [...] + soonest first
+    {
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",   "order": "ASCENDING" },
+        { "fieldPath": "createdAt","order": "DESCENDING" }
+      ]
+    },
+
+    // ── profiles ─────────────────────────────────────────────────────────────
+
+    // Players page leaderboard: top XP (single-field — auto-indexed by Firestore,
+    // listed here for explicitness and to cover the verified filter variant)
+    {
+      "collectionGroup": "profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isVerified", "order": "ASCENDING"  },
+        { "fieldPath": "xp",        "order": "DESCENDING" }
+      ]
+    }
+
+  ],
+  "fieldOverrides": []
+}

@@ -1,27 +1,127 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ─── ClanForge Design Tokens ─────────────────────────────────────────────── */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Backgrounds */
+  --bg-base:     #0a0a0f;
+  --bg-surface:  #111118;
+  --bg-elevated: #1a1a24;
+  --bg-overlay:  #22222e;
+
+  /* Accent palette */
+  --accent:      #6366f1;
+  --accent-hover:#4f46e5;
+  --accent-glow: rgba(99, 102, 241, 0.15);
+  --violet:      #8b5cf6;
+
+  /* Semantic colours */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger:  #ef4444;
+  --info:    #3b82f6;
+
+  /* Typography */
+  --text-primary:   #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted:     #475569;
+
+  /* Borders */
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong:  rgba(255, 255, 255, 0.18);
+
+  /* shadcn compatibility tokens (HSL format) */
+  --background:           222 47% 4%;
+  --foreground:           210 40% 98%;
+  --card:                 222 47% 7%;
+  --card-foreground:      210 40% 98%;
+  --popover:              222 47% 7%;
+  --popover-foreground:   210 40% 98%;
+  --primary:              239 84% 67%;
+  --primary-foreground:   210 40% 98%;
+  --secondary:            222 47% 11%;
+  --secondary-foreground: 210 40% 98%;
+  --muted:                222 47% 11%;
+  --muted-foreground:     215 20% 55%;
+  --accent:               239 84% 67%;
+  --accent-foreground:    210 40% 98%;
+  --destructive:          0 72% 51%;
+  --destructive-foreground: 210 40% 98%;
+  --border:               222 47% 15%;
+  --input:                222 47% 15%;
+  --ring:                 239 84% 67%;
+  --radius:               0.5rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ─── Base styles ─────────────────────────────────────────────────────────── */
+
+html {
+  scroll-behavior: smooth;
+  background: var(--bg-base);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ─── Selection ───────────────────────────────────────────────────────────── */
+
+::selection {
+  background: rgba(99, 102, 241, 0.30);
+  color: var(--text-primary);
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-elevated);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* ─── Utility classes (CSS-only hover, no JS handlers needed) ────────────── */
+
+.footer-link {
+  color: var(--text-muted);
+}
+.footer-link:hover {
+  color: var(--text-secondary);
+}
+
+/* ─── shadcn base layer ───────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
   }
 }

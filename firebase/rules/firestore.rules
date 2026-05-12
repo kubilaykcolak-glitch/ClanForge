@@ -1,0 +1,149 @@
+// firebase/rules/firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper functions ─────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isClanMember(clanId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid));
+    }
+
+    function isClanLeaderOrOfficer(clanId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role
+          in ['leader', 'officer'];
+    }
+
+    function isClanOwner(clanId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/clans/$(clanId)).data.ownerId == request.auth.uid;
+    }
+
+    function isTournamentCreator(tournamentId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.creatorId == request.auth.uid;
+    }
+
+    function isMatchParticipant(tournamentId, matchId) {
+      let matchData = get(/databases/$(database)/documents/tournaments/$(tournamentId)/matches/$(matchId)).data;
+      return isSignedIn() &&
+        (request.auth.uid == matchData.participant1Id || request.auth.uid == matchData.participant2Id);
+    }
+
+    // ─── /profiles/{userId} ───────────────────────────────────────────────────
+    // Any authenticated user can read; only the owner can write.
+
+    match /profiles/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+
+      // ─── /profiles/{userId}/gameRecords/{recordId} ─────────────────────────
+      // Owner can read, write, and delete their own game records.
+
+      match /gameRecords/{recordId} {
+        allow read, write, delete: if isOwner(userId);
+      }
+    }
+
+    // ─── /usernames/{username} ────────────────────────────────────────────────
+    // Authenticated user can create if the doc's uid matches their own.
+    // No updates or deletes allowed (username reservation is permanent).
+
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ─── /clanSlugs/{slug} ───────────────────────────────────────────────────
+    // Authenticated user can create only. No updates or deletes.
+
+    match /clanSlugs/{slug} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // ─── /clans/{clanId} ─────────────────────────────────────────────────────
+    // Any authenticated user can read; only the owner can update.
+
+    match /clans/{clanId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isClanOwner(clanId);
+      allow delete: if isClanOwner(clanId);
+
+      // ─── /clans/{clanId}/members/{userId} ──────────────────────────────────
+      // Any clan member can read the list.
+      // A user can write their own doc (to join).
+      // Leader or officer can update or delete other members.
+
+      match /members/{userId} {
+        allow read: if isClanMember(clanId) || isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update: if isOwner(userId) || isClanLeaderOrOfficer(clanId);
+        allow delete: if isOwner(userId) || isClanLeaderOrOfficer(clanId);
+      }
+
+      // ─── /clans/{clanId}/posts/{postId} ──────────────────────────────────
+      // Members can read and create; only the author can update or delete.
+
+      match /posts/{postId} {
+        allow read: if isClanMember(clanId);
+        allow create: if isClanMember(clanId);
+        allow update: if isSignedIn() && request.auth.uid == resource.data.authorId;
+        allow delete: if isSignedIn() && request.auth.uid == resource.data.authorId;
+
+        // ─── /clans/{clanId}/posts/{postId}/likes/{userId} ─────────────────
+        // Authenticated users can read; users can write/delete their own like.
+
+        match /likes/{userId} {
+          allow read: if isSignedIn();
+          allow write: if isOwner(userId);
+          allow delete: if isOwner(userId);
+        }
+      }
+    }
+
+    // ─── /tournaments/{tournamentId} ─────────────────────────────────────────
+    // Authenticated users can read; the creator can write and update.
+
+    match /tournaments/{tournamentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isTournamentCreator(tournamentId);
+      allow delete: if isTournamentCreator(tournamentId);
+
+      // ─── /tournaments/{tournamentId}/participants/{pid} ───────────────────
+      // Authenticated users can read; authenticated user can create their own;
+      // creator can update any participant doc.
+
+      match /participants/{pid} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(pid);
+        allow update: if isTournamentCreator(tournamentId);
+        allow delete: if isTournamentCreator(tournamentId);
+      }
+
+      // ─── /tournaments/{tournamentId}/matches/{matchId} ───────────────────
+      // Authenticated users can read; creator and the two participants can update.
+
+      match /matches/{matchId} {
+        allow read: if isSignedIn();
+        allow create: if isTournamentCreator(tournamentId);
+        allow update: if isTournamentCreator(tournamentId) || isMatchParticipant(tournamentId, matchId);
+        allow delete: if isTournamentCreator(tournamentId);
+      }
+    }
+  }
+}

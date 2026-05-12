@@ -1,0 +1,22 @@
+[
+  {
+    "origin": ["http://localhost:3000", "https://clan-vault.vercel.app", "https://clanvault.gg"],
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "X-Requested-With",
+      "X-Firebase-Storage-Version",
+      "X-Upload-Content-Type",
+      "X-Upload-Content-Length",
+      "X-Goog-Upload-Command",
+      "X-Goog-Upload-Offset",
+      "X-Goog-Upload-Status",
+      "X-Goog-Upload-URL",
+      "X-Goog-Upload-Header-Content-Encoding",
+      "X-Goog-Upload-Header-Content-Type"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

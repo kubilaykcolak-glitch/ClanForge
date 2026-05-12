@@ -1,0 +1,57 @@
+// firebase/storage.rules
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── Helper functions ─────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isUnder5MB() {
+      return request.resource.size <= 5 * 1024 * 1024;
+    }
+
+    // ─── avatars/{userId}/ ────────────────────────────────────────────────────
+    // Only that user can write (max 5 MB); any authenticated user can read.
+
+    match /avatars/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isUnder5MB();
+      allow delete: if isOwner(userId);
+    }
+
+    // ─── clan-assets/{clanId}/ ────────────────────────────────────────────────
+    // Authenticated users can write (max 5 MB); authenticated users can read.
+    // Note: tighten to clan members only in Phase 2.
+
+    match /clan-assets/{clanId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isUnder5MB();
+      allow delete: if isSignedIn();
+    }
+
+    // ─── clan-posts/{clanId}/ ────────────────────────────────────────────────
+    // Authenticated users can write (max 5 MB) and read.
+
+    match /clan-posts/{clanId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isUnder5MB();
+      allow delete: if isSignedIn();
+    }
+
+    // ─── tournament-banners/{tournamentId}/ ──────────────────────────────────
+    // Authenticated users can write (max 5 MB) and read.
+
+    match /tournament-banners/{tournamentId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isUnder5MB();
+      allow delete: if isSignedIn();
+    }
+  }
+}
