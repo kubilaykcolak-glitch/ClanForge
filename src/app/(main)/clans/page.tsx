@@ -5,7 +5,16 @@ import { ClanCard } from "@/components/clan/ClanCard";
 
 // ── Data fetch ────────────────────────────────────────────────────────────────
 
-async function getPageData(): Promise<{ publicClans: Clan[]; ownClan: Clan | null }> {
+interface PageData {
+  publicClans:        Clan[];
+  ownClan:            Clan | null;
+  currentUid:         string | null;
+  currentClanId:      string | null;
+  currentDisplayName: string;
+  currentAvatarUrl:   string | undefined;
+}
+
+async function getPageData(): Promise<PageData> {
   const { adminDb, adminAuth } = await import("@/lib/firebase/admin");
 
   // Public clans (browse list)
@@ -26,47 +35,61 @@ async function getPageData(): Promise<{ publicClans: Clan[]; ownClan: Clan | nul
     } as Clan;
   });
 
-  // Check if the logged-in user owns a private clan so we can surface it
-  let ownClan: Clan | null = null;
+  let ownClan:            Clan | null   = null;
+  let currentUid:         string | null = null;
+  let currentClanId:      string | null = null;
+  let currentDisplayName: string        = "";
+  let currentAvatarUrl:   string | undefined;
+
   try {
-    const cookieStore = cookies();
+    const cookieStore   = cookies();
     const sessionCookie = cookieStore.get("session")?.value;
     if (sessionCookie) {
       const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-      const uid = decoded.uid;
+      currentUid = decoded.uid;
 
-      // Get the user's clanId from their profile
-      const profileSnap = await adminDb.collection("profiles").doc(uid).get();
-      const clanId = (profileSnap.data()?.clanId as string | null) ?? null;
+      const profileSnap = await adminDb.collection("profiles").doc(currentUid).get();
+      if (profileSnap.exists) {
+        const pData        = profileSnap.data()!;
+        currentClanId      = (pData.clanId      as string | null) ?? null;
+        currentDisplayName = (pData.displayName as string)        ?? "";
+        currentAvatarUrl   = pData.avatarUrl as string | undefined;
 
-      if (clanId) {
-        const clanSnap = await adminDb.collection("clans").doc(clanId).get();
-        if (clanSnap.exists) {
-          const data = clanSnap.data()!;
-          // Surface the clan to ANY member (owner or not) when it is private.
-          // Public clans already appear in the list below — no banner needed.
-          if (data.isPublic === false) {
-            ownClan = {
-              id:        clanSnap.id,
-              ...(data as Omit<Clan, "id" | "createdAt" | "updatedAt">),
-              createdAt: data.createdAt?.toDate?.() ?? new Date(),
-              updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
-            } as Clan;
+        // Surface private clan so owner/members can always find it
+        if (currentClanId) {
+          const clanSnap = await adminDb.collection("clans").doc(currentClanId).get();
+          if (clanSnap.exists) {
+            const data = clanSnap.data()!;
+            if (data.isPublic === false) {
+              ownClan = {
+                id:        clanSnap.id,
+                ...(data as Omit<Clan, "id" | "createdAt" | "updatedAt">),
+                createdAt: data.createdAt?.toDate?.() ?? new Date(),
+                updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
+              } as Clan;
+            }
           }
         }
       }
     }
   } catch {
-    // Invalid/missing session — continue without ownClan
+    // Invalid/missing session — continue with nulls
   }
 
-  return { publicClans, ownClan };
+  return { publicClans, ownClan, currentUid, currentClanId, currentDisplayName, currentAvatarUrl };
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ClansPage() {
-  const { publicClans, ownClan } = await getPageData();
+  const {
+    publicClans,
+    ownClan,
+    currentUid,
+    currentClanId,
+    currentDisplayName,
+    currentAvatarUrl,
+  } = await getPageData();
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -169,7 +192,14 @@ export default async function ClansPage() {
       {publicClans.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {publicClans.map(clan => (
-            <ClanCard key={clan.id} clan={clan} />
+            <ClanCard
+              key={clan.id}
+              clan={clan}
+              currentUid={currentUid}
+              currentClanId={currentClanId}
+              currentDisplayName={currentDisplayName}
+              currentAvatarUrl={currentAvatarUrl}
+            />
           ))}
         </div>
       ) : (

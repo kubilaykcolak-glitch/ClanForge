@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { Users } from "lucide-react";
+import { Lock, Users } from "lucide-react";
 import type { Clan, ClanMember, ClanRole, Profile } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { MemberRow } from "@/components/clan/MemberRow";
@@ -140,8 +140,9 @@ export default async function ClanPage({
     currentUsername,
   } = data;
 
-  const isMember =
-    currentRole !== null && currentRole !== "pending";
+  const isMember = currentRole !== null && currentRole !== "pending";
+  const isPrivateClan = !clan.isPublic;
+  const showGate = isPrivateClan && currentRole === null;
 
   // Members shown in panel (exclude pending)
   const visibleMembers = members.filter(m => m.role !== "pending");
@@ -257,8 +258,30 @@ export default async function ClanPage({
         </div>
       )}
 
-      {/* ── Two-column layout ── */}
-      <div className="flex gap-6">
+      {/* ── Private gate (non-members of a private clan) ── */}
+      {showGate && (
+        <div
+          className="flex flex-col items-center justify-center rounded-2xl py-20 text-center mb-8"
+          style={{
+            background: "var(--bg-surface)",
+            border:     "1px solid var(--border-default)",
+          }}
+        >
+          <Lock size={40} strokeWidth={1.5} style={{ color: "var(--text-muted)", marginBottom: 16 }} />
+          <h2
+            className="font-display font-semibold mb-2"
+            style={{ fontSize: 20, color: "var(--text-primary)" }}
+          >
+            This clan is private
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--text-muted)", maxWidth: 320 }}>
+            Only members can see the clan feed and roster.
+          </p>
+        </div>
+      )}
+
+      {/* ── Two-column layout (members only) ── */}
+      {!showGate && <div className="flex gap-6">
 
         {/* Main content — feed */}
         <div className="flex-1 min-w-0">
@@ -321,7 +344,7 @@ export default async function ClanPage({
             )}
           </div>
         </aside>
-      </div>
+      </div>}
     </div>
   );
 }
