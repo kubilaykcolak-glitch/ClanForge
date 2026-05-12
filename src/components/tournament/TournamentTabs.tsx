@@ -65,7 +65,7 @@ export function TournamentTabs({
           <TabsTrigger
             key={tab.value}
             value={tab.value}
-            className="rounded-lg px-4 py-2 text-sm font-medium transition-all data-[state=active]:text-white"
+            className="rounded-lg px-4 py-2 text-sm font-medium transition-colors data-[active]:!bg-[var(--bg-elevated)] data-[active]:!text-[var(--text-primary)] data-[active]:!border-[var(--border-default)] hover:!text-[var(--text-secondary)]"
             style={
               {
                 color: "var(--text-muted)",

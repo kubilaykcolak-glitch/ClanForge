@@ -68,13 +68,18 @@ export default function PlayersClient({
     <div className="max-w-6xl mx-auto">
 
       {/* ── Header row ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-        <h1
-          className="font-display font-bold text-3xl"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Find Players
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-8">
+        <div>
+          <h1
+            className="font-display font-bold text-4xl"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Find Players
+          </h1>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
+            Discover gamers, scout teammates, scope the competition.
+          </p>
+        </div>
 
         {uid && (
           <Toggle

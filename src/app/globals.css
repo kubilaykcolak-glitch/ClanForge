@@ -58,6 +58,14 @@
   --radius:               0.5rem;
 }
 
+/* Re-assert design-token --accent AFTER the shadcn block so it isn't
+   shadowed by the duplicate HSL-triplet declaration above. */
+:root {
+  --accent:        #6366f1;
+  --accent-hover:  #4f46e5;
+  --accent-glow:   rgba(99, 102, 241, 0.15);
+}
+
 /* ─── Base styles ─────────────────────────────────────────────────────────── */
 
 html {
