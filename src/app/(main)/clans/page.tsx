@@ -43,9 +43,9 @@ async function getPageData(): Promise<{ publicClans: Clan[]; ownClan: Clan | nul
         const clanSnap = await adminDb.collection("clans").doc(clanId).get();
         if (clanSnap.exists) {
           const data = clanSnap.data()!;
-          // Only surface it here if: they are the owner AND it's private
-          // (if it's public it already appears in the list below)
-          if (data.ownerId === uid && data.isPublic === false) {
+          // Surface the clan to ANY member (owner or not) when it is private.
+          // Public clans already appear in the list below — no banner needed.
+          if (data.isPublic === false) {
             ownClan = {
               id:        clanSnap.id,
               ...(data as Omit<Clan, "id" | "createdAt" | "updatedAt">),
@@ -146,7 +146,7 @@ export default async function ClansPage() {
                 </span>
               </div>
               <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
-                Your clan · hidden from browse
+                Private clan · hidden from browse
               </p>
             </div>
           </div>
