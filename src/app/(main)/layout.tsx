@@ -1,5 +1,4 @@
 import { cookies } from "next/headers";
-import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Footer } from "@/components/layout/Footer";
 import type { Profile } from "@/types";
@@ -57,10 +56,8 @@ export default async function MainLayout({
       className="min-h-screen flex flex-col"
       style={{ background: "var(--bg-base)" }}
     >
-      <Navbar profile={profile} isAuthenticated={isAuthenticated} />
-
-      <div className="flex flex-1 pt-16">
-        <Sidebar profile={profile} />
+      <div className="flex flex-1">
+        <Sidebar profile={profile} isAuthenticated={isAuthenticated} />
 
         <div className="flex flex-col flex-1 min-w-0">
           <main className="flex-1 p-6">
