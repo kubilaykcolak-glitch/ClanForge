@@ -5,17 +5,24 @@ import PlayersClient, { type PlayerRow } from "@/components/player/PlayersClient
 export default async function PlayersPage() {
   const uid = headers().get("x-user-id");
 
+  // Fetch more than needed so we still have 48 after filtering out private
+  // profiles. A compound where+orderBy index (isPrivate, xp) would be needed
+  // for a server-side filter; doing it client-side avoids that index requirement
+  // and also correctly includes profiles that pre-date the isPrivate field
+  // (absent field ≠ false in Firestore inequality queries).
   const snap = await adminDb
     .collection("profiles")
-    .where("isPrivate", "==", false)
     .orderBy("xp", "desc")
-    .limit(48)
+    .limit(96)
     .get();
 
   const toMs = (v: unknown) =>
     (v as { toDate?: () => Date } | undefined)?.toDate?.().getTime() ?? Date.now();
 
-  const players: PlayerRow[] = snap.docs.map(d => {
+  const players: PlayerRow[] = snap.docs
+    .filter(d => d.data().isPrivate !== true)
+    .slice(0, 48)
+    .map(d => {
     const data = d.data() as Record<string, unknown>;
     return {
       id:                d.id,
