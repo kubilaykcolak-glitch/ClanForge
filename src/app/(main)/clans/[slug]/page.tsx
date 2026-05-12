@@ -199,12 +199,32 @@ export default async function ClanPage({
       {/* ── Identity + action row ── */}
       <div className="px-2 mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1
-            className="font-display font-bold mb-1"
-            style={{ fontSize: 32, color: "var(--text-primary)" }}
-          >
-            {clan.name}
-          </h1>
+          <div className="flex items-baseline gap-3 flex-wrap mb-1">
+            <h1
+              className="font-display font-bold"
+              style={{ fontSize: 32, color: "var(--text-primary)" }}
+            >
+              {clan.name}
+            </h1>
+            {clan.clanTag && (
+              <span
+                style={{
+                  fontFamily:    "'Rajdhani', sans-serif",
+                  fontSize:      13,
+                  fontWeight:    700,
+                  letterSpacing: "0.06em",
+                  padding:       "3px 10px",
+                  borderRadius:  999,
+                  background:    "rgba(139,92,246,0.15)",
+                  color:         "#8b5cf6",
+                  border:        "1px solid rgba(139,92,246,0.3)",
+                  whiteSpace:    "nowrap",
+                }}
+              >
+                #{clan.clanTag}
+              </span>
+            )}
+          </div>
 
           <div className="flex flex-wrap items-center gap-2 mb-2">
             <Badge variant="tournament">{clan.gameFocus}</Badge>
