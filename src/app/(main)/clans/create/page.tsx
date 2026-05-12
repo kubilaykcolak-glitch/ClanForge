@@ -38,7 +38,6 @@ interface FormState {
 function ImageUpload({
   label,
   hint,
-  value: _value,
   onChange,
   aspectClass,
 }: {

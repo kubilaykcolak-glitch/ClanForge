@@ -516,6 +516,7 @@ export default function ProfileEditPage() {
                 style={{ background: "var(--accent)", border: "3px solid var(--border-default)" }}
               >
                 {avatarPreview
+                  // eslint-disable-next-line @next/next/no-img-element
                   ? <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
                   : initials || "?"}
               </div>
