@@ -1,7 +1,7 @@
 "use server";
 
 import { FieldValue } from "firebase-admin/firestore";
-import type { Tournament, TournamentFormat } from "@/types";
+import type { Tournament } from "@/types";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 

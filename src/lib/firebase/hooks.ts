@@ -8,7 +8,6 @@ import type { Clan, ClanPost, Profile, Tournament } from "@/types";
 import { auth, db } from "./client";
 import {
   clanConverter,
-  matchConverter,
   postConverter,
   profileConverter,
   tournamentConverter,

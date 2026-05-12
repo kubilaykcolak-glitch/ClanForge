@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/Badge";
 import type { TournamentMatch } from "@/types";
 
 interface BracketViewProps {
