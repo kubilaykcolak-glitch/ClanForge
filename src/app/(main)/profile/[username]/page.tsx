@@ -6,7 +6,6 @@ import ProfileHero from "@/components/profile/ProfileHero";
 import PrivateProfileScreen from "@/components/profile/PrivateProfileScreen";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { Badge } from "@/components/ui/Badge";
-import { formatDate } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
