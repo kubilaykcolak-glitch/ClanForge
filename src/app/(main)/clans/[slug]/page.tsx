@@ -237,6 +237,7 @@ export default async function ClanPage({
         <div className="shrink-0">
           <ClanActions
             clanId={clanId}
+            slug={params.slug}
             currentUid={currentUid}
             currentRole={currentRole}
             isPublic={clan.isPublic}

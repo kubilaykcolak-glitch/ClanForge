@@ -376,6 +376,76 @@ export async function updateClanTag(
   }
 }
 
+// ── disbandClan ───────────────────────────────────────────────────────────────
+// Leader-only. Deletes the clan doc, clanSlugs entry, all member sub-docs, and
+// clears clan-denorm fields from every member's profile in a single batch.
+// Max members is 100, so ops = (100 × 2) + 2 = 202 — within Firestore's 500-op limit.
+
+export async function disbandClan(
+  uid: string,
+  clanId: string,
+): Promise<ActionResult> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    // Verify caller is the leader
+    const leaderSnap = await adminDb
+      .collection("clans")
+      .doc(clanId)
+      .collection("members")
+      .doc(uid)
+      .get();
+
+    if (!leaderSnap.exists) {
+      return { success: false, error: "You are not a member of this clan" };
+    }
+    if ((leaderSnap.data()!.role as ClanRole) !== "leader") {
+      return { success: false, error: "Only the clan leader can disband the clan" };
+    }
+
+    // Fetch clan doc for slug
+    const clanSnap = await adminDb.collection("clans").doc(clanId).get();
+    if (!clanSnap.exists) {
+      return { success: false, error: "Clan not found" };
+    }
+    const slug = clanSnap.data()!.slug as string;
+
+    // Fetch all members
+    const membersSnap = await adminDb
+      .collection("clans")
+      .doc(clanId)
+      .collection("members")
+      .get();
+
+    const batch = adminDb.batch();
+
+    // Delete each member doc and clear their profile's clan fields
+    for (const memberDoc of membersSnap.docs) {
+      batch.delete(
+        adminDb.collection("clans").doc(clanId).collection("members").doc(memberDoc.id),
+      );
+      batch.update(adminDb.collection("profiles").doc(memberDoc.id), {
+        clanId:   null,
+        clanTag:  null,
+        clanSlug: null,
+        clanName: null,
+      });
+    }
+
+    // Delete clanSlugs entry and the clan doc itself
+    batch.delete(adminDb.collection("clanSlugs").doc(slug));
+    batch.delete(adminDb.collection("clans").doc(clanId));
+
+    await batch.commit();
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to disband clan";
+    console.error("[disbandClan]", err);
+    return { success: false, error: message };
+  }
+}
+
 // ── createPost ────────────────────────────────────────────────────────────────
 // Verifies the author is an active member (not pending) before writing.
 

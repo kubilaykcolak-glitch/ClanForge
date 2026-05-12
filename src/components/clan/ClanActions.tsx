@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { joinClan, leaveClan } from "@/lib/clan-actions";
 import type { ClanRole } from "@/types";
 
 interface ClanActionsProps {
   clanId:          string;
+  slug:            string;
   currentUid:      string | null;
   currentRole:     ClanRole | null;   // null = not a member
   isPublic:        boolean;
@@ -21,6 +23,7 @@ const SLOW_THRESHOLD_MS = 8_000;
 
 export function ClanActions({
   clanId,
+  slug,
   currentUid,
   currentRole,
   isPublic,
@@ -60,9 +63,26 @@ export function ClanActions({
   // ── Clan leader ──
   if (currentRole === "leader") {
     return (
-      <span className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
-        👑 You own this clan
-      </span>
+      <Link
+        href={`/clans/${slug}/settings`}
+        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+        style={{
+          background: "var(--bg-elevated)",
+          border:     "1px solid var(--border-default)",
+          color:      "var(--text-secondary)",
+        }}
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)";
+          (e.currentTarget as HTMLElement).style.color       = "var(--text-primary)";
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)";
+          (e.currentTarget as HTMLElement).style.color       = "var(--text-secondary)";
+        }}
+      >
+        <Settings size={15} />
+        Manage Clan
+      </Link>
     );
   }
 

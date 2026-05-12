@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { AlertCircle, ChevronLeft, Loader2, Upload, X } from "lucide-react";
+import { AlertCircle, ChevronLeft, Loader2, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
 import Toggle from "@/components/ui/Toggle";
+import ClanTagSettings from "@/components/clan/ClanTagSettings";
+import { disbandClan } from "@/lib/actions/clan.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -133,11 +135,17 @@ export default function ClanSettingsPage() {
   const [uid, setUid] = useState<string | null>(null);
 
   // Clan
-  const [clanId, setClanId]     = useState<string | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [notOwner, setNotOwner] = useState(false);
+  const [clanId, setClanId]       = useState<string | null>(null);
+  const [currentTag, setCurrentTag] = useState<string | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [notOwner, setNotOwner]   = useState(false);
   const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | undefined>();
   const [existingBannerUrl, setExistingBannerUrl] = useState<string | undefined>();
+
+  // Disband
+  const [disbandOpen, setDisbandOpen]         = useState(false);
+  const [disbandConfirm, setDisbandConfirm]   = useState("");
+  const [disbanding, setDisbanding]           = useState(false);
 
   // Form state
   const [form, setForm] = useState<FormState>({
@@ -191,6 +199,7 @@ export default function ClanSettingsPage() {
       }
 
       setClanId(id);
+      setCurrentTag((data.clanTag as string | null) ?? null);
       setExistingAvatarUrl(data.avatarUrl ?? undefined);
       setExistingBannerUrl(data.bannerUrl ?? undefined);
       setGameQuery(data.gameFocus ?? "");
@@ -287,6 +296,20 @@ export default function ClanSettingsPage() {
       setIsSlow(false);
       if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
     }
+  };
+
+  // ── Disband ──
+  const handleDisband = async () => {
+    if (!uid || !clanId || disbandConfirm !== form.name) return;
+    setDisbanding(true);
+    const result = await disbandClan(uid, clanId);
+    if (!result.success) {
+      toast.error(result.error ?? "Failed to disband clan");
+      setDisbanding(false);
+      return;
+    }
+    toast.success("Clan disbanded");
+    router.push("/clans");
   };
 
   // ── Loading / access states ──
@@ -545,6 +568,15 @@ export default function ClanSettingsPage() {
           </div>
         </Section>
 
+        {/* ── Clan Tag ── */}
+        {clanId && (
+          <ClanTagSettings
+            clanId={clanId}
+            currentTag={currentTag}
+            isLeader={true}
+          />
+        )}
+
         {/* ── Save ── */}
         <div className="flex flex-col gap-2">
           <button
@@ -571,6 +603,87 @@ export default function ClanSettingsPage() {
         </div>
 
       </form>
+
+      {/* ── Danger Zone ── */}
+      <div
+        className="rounded-2xl p-6 flex flex-col gap-4 mt-5"
+        style={{
+          background: "rgba(239,68,68,0.04)",
+          border:     "1px solid rgba(239,68,68,0.2)",
+        }}
+      >
+        <div>
+          <h2
+            className="font-display font-bold text-lg"
+            style={{ color: "var(--danger)" }}
+          >
+            Danger Zone
+          </h2>
+          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+            Disbanding is permanent. All members will be removed and the clan will be deleted.
+          </p>
+        </div>
+
+        {!disbandOpen ? (
+          <button
+            type="button"
+            onClick={() => setDisbandOpen(true)}
+            className="inline-flex items-center gap-2 self-start px-4 py-2.5 rounded-lg text-sm font-semibold transition-all"
+            style={{
+              background: "rgba(239,68,68,0.1)",
+              border:     "1px solid rgba(239,68,68,0.3)",
+              color:      "var(--danger)",
+            }}
+          >
+            <Trash2 size={15} />
+            Disband Clan
+          </button>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Type <strong style={{ color: "var(--text-primary)" }}>{form.name}</strong> to confirm.
+            </p>
+            <input
+              type="text"
+              value={disbandConfirm}
+              onChange={e => setDisbandConfirm(e.target.value)}
+              placeholder={form.name}
+              className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+              style={{
+                background:  "var(--bg-elevated)",
+                border:      "1px solid rgba(239,68,68,0.4)",
+                color:       "var(--text-primary)",
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = "var(--danger)"; }}
+              onBlur={e =>  { e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)"; }}
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleDisband}
+                disabled={disbanding || disbandConfirm !== form.name}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: "var(--danger)" }}
+              >
+                {disbanding && <Loader2 size={14} className="animate-spin" />}
+                {disbanding ? "Disbanding…" : "Yes, Disband"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDisbandOpen(false); setDisbandConfirm(""); }}
+                className="px-4 py-2.5 rounded-lg text-sm font-medium transition-all"
+                style={{
+                  background: "var(--bg-elevated)",
+                  border:     "1px solid var(--border-default)",
+                  color:      "var(--text-secondary)",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
