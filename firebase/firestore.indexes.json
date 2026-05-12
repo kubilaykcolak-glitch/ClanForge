@@ -89,6 +89,17 @@
         { "fieldPath": "isVerified", "order": "ASCENDING"  },
         { "fieldPath": "xp",        "order": "DESCENDING" }
       ]
+    },
+
+    // Players page: public profiles ranked by XP
+    // Required for: where("isPrivate","==",false).orderBy("xp","desc")
+    {
+      "collectionGroup": "profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPrivate", "order": "ASCENDING"  },
+        { "fieldPath": "xp",       "order": "DESCENDING" }
+      ]
     }
 
   ],

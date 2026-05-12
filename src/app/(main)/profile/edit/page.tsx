@@ -40,6 +40,7 @@ import type { GameRecord } from "@/types";
 import ComingSoon from "@/components/ui/ComingSoon";
 import Toggle from "@/components/ui/Toggle";
 import CustomiseProfilePanel from "@/components/profile/CustomiseProfilePanel";
+import { setProfilePrivacy } from "@/lib/actions/profile.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -502,13 +503,13 @@ export default function ProfileEditPage() {
 
   const handlePrivacyToggle = async (value: boolean) => {
     if (!uid) return;
-    setIsPrivate(value);
-    try {
-      await updateDoc(doc(db, "profiles", uid), { isPrivate: value, updatedAt: new Date() });
+    setIsPrivate(value); // optimistic
+    const result = await setProfilePrivacy(uid, value);
+    if (!result.success) {
+      setIsPrivate(!value); // revert
+      toast.error(result.error ?? "Failed to update privacy setting");
+    } else {
       toast.success(value ? "Profile set to private" : "Profile set to public");
-    } catch {
-      setIsPrivate(!value); // revert on failure
-      toast.error("Failed to update privacy setting");
     }
   };
 

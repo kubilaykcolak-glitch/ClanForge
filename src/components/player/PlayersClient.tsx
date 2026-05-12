@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import type { Profile } from "@/types";
+import { setProfilePrivacy } from "@/lib/actions/profile.actions";
 import Toggle from "@/components/ui/Toggle";
 import PlayerCard from "./PlayerCard";
 
@@ -35,6 +37,18 @@ export default function PlayersClient({
   const [isPrivate,  setIsPrivate]  = useState(initialIsPrivate);
   const [activeOnly, setActiveOnly] = useState(false);
 
+  const handlePrivacyToggle = async (visible: boolean) => {
+    const next = !visible;
+    setIsPrivate(next); // optimistic
+    const result = await setProfilePrivacy(uid!, next);
+    if (!result.success) {
+      setIsPrivate(!next); // revert
+      toast.error(result.error ?? "Failed to update visibility");
+    } else {
+      toast.success(next ? "You are now hidden from search" : "You are now visible in search");
+    }
+  };
+
   const filtered = useMemo(() => {
     const now = Date.now();
     const q   = search.trim().toLowerCase();
@@ -65,7 +79,7 @@ export default function PlayersClient({
         {uid && (
           <Toggle
             checked={!isPrivate}
-            onChange={v => setIsPrivate(!v)}
+            onChange={handlePrivacyToggle}
             label="My visibility"
             description={isPrivate ? "Hidden from search" : "Visible in search"}
           />

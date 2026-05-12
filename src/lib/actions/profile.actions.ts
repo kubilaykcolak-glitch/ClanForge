@@ -35,6 +35,28 @@ export async function updateProfile(
   }
 }
 
+// ── setProfilePrivacy ─────────────────────────────────────────────────────────
+
+export async function setProfilePrivacy(
+  uid: string,
+  isPrivate: boolean,
+): Promise<ActionResult> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    await adminDb.collection("profiles").doc(uid).update({
+      isPrivate,
+      updatedAt: new Date(),
+    });
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update privacy";
+    console.error("[setProfilePrivacy]", err);
+    return { success: false, error: message };
+  }
+}
+
 // ── checkUsernameAvailable ────────────────────────────────────────────────────
 // Looks up /usernames/{username.toLowerCase()}.
 // Returns data.available = true when the doc does NOT exist.
