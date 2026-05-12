@@ -298,6 +298,15 @@ export default function CreateClanPage() {
         avatarUrl:   avatarUrl ?? null,
       });
 
+      // Stamp denormalized clan fields on the creator's profile so the
+      // banner on /clans and profile hero link back to this clan.
+      batch.update(doc(db, "profiles", uid), {
+        clanId,
+        clanTag:  null,
+        clanSlug: slug,
+        clanName: form.name.trim(),
+      });
+
       await batch.commit();
 
       toast.success("Clan created! 🛡️");

@@ -55,9 +55,26 @@ async function getPageData(): Promise<PageData> {
         currentDisplayName = (pData.displayName as string)        ?? "";
         currentAvatarUrl   = pData.avatarUrl as string | undefined;
 
-        // Surface private clan so owner/members can always find it
-        if (currentClanId) {
-          const clanSnap = await adminDb.collection("clans").doc(currentClanId).get();
+        // Surface private clan so owner/members can always find it.
+        // Primary path: profile has clanId (stamped on join/create).
+        // Fallback: query by ownerId for clans created before the profile
+        // stamp was added (client-side create batch didn't update profile).
+        let candidateClanId = currentClanId;
+
+        if (!candidateClanId) {
+          const ownedSnap = await adminDb
+            .collection("clans")
+            .where("ownerId", "==", currentUid)
+            .limit(1)
+            .get();
+          if (!ownedSnap.empty) {
+            candidateClanId = ownedSnap.docs[0].id;
+            currentClanId   = candidateClanId;
+          }
+        }
+
+        if (candidateClanId) {
+          const clanSnap = await adminDb.collection("clans").doc(candidateClanId).get();
           if (clanSnap.exists) {
             const data = clanSnap.data()!;
             if (data.isPublic === false) {
