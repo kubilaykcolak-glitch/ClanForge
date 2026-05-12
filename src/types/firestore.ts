@@ -19,6 +19,22 @@ export interface Profile {
   tournamentsWon: number;
   isVerified: boolean;
   isAdmin: boolean;
+  /** When true the profile is excluded from all search and directory queries. */
+  isPrivate?: boolean;
+  /** Firestore document ID of the clan this user belongs to. */
+  clanId?: string | null;
+  /** Denormalised from /clans/{clanId}.clanTag — avoids a join on profile reads. */
+  clanTag?: string | null;
+  /** Denormalised from /clans/{clanId}.slug — used to build the clan page link. */
+  clanSlug?: string | null;
+  /** Denormalised from /clans/{clanId}.name — display name of the clan. */
+  clanName?: string | null;
+  /** URL of the user's custom profile banner image. */
+  bannerUrl?: string | null;
+  /** ID matching one of the ANIMATED_BACKGROUNDS entries in lib/profile-backgrounds.ts. */
+  backgroundId?: string | null;
+  /** Hex colour string e.g. '#6366f1' — user-chosen accent override. */
+  accentColour?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +73,8 @@ export interface Clan {
   memberLimit: number;
   memberCount: number;
   xp: number;
+  /** Max 4 uppercase letters, e.g. "WOLF". Null until the leader sets one. */
+  clanTag?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

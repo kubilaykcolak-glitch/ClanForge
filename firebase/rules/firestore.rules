@@ -18,10 +18,21 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid));
     }
 
+    function isClanLeader(clanId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role
+          == 'leader';
+    }
+
     function isClanLeaderOrOfficer(clanId) {
       return isSignedIn() &&
         get(/databases/$(database)/documents/clans/$(clanId)/members/$(request.auth.uid)).data.role
           in ['leader', 'officer'];
+    }
+
+    // clanTag must be null or 1–4 uppercase letters only.
+    function validClanTag(tag) {
+      return tag == null || (tag is string && tag.matches('^[A-Z]{1,4}$'));
     }
 
     function isClanOwner(clanId) {
@@ -80,7 +91,13 @@ service cloud.firestore {
     match /clans/{clanId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update: if isClanOwner(clanId);
+      allow update: if isClanOwner(clanId) &&
+        // If clanTag is being changed, the writer must be the leader
+        // and the value must be null or 1–4 uppercase letters.
+        (
+          !("clanTag" in request.resource.data.diff(resource.data).affectedKeys()) ||
+          (isClanLeader(clanId) && validClanTag(request.resource.data.clanTag))
+        );
       allow delete: if isClanOwner(clanId);
 
       // ─── /clans/{clanId}/members/{userId} ──────────────────────────────────

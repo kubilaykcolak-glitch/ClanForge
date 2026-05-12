@@ -125,3 +125,206 @@ h1, h2, h3, h4, h5, h6 {
     @apply bg-background text-foreground;
   }
 }
+
+/* ─── Profile animated backgrounds ───────────────────────────────────────── */
+/*
+ * Each variant uses a ::before pseudo-element so the animation layer sits
+ * behind all page content without affecting stacking contexts.
+ *
+ * Usage: add the .profile-bg-{id} class to the profile page wrapper div.
+ * The wrapper must have `position: relative; isolation: isolate` so that
+ * z-index: -1 on ::before is scoped correctly.
+ */
+
+/* -- Aurora ---------------------------------------------------------------- */
+@keyframes aurora-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.profile-bg-aurora {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-aurora::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    #0a0a0f 0%,
+    #0b2318 25%,
+    #0f1a2e 45%,
+    #1a0e2e 65%,
+    #0e2318 80%,
+    #0a0a0f 100%
+  );
+  background-size: 300% 300%;
+  animation: aurora-shift 12s ease infinite;
+  opacity: 0.85;
+}
+
+/* -- Ember ----------------------------------------------------------------- */
+@keyframes ember-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%       { opacity: 0.80; transform: scale(1.06); }
+}
+
+.profile-bg-ember {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-ember::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 90% 60% at 50% 110%,
+    rgba(239, 68, 68, 0.40) 0%,
+    rgba(249, 115, 22, 0.18) 45%,
+    transparent 70%
+  );
+  animation: ember-breathe 6s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
+/* -- Ocean ----------------------------------------------------------------- */
+@keyframes ocean-drift {
+  0%   { background-position: 50% 0%; }
+  50%  { background-position: 50% 100%; }
+  100% { background-position: 50% 0%; }
+}
+
+.profile-bg-ocean {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-ocean::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    #0a0a0f 0%,
+    #041c3a 45%,
+    #062040 70%,
+    #041428 100%
+  );
+  background-size: 100% 200%;
+  animation: ocean-drift 14s ease-in-out infinite;
+}
+
+/* -- Void ------------------------------------------------------------------ */
+@keyframes void-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(2%, 1.5%) scale(1.04); }
+  66%  { transform: translate(-1.5%, 2.5%) scale(1.02); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.profile-bg-void {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-void::before {
+  content: "";
+  position: fixed;
+  inset: -5%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 40% 40% at 20% 30%, rgba(139, 92, 246, 0.10) 0%, transparent 70%),
+    radial-gradient(ellipse 30% 30% at 75% 65%, rgba(99, 102, 241, 0.08) 0%, transparent 70%),
+    radial-gradient(1px 1px at 15% 20%, rgba(255,255,255,0.50) 0%, transparent 100%),
+    radial-gradient(1px 1px at 42% 58%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 68% 14%, rgba(255,255,255,0.40) 0%, transparent 100%),
+    radial-gradient(1px 1px at 83% 77%, rgba(255,255,255,0.30) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 55% 38%, rgba(255,255,255,0.25) 0%, transparent 100%),
+    radial-gradient(1px 1px at 30% 82%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    #050508;
+  animation: void-drift 20s ease-in-out infinite;
+}
+
+/* -- Grid ------------------------------------------------------------------ */
+@keyframes grid-scroll {
+  from { background-position: 0 0; }
+  to   { background-position: 40px 40px; }
+}
+
+.profile-bg-grid {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-grid::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(99, 102, 241, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.10) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: grid-scroll 8s linear infinite;
+}
+
+/* -- Pulse ----------------------------------------------------------------- */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.30; transform: scale(0.96); }
+  50%       { opacity: 0.65; transform: scale(1.04); }
+}
+
+.profile-bg-pulse {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-pulse::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 75% 65% at 50% 45%,
+    rgba(99, 102, 241, 0.22) 0%,
+    rgba(139, 92, 246, 0.08) 45%,
+    transparent 70%
+  );
+  animation: pulse-glow 5s ease-in-out infinite;
+  transform-origin: 50% 45%;
+}
+
+/* -- Rain ------------------------------------------------------------------ */
+@keyframes rain-fall {
+  from { background-position: 0 -80px; }
+  to   { background-position: 0 0; }
+}
+
+.profile-bg-rain {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-rain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0px,
+    transparent 22px,
+    rgba(148, 163, 184, 0.055) 22px,
+    rgba(148, 163, 184, 0.055) 24px
+  );
+  background-size: 1px 80px;
+  animation: rain-fall 1.6s linear infinite;
+  opacity: 0.8;
+}

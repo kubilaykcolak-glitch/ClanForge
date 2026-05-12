@@ -20,6 +20,7 @@ import {
 import {
   AlertCircle,
   CheckCircle,
+  EyeOff,
   Loader2,
   Pencil,
   Trash2,
@@ -37,6 +38,8 @@ import {
 } from "@/components/ui/sheet";
 import type { GameRecord } from "@/types";
 import ComingSoon from "@/components/ui/ComingSoon";
+import Toggle from "@/components/ui/Toggle";
+import CustomiseProfilePanel from "@/components/profile/CustomiseProfilePanel";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -252,20 +255,12 @@ function GameSheet({
           </div>
 
           {/* Feature toggle */}
-          <div className="flex items-center justify-between">
-            <span style={{ color: "var(--text-secondary)", fontSize: 14 }}>Feature on profile</span>
-            <button
-              type="button"
-              onClick={() => setValue("isFeatured", !isFeatured)}
-              className="relative w-11 h-6 rounded-full transition-colors duration-200"
-              style={{ background: isFeatured ? "var(--accent)" : "var(--bg-overlay)" }}
-            >
-              <span
-                className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200"
-                style={{ transform: isFeatured ? "translateX(20px)" : "translateX(0)" }}
-              />
-            </button>
-          </div>
+          <Toggle
+            checked={isFeatured}
+            onChange={v => setValue("isFeatured", v)}
+            label="Featured game"
+            description="Show this prominently on your profile"
+          />
 
           <SheetFooter className="flex gap-3 pt-2">
             <button
@@ -309,6 +304,10 @@ export default function ProfileEditPage() {
   const [sheetOpen, setSheetOpen]           = useState(false);
   const [editingRecord, setEditingRecord]   = useState<(GameRecord & { id: string }) | null>(null);
   const [isSaveSlow, setIsSaveSlow]         = useState(false);
+  const [profileBannerUrl,    setProfileBannerUrl]    = useState<string | null>(null);
+  const [profileBgId,         setProfileBgId]         = useState<string | null>(null);
+  const [profileAccentColour, setProfileAccentColour] = useState<string | null>(null);
+  const [isPrivate,           setIsPrivate]           = useState(false);
   const fileRef                             = useRef<HTMLInputElement>(null);
   const debounceRef                         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSlowTimerRef                    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -360,6 +359,10 @@ export default function ProfileEditPage() {
       });
       setOriginalUsername(d.username ?? "");
       if (d.avatarUrl) setAvatarPreview(d.avatarUrl);
+      setProfileBannerUrl(d.bannerUrl    ?? null);
+      setProfileBgId(d.backgroundId      ?? null);
+      setProfileAccentColour(d.accentColour ?? null);
+      setIsPrivate(d.isPrivate ?? false);
     });
     return () => unsub();
   }, [reset]);
@@ -468,6 +471,44 @@ export default function ProfileEditPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save";
       toast.error(msg);
+    }
+  };
+
+  // ── Appearance save ──────────────────────────────────────────────────────
+
+  const handleAppearanceSave = async (data: {
+    bannerUrl:    string | null;
+    backgroundId: string;
+    accentColour: string;
+  }) => {
+    if (!uid) return;
+    try {
+      await updateDoc(doc(db, "profiles", uid), {
+        bannerUrl:    data.bannerUrl,
+        backgroundId: data.backgroundId,
+        accentColour: data.accentColour,
+        updatedAt:    new Date(),
+      });
+      setProfileBannerUrl(data.bannerUrl);
+      setProfileBgId(data.backgroundId);
+      setProfileAccentColour(data.accentColour);
+      toast.success("Appearance saved!");
+    } catch {
+      toast.error("Failed to save appearance");
+    }
+  };
+
+  // ── Privacy toggle ───────────────────────────────────────────────────────
+
+  const handlePrivacyToggle = async (value: boolean) => {
+    if (!uid) return;
+    setIsPrivate(value);
+    try {
+      await updateDoc(doc(db, "profiles", uid), { isPrivate: value, updatedAt: new Date() });
+      toast.success(value ? "Profile set to private" : "Profile set to public");
+    } catch {
+      setIsPrivate(!value); // revert on failure
+      toast.error("Failed to update privacy setting");
     }
   };
 
@@ -780,6 +821,46 @@ export default function ProfileEditPage() {
               🔗 Sync Stats from Steam / Riot
             </button>
           </ComingSoon>
+        </Section>
+
+        {/* ── SECTION 5: Privacy ───────────────────────────────────────── */}
+        <Section title="Privacy">
+          <Toggle
+            checked={isPrivate}
+            onChange={handlePrivacyToggle}
+            label="Private profile"
+            description="Hide your stats, games, and clan info from other players"
+          />
+
+          {isPrivate && (
+            <div
+              className="flex items-start gap-3 mt-4 rounded-xl px-4 py-3"
+              style={{
+                background: "rgba(245,158,11,0.08)",
+                border:     "1px solid rgba(245,158,11,0.25)",
+              }}
+            >
+              <EyeOff
+                size={16}
+                style={{ color: "#f59e0b", flexShrink: 0, marginTop: 1 }}
+              />
+              <p style={{ fontSize: 13, color: "#f59e0b", lineHeight: 1.5 }}>
+                Your profile is private. You won&apos;t appear in player search and visitors
+                can only see your username and clan tag.
+              </p>
+            </div>
+          )}
+        </Section>
+
+        {/* ── SECTION 6: Appearance ─────────────────────────────────────── */}
+        <Section title="Appearance">
+          <CustomiseProfilePanel
+            uid={uid}
+            currentBannerUrl={profileBannerUrl}
+            currentBackgroundId={profileBgId}
+            currentAccentColour={profileAccentColour}
+            onSave={handleAppearanceSave}
+          />
         </Section>
 
         {/* Hidden submit — triggered by sticky bar */}

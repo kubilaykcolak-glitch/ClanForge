@@ -1,19 +1,24 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import type { Clan, ClanMember, GameRecord, Profile } from "@/types";
+import ProfileHero from "@/components/profile/ProfileHero";
+import PrivateProfileScreen from "@/components/profile/PrivateProfileScreen";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
 
-// ── Server-side data fetch ────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ClanInfo {
-  id: string;
-  name: string;
-  avatarUrl?: string;
+  id:          string;
+  name:        string;
+  avatarUrl?:  string;
   memberCount: number;
-  role: string;
+  role:        string;
 }
+
+// ── Server-side data fetch ────────────────────────────────────────────────────
 
 async function getPageData(username: string) {
   const { adminDb } = await import("@/lib/firebase/admin");
@@ -42,11 +47,13 @@ async function getPageData(username: string) {
 
   if (!profileSnap.exists) notFound();
 
+  const profileData = profileSnap.data() as Record<string, unknown>;
+
   const profile = {
     id: profileSnap.id,
-    ...(profileSnap.data() as Omit<Profile, "id" | "createdAt" | "updatedAt">),
-    createdAt: (profileSnap.data()?.createdAt?.toDate?.() ?? new Date()) as Date,
-    updatedAt: (profileSnap.data()?.updatedAt?.toDate?.() ?? new Date()) as Date,
+    ...(profileData as Omit<Profile, "id" | "createdAt" | "updatedAt">),
+    createdAt: (profileData.createdAt as { toDate?: () => Date } | undefined)?.toDate?.() ?? new Date(),
+    updatedAt: (profileData.updatedAt as { toDate?: () => Date } | undefined)?.toDate?.() ?? new Date(),
   } as Profile;
 
   const gameRecords: GameRecord[] = recordsSnap.docs.map(d => ({
@@ -55,24 +62,38 @@ async function getPageData(username: string) {
     createdAt: (d.data()?.createdAt?.toDate?.() ?? new Date()) as Date,
   }));
 
-  // 3. Clan info (if clanId stored on profile)
-  let clanInfo: ClanInfo | null = null;
-  const profileData = profileSnap.data() as Record<string, unknown>;
+  // ── Clan data ──────────────────────────────────────────────────────────────
+  //
+  // Hero display uses the denormalized fields written to the profile doc by
+  // clan.actions.ts (clanTag, clanName, clanSlug) — zero extra reads.
+  //
+  // The clan section card (memberCount, role, avatarUrl) still needs a full
+  // clan doc fetch, but only when clanId is available.
+  //
+  // Fallback path: if the `clanId` key is entirely absent from the profile doc,
+  // this is pre-migration data. We run a collectionGroup("members") query to
+  // discover clan membership. That query requires member docs to carry a
+  // `userId` field — newer writes from clan.actions.ts include it; older ones
+  // will simply return empty, showing no clan (graceful degradation).
 
-  if (profileData?.clanId) {
+  let clanTag:  string | null = (profileData.clanTag  as string | null) ?? null;
+  let clanName: string | null = (profileData.clanName as string | null) ?? null;
+  let clanSlug: string | null = (profileData.clanSlug as string | null) ?? null;
+  let clanInfo: ClanInfo | null = null;
+
+  if (profileData.clanId) {
+    // ── Fast path: profile has a clanId (post-migration) ──────────────────
+    const clanId = profileData.clanId as string;
+
     const [clanSnap, memberSnap] = await Promise.all([
-      adminDb.collection("clans").doc(profileData.clanId as string).get(),
-      adminDb
-        .collection("clans")
-        .doc(profileData.clanId as string)
-        .collection("members")
-        .doc(uid)
-        .get(),
+      adminDb.collection("clans").doc(clanId).get(),
+      adminDb.collection("clans").doc(clanId).collection("members").doc(uid).get(),
     ]);
 
     if (clanSnap.exists) {
-      const clanData = clanSnap.data() as Clan;
+      const clanData   = clanSnap.data() as Clan;
       const memberData = memberSnap.data() as ClanMember | undefined;
+
       clanInfo = {
         id:          clanSnap.id,
         name:        clanData.name,
@@ -80,60 +101,57 @@ async function getPageData(username: string) {
         memberCount: clanData.memberCount,
         role:        memberData?.role ?? "member",
       };
+
+      // Fill hero fields from clan doc if the profile denorm fields are stale
+      // or haven't been written yet (e.g. clanTag set after migration).
+      clanTag  ??= clanData.clanTag  ?? null;
+      clanName ??= clanData.name;
+      clanSlug ??= clanData.slug;
+    }
+
+  } else if (!("clanId" in profileData)) {
+    // ── Fallback: clanId key is absent — this is pre-migration profile data ──
+    // Query the members collectionGroup for this uid.
+    // Requires member docs to have a `userId` field; if absent this returns
+    // empty and we show no clan (acceptable during the migration window).
+    try {
+      const memberGroupSnap = await adminDb
+        .collectionGroup("members")
+        .where("userId", "==", uid)
+        .limit(1)
+        .get();
+
+      if (!memberGroupSnap.empty) {
+        const memberDoc = memberGroupSnap.docs[0];
+        // Parent path is /clans/{clanId}/members, so parent.parent is /clans/{clanId}
+        const clanId    = memberDoc.ref.parent.parent!.id;
+        const clanSnap  = await adminDb.collection("clans").doc(clanId).get();
+
+        if (clanSnap.exists) {
+          const clanData   = clanSnap.data() as Clan;
+          const memberData = memberDoc.data() as ClanMember;
+
+          clanInfo = {
+            id:          clanSnap.id,
+            name:        clanData.name,
+            avatarUrl:   clanData.avatarUrl,
+            memberCount: clanData.memberCount,
+            role:        memberData.role ?? "member",
+          };
+
+          // Populate hero fields from the live clan doc (display only — no
+          // write-back; the next profile save or clanTag update will sync them).
+          clanTag  = clanData.clanTag  ?? null;
+          clanName = clanData.name;
+          clanSlug = clanData.slug;
+        }
+      }
+    } catch {
+      // Silently degrade — no clan will be shown for this profile.
     }
   }
 
-  return { profile, gameRecords, clanInfo };
-}
-
-// ── Platform links ────────────────────────────────────────────────────────────
-
-function PlatformLinks({ profile }: { profile: Profile }) {
-  const links = [
-    { key: "steamUrl",       label: "Steam",   href: profile.steamUrl,        icon: "🎮" },
-    { key: "twitchUrl",      label: "Twitch",  href: profile.twitchUrl,       icon: "📺" },
-    { key: "discordTag",     label: "Discord", href: null,                    icon: "💬", display: profile.discordTag },
-    { key: "xboxGamertag",   label: "Xbox",    href: null,                    icon: "🎯", display: profile.xboxGamertag },
-    { key: "psnId",          label: "PSN",     href: null,                    icon: "🕹️", display: profile.psnId },
-  ].filter(l => l.href || l.display);
-
-  if (links.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-2 mt-3">
-      {links.map(l => (
-        l.href ? (
-          <a
-            key={l.key}
-            href={l.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <span>{l.icon}</span> {l.label}
-          </a>
-        ) : (
-          <span
-            key={l.key}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
-            }}
-            title={l.display ?? ""}
-          >
-            <span>{l.icon}</span> {l.display}
-          </span>
-        )
-      ))}
-    </div>
-  );
+  return { profile, gameRecords, clanInfo, clanTag, clanName, clanSlug };
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -142,7 +160,7 @@ function StatCard({
   label,
   children,
 }: {
-  label: string;
+  label:    string;
   children: React.ReactNode;
 }) {
   return (
@@ -150,7 +168,7 @@ function StatCard({
       className="flex flex-col items-center justify-center rounded-xl p-4 text-center"
       style={{
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-subtle)",
+        border:     "1px solid var(--border-subtle)",
       }}
     >
       <p
@@ -173,205 +191,149 @@ export default async function ProfilePage({
 }: {
   params: { username: string };
 }) {
-  const { profile, gameRecords, clanInfo } = await getPageData(params.username);
+  const { profile, gameRecords, clanInfo, clanTag, clanName, clanSlug } =
+    await getPageData(params.username);
+
+  const loggedInUid      = headers().get("x-user-id");
+  const profileUid       = profile.id ?? "";
+  const isOwner          = loggedInUid !== null && loggedInUid === profileUid;
+  const showPrivateScreen = profile.isPrivate === true && !isOwner;
 
   const winRate =
     profile.tournamentsPlayed > 0
       ? Math.round((profile.tournamentsWon / profile.tournamentsPlayed) * 100)
       : 0;
 
+  const bgClass = profile.backgroundId && profile.backgroundId !== "none"
+    ? `profile-bg-${profile.backgroundId}`
+    : "";
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className={`max-w-4xl mx-auto${bgClass ? ` ${bgClass}` : ""}`}>
 
-      {/* ── Hero banner ───────────────────────────────────────────────────── */}
-      <div className="relative mb-14">
-        <div
-          className="w-full rounded-xl overflow-hidden"
-          style={{ height: 160 }}
-        >
-          {/* Banner image or gradient fallback */}
-          <div
-            className="w-full h-full"
-            style={{
-              background: "linear-gradient(135deg, #1e1b4b 0%, #0a0a0f 100%)",
-            }}
-          />
-        </div>
+      {/* ── Hero — always visible ─────────────────────────────────────────── */}
+      <ProfileHero
+        profile={profile}
+        clanTag={clanTag}
+        clanName={clanName}
+        clanSlug={clanSlug}
+        bannerUrl={profile.bannerUrl ?? null}
+        accentColour={profile.accentColour ?? null}
+      />
 
-        {/* Avatar — overlapping banner bottom */}
-        <div
-          className="absolute left-6 flex items-end"
-          style={{ bottom: -44 }}
-        >
-          <div
-            className="flex items-center justify-center rounded-full text-2xl font-bold text-white font-display overflow-hidden"
-            style={{
-              width: 88,
-              height: 88,
-              background: "var(--accent)",
-              border: "3px solid var(--bg-base)",
-              boxShadow: "0 0 0 2px var(--accent)",
-            }}
-          >
-            {profile.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={profile.avatarUrl}
-                alt={profile.username}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              profile.displayName?.[0]?.toUpperCase() ?? "?"
-            )}
-          </div>
-        </div>
+      {/* ── Private gate ─────────────────────────────────────────────────── */}
+      {showPrivateScreen && <PrivateProfileScreen />}
 
-        {/* Verified / admin badges top-right */}
-        <div className="absolute top-3 right-3 flex gap-2">
-          {profile.isVerified && <Badge variant="info">✓ Verified</Badge>}
-          {profile.isAdmin    && <Badge variant="danger">Admin</Badge>}
-        </div>
-      </div>
+      {/* ── Public content (hidden for private profiles viewed by non-owners) */}
+      {!showPrivateScreen && <>
 
-      {/* ── Identity ──────────────────────────────────────────────────────── */}
-      <div className="px-2 mb-6">
-        <h1
-          className="font-display font-bold"
-          style={{ fontSize: 28, color: "var(--text-primary)" }}
-        >
-          {profile.username}
-        </h1>
-        <p className="text-base mt-0.5" style={{ color: "var(--text-secondary)" }}>
-          {profile.displayName}
-        </p>
-
-        {profile.country && (
-          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-            {profile.country}
-          </p>
-        )}
-
-        {profile.bio && (
-          <p
-            className="mt-3 text-sm leading-relaxed max-w-xl"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {profile.bio.slice(0, 200)}
-          </p>
-        )}
-
-        <PlatformLinks profile={profile} />
-
-        <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
-          Joined {formatDate(profile.createdAt)}
-        </p>
-      </div>
-
-      {/* ── Stats row ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-10">
-        <StatCard label="Tournaments Played">{profile.tournamentsPlayed}</StatCard>
-        <StatCard label="Tournaments Won">{profile.tournamentsWon}</StatCard>
-        <StatCard label="Win Rate">{winRate}%</StatCard>
-        <StatCard label="Clan">
-          {clanInfo ? (
-            <Link
-              href={`/clans/${clanInfo.id}`}
-              className="text-base leading-tight line-clamp-1"
-              style={{ color: "var(--accent)" }}
-            >
-              {clanInfo.name}
-            </Link>
-          ) : (
-            <span className="text-base" style={{ color: "var(--text-muted)" }}>None</span>
-          )}
-        </StatCard>
-      </div>
-
-      {/* ── Game Records + Achievements tabs ─────────────────────────────── */}
-      {/* ProfileTabs is a client component — receives serialisable game records */}
-      <ProfileTabs gameRecords={gameRecords} />
-
-      {/* ── Clan Section ──────────────────────────────────────────────────── */}
-      <section className="mb-10">
-        <h2
-          className="font-display font-bold text-2xl mb-4"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Clan
-        </h2>
-
-        {clanInfo ? (
-          <div
-            className="flex items-center gap-4 rounded-xl p-5"
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-            }}
-          >
-            {/* Clan avatar */}
-            <div
-              className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold font-display text-xl shrink-0"
-              style={{ background: "var(--violet)" }}
-            >
-              {clanInfo.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={clanInfo.avatarUrl} alt={clanInfo.name} className="w-full h-full object-cover rounded-xl" />
-              ) : (
-                clanInfo.name[0]
-              )}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p
-                className="font-display font-semibold text-lg truncate"
-                style={{ color: "var(--text-primary)" }}
+        {/* ── Stats row ───────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-10">
+          <StatCard label="Tournaments Played">{profile.tournamentsPlayed}</StatCard>
+          <StatCard label="Tournaments Won">{profile.tournamentsWon}</StatCard>
+          <StatCard label="Win Rate">{winRate}%</StatCard>
+          <StatCard label="Clan">
+            {clanInfo ? (
+              <Link
+                href={`/clans/${clanInfo.id}`}
+                className="text-base leading-tight line-clamp-1"
+                style={{ color: "var(--accent)" }}
               >
                 {clanInfo.name}
-              </p>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="clan">{clanInfo.role}</Badge>
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {clanInfo.memberCount} members
-                </span>
-              </div>
-            </div>
+              </Link>
+            ) : (
+              <span className="text-base" style={{ color: "var(--text-muted)" }}>None</span>
+            )}
+          </StatCard>
+        </div>
 
-            <Link
-              href={`/clans/${clanInfo.id}`}
-              className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-              style={{
-                background: "var(--accent)",
-                color: "#fff",
-              }}
-            >
-              View Clan
-            </Link>
-          </div>
-        ) : (
-          <div
-            className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-xl p-6"
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-subtle)",
-            }}
+        {/* ── Game Records + Achievements tabs ────────────────────────────── */}
+        <ProfileTabs gameRecords={gameRecords} />
+
+        {/* ── Clan section ────────────────────────────────────────────────── */}
+        <section className="mb-10">
+          <h2
+            className="font-display font-bold text-2xl mb-4"
+            style={{ color: "var(--text-primary)" }}
           >
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Not in a clan yet
-            </p>
-            <Link
-              href="/clans"
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            Clan
+          </h2>
+
+          {clanInfo ? (
+            <div
+              className="flex items-center gap-4 rounded-xl p-5"
               style={{
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-default)",
-                color: "var(--text-secondary)",
+                background: "var(--bg-surface)",
+                border:     "1px solid var(--border-default)",
               }}
             >
-              Browse Clans
-            </Link>
-          </div>
-        )}
-      </section>
+              {/* Clan avatar */}
+              <div
+                className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold font-display text-xl shrink-0"
+                style={{ background: "var(--violet)" }}
+              >
+                {clanInfo.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={clanInfo.avatarUrl}
+                    alt={clanInfo.name}
+                    className="w-full h-full object-cover rounded-xl"
+                  />
+                ) : (
+                  clanInfo.name[0]
+                )}
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <p
+                  className="font-display font-semibold text-lg truncate"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {clanInfo.name}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="clan">{clanInfo.role}</Badge>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {clanInfo.memberCount} members
+                  </span>
+                </div>
+              </div>
+
+              <Link
+                href={`/clans/${clanInfo.id}`}
+                className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ background: "var(--accent)", color: "#fff" }}
+              >
+                View Clan
+              </Link>
+            </div>
+          ) : (
+            <div
+              className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-xl p-6"
+              style={{
+                background: "var(--bg-surface)",
+                border:     "1px solid var(--border-subtle)",
+              }}
+            >
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Not in a clan yet
+              </p>
+              <Link
+                href="/clans"
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  background: "var(--bg-elevated)",
+                  border:     "1px solid var(--border-default)",
+                  color:      "var(--text-secondary)",
+                }}
+              >
+                Browse Clans
+              </Link>
+            </div>
+          )}
+        </section>
+
+      </>}
     </div>
   );
 }

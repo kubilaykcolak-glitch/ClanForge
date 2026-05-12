@@ -11,9 +11,21 @@ interface ActionResult<T = undefined> {
   error?: string;
 }
 
+// ── Clan-tag validation ───────────────────────────────────────────────────────
+
+const TAG_RE = /^[A-Z]{1,4}$/;
+
+function validateTag(raw: string): { tag: string } | { error: string } {
+  const tag = raw.trim().toUpperCase();
+  if (!tag)              return { error: "Clan tag cannot be empty" };
+  if (tag.length > 4)    return { error: "Clan tag must be 4 characters or fewer" };
+  if (!TAG_RE.test(tag)) return { error: "Clan tag may only contain letters A–Z" };
+  return { tag };
+}
+
 // ── createClan ────────────────────────────────────────────────────────────────
-// Atomic write: /clans/{id} + /clanSlugs/{slug} + /clans/{id}/members/{uid}.
-// Also stamps clanId onto the creator's profile.
+// Atomic write: /clans/{id} + /clanSlugs/{slug} + /clans/{id}/members/{uid}
+// + /profiles/{uid} clan-denorm fields, all in one batch.
 
 export async function createClan(
   uid: string,
@@ -47,15 +59,20 @@ export async function createClan(
     batch.set(
       adminDb.collection("clans").doc(clanId).collection("members").doc(uid),
       {
-        role:       "leader",
-        joinedAt:   now,
+        role:        "leader",
+        joinedAt:    now,
         displayName: profile.displayName,
-        avatarUrl:  profile.avatarUrl ?? null,
+        avatarUrl:   profile.avatarUrl ?? null,
       },
     );
 
-    // Stamp clanId on the creator's profile
-    batch.update(adminDb.collection("profiles").doc(uid), { clanId });
+    // /profiles/{uid} — stamp all four clan-denorm fields on the creator's profile
+    batch.update(adminDb.collection("profiles").doc(uid), {
+      clanId,
+      clanTag:  data.clanTag  ?? null,
+      clanSlug: data.slug,
+      clanName: data.name,
+    });
 
     await batch.commit();
 
@@ -107,8 +124,16 @@ export async function joinClan(
         displayName: profile.displayName,
         avatarUrl:   profile.avatarUrl ?? null,
       });
-      tx.update(clanRef,    { memberCount: FieldValue.increment(1) });
-      tx.update(profileRef, { clanId });
+      tx.update(clanRef, { memberCount: FieldValue.increment(1) });
+
+      // Stamp all four clan-denorm fields — clan doc is already in-flight so
+      // clan.slug / clan.name / clan.clanTag are available with no extra read.
+      tx.update(profileRef, {
+        clanId,
+        clanTag:  (clan.clanTag  as string | null) ?? null,
+        clanSlug: clan.slug  as string,
+        clanName: clan.name  as string,
+      });
     });
 
     return { success: true };
@@ -137,14 +162,19 @@ export async function leaveClan(
       const memberSnap = await tx.get(memberRef);
       if (!memberSnap.exists) throw new Error("You are not a member of this clan");
 
-      const role = (memberSnap.data()!.role as string);
+      const role = memberSnap.data()!.role as string;
       if (role === "leader") {
         throw new Error("Leaders cannot leave — transfer ownership or disband the clan first");
       }
 
       tx.delete(memberRef);
-      tx.update(clanRef,    { memberCount: FieldValue.increment(-1) });
-      tx.update(profileRef, { clanId: FieldValue.delete() });
+      tx.update(clanRef, { memberCount: FieldValue.increment(-1) });
+      tx.update(profileRef, {
+        clanId:   null,
+        clanTag:  null,
+        clanSlug: null,
+        clanName: null,
+      });
     });
 
     return { success: true };
@@ -218,7 +248,7 @@ export async function updateMemberRole(
 
 // ── removeMember ──────────────────────────────────────────────────────────────
 // Leaders and officers may remove members. Leaders cannot be removed.
-// Decrements memberCount and clears clanId from the target's profile.
+// Decrements memberCount and clears all clan-denorm fields from the target's profile.
 
 export async function removeMember(
   uid: string,
@@ -261,14 +291,87 @@ export async function removeMember(
       }
 
       tx.delete(targetRef);
-      tx.update(clanRef,       { memberCount: FieldValue.increment(-1) });
-      tx.update(targetProfile, { clanId: FieldValue.delete() });
+      tx.update(clanRef, { memberCount: FieldValue.increment(-1) });
+      tx.update(targetProfile, {
+        clanId:   null,
+        clanTag:  null,
+        clanSlug: null,
+        clanName: null,
+      });
     });
 
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to remove member";
     console.error("[removeMember]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ── updateClanTag ─────────────────────────────────────────────────────────────
+// Only the clan leader may set or change the tag. Propagates the new value to
+// every member's /profiles/{uid} doc so profile reads stay join-free.
+// The member limit is capped at 100, so a single 500-op batch is always enough.
+
+export async function updateClanTag(
+  uid: string,
+  clanId: string,
+  rawTag: string,
+): Promise<ActionResult<{ tag: string }>> {
+  // Validate format before touching Firestore
+  const validation = validateTag(rawTag);
+  if ("error" in validation) {
+    return { success: false, error: validation.error };
+  }
+  const { tag } = validation;
+
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    // Verify the caller is the leader
+    const leaderSnap = await adminDb
+      .collection("clans")
+      .doc(clanId)
+      .collection("members")
+      .doc(uid)
+      .get();
+
+    if (!leaderSnap.exists) {
+      return { success: false, error: "You are not a member of this clan" };
+    }
+    if ((leaderSnap.data()!.role as ClanRole) !== "leader") {
+      return { success: false, error: "Only the clan leader can change the clan tag" };
+    }
+
+    // Fetch all current members so we can propagate the tag to their profiles
+    const membersSnap = await adminDb
+      .collection("clans")
+      .doc(clanId)
+      .collection("members")
+      .get();
+
+    const batch = adminDb.batch();
+
+    // Update the clan doc itself
+    batch.update(adminDb.collection("clans").doc(clanId), {
+      clanTag:   tag,
+      updatedAt: new Date(),
+    });
+
+    // Propagate to every member's profile — only clanTag changes; clanId,
+    // clanSlug, and clanName are unaffected by a tag rename.
+    for (const memberDoc of membersSnap.docs) {
+      batch.update(adminDb.collection("profiles").doc(memberDoc.id), {
+        clanTag: tag,
+      });
+    }
+
+    await batch.commit();
+
+    return { success: true, data: { tag } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update clan tag";
+    console.error("[updateClanTag]", err);
     return { success: false, error: message };
   }
 }
@@ -441,8 +544,8 @@ export async function deletePost(
       return { success: false, error: "Post not found" };
     }
 
-    const isAuthor  = (postSnap.data()!.authorId as string) === uid;
-    const isAdmin   = (profileSnap.data()?.isAdmin as boolean) === true;
+    const isAuthor = (postSnap.data()!.authorId as string) === uid;
+    const isAdmin  = (profileSnap.data()?.isAdmin as boolean) === true;
 
     if (!isAuthor && !isAdmin) {
       return { success: false, error: "You do not have permission to delete this post" };

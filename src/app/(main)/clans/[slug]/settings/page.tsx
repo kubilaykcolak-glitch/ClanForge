@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, writeBatch } from "firebase/firestore";
-import { AlertCircle, Check, ChevronLeft, Loader2, Upload, X } from "lucide-react";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { AlertCircle, ChevronLeft, Loader2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
-import { slugify } from "@/lib/utils";
 import Toggle from "@/components/ui/Toggle";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -39,30 +38,34 @@ interface FormState {
 function ImageUpload({
   label,
   hint,
+  existingUrl,
   onChange,
   aspectClass,
 }: {
-  label:       string;
-  hint:        string;
-  value:       File | null;
-  onChange:    (f: File | null) => void;
-  aspectClass: string;
+  label:        string;
+  hint:         string;
+  existingUrl?: string;
+  onChange:     (f: File | null) => void;
+  aspectClass:  string;
 }) {
-  const inputRef   = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(existingUrl ?? null);
+  const [isExisting, setIsExisting] = useState(!!existingUrl);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
     onChange(file);
-    if (preview) URL.revokeObjectURL(preview);
+    if (preview && !isExisting) URL.revokeObjectURL(preview);
     setPreview(file ? URL.createObjectURL(file) : null);
+    setIsExisting(false);
     e.target.value = "";
   };
 
   const clear = () => {
     onChange(null);
-    if (preview) URL.revokeObjectURL(preview);
+    if (preview && !isExisting) URL.revokeObjectURL(preview);
     setPreview(null);
+    setIsExisting(false);
   };
 
   return (
@@ -121,13 +124,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function CreateClanPage() {
+export default function ClanSettingsPage() {
   const router = useRouter();
+  const params = useParams();
+  const slug   = params.slug as string;
 
   // Auth
-  const [uid, setUid]                   = useState<string | null>(null);
-  const [displayName, setDisplayName]   = useState("");
-  const [avatarUrl, setAvatarUrl]       = useState<string | undefined>();
+  const [uid, setUid] = useState<string | null>(null);
+
+  // Clan
+  const [clanId, setClanId]     = useState<string | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [notOwner, setNotOwner] = useState(false);
+  const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | undefined>();
+  const [existingBannerUrl, setExistingBannerUrl] = useState<string | undefined>();
 
   // Form state
   const [form, setForm] = useState<FormState>({
@@ -140,22 +150,16 @@ export default function CreateClanPage() {
     memberLimit:  30,
   });
 
-  // Slug
-  const [slug, setSlug]                   = useState("");
-  const [slugStatus, setSlugStatus]       = useState<"idle" | "checking" | "available" | "taken">("idle");
-  const slugDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Images
-  const [avatarFile, setAvatarFile]   = useState<File | null>(null);
-  const [bannerFile, setBannerFile]   = useState<File | null>(null);
-
   // Game search
-  const [gameQuery, setGameQuery]     = useState("");
+  const [gameQuery, setGameQuery] = useState("");
 
-  // Submit
-  const [submitting, setSubmitting]   = useState(false);
-  const [submitStep, setSubmitStep]   = useState<string | null>(null);
-  const [isSlow, setIsSlow]           = useState(false);
+  // Image files (new uploads only — null means "keep existing")
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+
+  // Save state
+  const [saving, setSaving]   = useState(false);
+  const [isSlow, setIsSlow]   = useState(false);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Auth gate ──
@@ -166,46 +170,49 @@ export default function CreateClanPage() {
     });
   }, []);
 
-  // Fetch profile for displayName / avatarUrl
-  useEffect(() => {
-    if (!uid) return;
-    import("firebase/firestore").then(({ doc: fiDoc, getDoc }) =>
-      getDoc(fiDoc(db, "profiles", uid))
-    ).then(snap => {
-      if (snap.exists()) {
-        const d = snap.data();
-        setDisplayName(d.displayName ?? "");
-        setAvatarUrl(d.avatarUrl);
-      }
-    });
-  }, [uid]);
-
-  // ── Slug derivation ──
-  useEffect(() => {
-    const derived = slugify(form.name);
-    setSlug(derived);
-    setSlugStatus("idle");
-  }, [form.name]);
-
-  // ── Slug availability check ──
-  const checkSlug = useCallback(async (value: string) => {
-    if (!value || value.length < 2) { setSlugStatus("idle"); return; }
-    setSlugStatus("checking");
+  // ── Fetch clan ──
+  const fetchClan = useCallback(async (currentUid: string) => {
     try {
-      const res  = await fetch(`/api/slug-check?slug=${encodeURIComponent(value)}`);
-      const data = await res.json() as { available: boolean };
-      setSlugStatus(data.available ? "available" : "taken");
+      // Resolve slug → clanId
+      const slugSnap = await getDoc(doc(db, "clanSlugs", slug.toLowerCase()));
+      if (!slugSnap.exists()) { setLoading(false); return; }
+
+      const id = (slugSnap.data() as { clanId: string }).clanId;
+      const clanSnap = await getDoc(doc(db, "clans", id));
+      if (!clanSnap.exists()) { setLoading(false); return; }
+
+      const data = clanSnap.data();
+
+      // Only the owner can access settings
+      if (data.ownerId !== currentUid) {
+        setNotOwner(true);
+        setLoading(false);
+        return;
+      }
+
+      setClanId(id);
+      setExistingAvatarUrl(data.avatarUrl ?? undefined);
+      setExistingBannerUrl(data.bannerUrl ?? undefined);
+      setGameQuery(data.gameFocus ?? "");
+      setForm({
+        name:         data.name         ?? "",
+        description:  data.description  ?? "",
+        gameFocus:    data.gameFocus    ?? "",
+        tags:         data.tags         ?? [],
+        isPublic:     data.isPublic     ?? true,
+        isRecruiting: data.isRecruiting ?? true,
+        memberLimit:  data.memberLimit  ?? 30,
+      });
     } catch {
-      setSlugStatus("idle");
+      toast.error("Failed to load clan settings");
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
-    if (slugDebounce.current) clearTimeout(slugDebounce.current);
-    if (!slug) return;
-    slugDebounce.current = setTimeout(() => checkSlug(slug), 600);
-    return () => { if (slugDebounce.current) clearTimeout(slugDebounce.current); };
-  }, [slug, checkSlug]);
+    if (uid) fetchClan(uid);
+  }, [uid, fetchClan]);
 
   // ── Helpers ──
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -220,7 +227,7 @@ export default function CreateClanPage() {
     g.toLowerCase().includes(gameQuery.toLowerCase())
   );
 
-  // ── Upload helper — server-side proxy to avoid CORS ──
+  // ── Upload helper ──
   async function uploadFile(file: File, path: string): Promise<string> {
     const formData = new FormData();
     formData.append("file", file, file.name);
@@ -234,86 +241,56 @@ export default function CreateClanPage() {
     return url;
   }
 
-  // ── Submit ──
-  const handleSubmit = async (e: React.FormEvent) => {
+  // ── Save ──
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uid) return;
+    if (!uid || !clanId) return;
 
-    // Validation
     if (!form.name.trim() || form.name.length < 3) {
       toast.error("Clan name must be at least 3 characters"); return;
     }
     if (!form.gameFocus) {
       toast.error("Select a primary game"); return;
     }
-    if (!slug || slugStatus === "taken") {
-      toast.error("Choose a different clan name — that slug is taken"); return;
-    }
 
-    setSubmitting(true);
-    setSubmitStep("Preparing…");
+    setSaving(true);
     setIsSlow(false);
     slowTimerRef.current = setTimeout(() => setIsSlow(true), 8_000);
 
     try {
-      // Pre-generate clanId
-      const clanRef = doc(collection(db, "clans"));
-      const clanId  = clanRef.id;
-
-      // Upload images
-      if (avatarFile || bannerFile) setSubmitStep("Uploading images…");
-      const [uploadedAvatarUrl, uploadedBannerUrl] = await Promise.all([
+      // Upload new images if provided
+      const [newAvatarUrl, newBannerUrl] = await Promise.all([
         avatarFile ? uploadFile(avatarFile, `clan-assets/${clanId}/avatar`) : Promise.resolve(null),
         bannerFile ? uploadFile(bannerFile, `clan-assets/${clanId}/banner`) : Promise.resolve(null),
       ]);
-      setSubmitStep("Creating clan…");
 
-      // Atomic batch write
-      const batch = writeBatch(db);
-
-      batch.set(clanRef, {
+      await updateDoc(doc(db, "clans", clanId), {
         name:         form.name.trim(),
-        slug,
         description:  form.description.trim(),
         gameFocus:    form.gameFocus,
         tags:         form.tags,
         isPublic:     form.isPublic,
         isRecruiting: form.isRecruiting,
         memberLimit:  form.memberLimit,
-        memberCount:  1,
-        xp:           0,
-        ownerId:      uid,
-        avatarUrl:    uploadedAvatarUrl,
-        bannerUrl:    uploadedBannerUrl,
-        createdAt:    new Date(),
-        updatedAt:    new Date(),
+        ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
+        ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
+        updatedAt: new Date(),
       });
 
-      batch.set(doc(db, "clanSlugs", slug), { clanId });
-
-      batch.set(doc(db, "clans", clanId, "members", uid), {
-        role:        "leader",
-        joinedAt:    new Date(),
-        displayName: displayName || "Unknown",
-        avatarUrl:   avatarUrl ?? null,
-      });
-
-      await batch.commit();
-
-      toast.success("Clan created! 🛡️");
+      toast.success("Settings saved");
       router.push(`/clans/${slug}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to create clan";
+      const msg = err instanceof Error ? err.message : "Failed to save settings";
       toast.error(msg);
-      setSubmitting(false);
-      setSubmitStep(null);
-      setIsSlow(false);
     } finally {
+      setSaving(false);
+      setIsSlow(false);
       if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
     }
   };
 
-  if (!uid) {
+  // ── Loading / access states ──
+  if (!uid || loading) {
     return (
       <div className="flex items-center justify-center min-h-64">
         <Loader2 size={24} className="animate-spin" style={{ color: "var(--text-muted)" }} />
@@ -321,12 +298,25 @@ export default function CreateClanPage() {
     );
   }
 
-  const canSubmit =
-    !submitting &&
-    form.name.length >= 3 &&
-    form.gameFocus !== "" &&
-    slugStatus !== "taken" &&
-    slugStatus !== "checking";
+  if (notOwner) {
+    return (
+      <div className="max-w-2xl mx-auto flex flex-col items-center justify-center min-h-64 gap-3">
+        <p className="font-display font-bold text-xl" style={{ color: "var(--text-primary)" }}>
+          Access Denied
+        </p>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Only the clan owner can edit settings.
+        </p>
+        <button
+          onClick={() => router.push(`/clans/${slug}`)}
+          className="mt-2 px-4 py-2 rounded-lg text-sm font-medium"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+        >
+          Back to Clan
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -335,7 +325,7 @@ export default function CreateClanPage() {
       <div className="flex items-center gap-3 mb-8">
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push(`/clans/${slug}`)}
           className="p-2 rounded-lg transition-colors"
           style={{ color: "var(--text-muted)" }}
           onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
@@ -345,15 +335,15 @@ export default function CreateClanPage() {
         </button>
         <div>
           <h1 className="font-display font-bold text-3xl" style={{ color: "var(--text-primary)" }}>
-            Create Clan
+            Clan Settings
           </h1>
           <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
-            Set up your clan and start recruiting.
+            Update your clan&apos;s details and preferences.
           </p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <form onSubmit={handleSave} className="flex flex-col gap-5">
 
         {/* ── Identity ── */}
         <Section title="Identity">
@@ -378,20 +368,9 @@ export default function CreateClanPage() {
               onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
               onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
             />
-
-            {/* Slug preview + availability */}
-            {slug && (
-              <div className="mt-2 flex items-center gap-2">
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  clanforge.gg/clans/
-                  <span style={{ color: "var(--text-secondary)" }}>{slug}</span>
-                </p>
-                {slugStatus === "checking"  && <Loader2 size={12} className="animate-spin" style={{ color: "var(--text-muted)" }} />}
-                {slugStatus === "available" && <Check size={13} style={{ color: "var(--success)" }} />}
-                {slugStatus === "taken"     && <X     size={13} style={{ color: "var(--danger)"  }} />}
-                {slugStatus === "taken"     && <span className="text-xs" style={{ color: "var(--danger)" }}>Name already taken</span>}
-              </div>
-            )}
+            <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+              Note: the clan URL (<span style={{ color: "var(--text-secondary)" }}>/clans/{slug}</span>) cannot be changed.
+            </p>
           </div>
 
           {/* Description */}
@@ -442,7 +421,6 @@ export default function CreateClanPage() {
               onBlur={e => { e.currentTarget.style.borderColor = form.gameFocus ? "var(--success)" : "var(--border-default)"; }}
             />
 
-            {/* Dropdown */}
             {gameQuery && !form.gameFocus && (
               <div
                 className="mt-1 rounded-lg overflow-hidden max-h-48 overflow-y-auto"
@@ -503,7 +481,7 @@ export default function CreateClanPage() {
           </div>
         </Section>
 
-        {/* ── Settings ── */}
+        {/* ── Visibility Settings ── */}
         <Section title="Settings">
 
           <div>
@@ -547,42 +525,41 @@ export default function CreateClanPage() {
           </div>
         </Section>
 
-        {/* ── Media ── */}
+        {/* ── Branding ── */}
         <Section title="Branding">
           <div className="grid grid-cols-2 gap-4">
             <ImageUpload
               label="Clan Avatar"
               hint="Square logo, JPG/PNG"
-              value={avatarFile}
+              existingUrl={existingAvatarUrl}
               onChange={setAvatarFile}
               aspectClass="h-32"
             />
             <ImageUpload
               label="Clan Banner"
               hint="Wide banner image, JPG/PNG"
-              value={bannerFile}
+              existingUrl={existingBannerUrl}
               onChange={setBannerFile}
               aspectClass="h-32"
             />
           </div>
         </Section>
 
-        {/* ── Submit ── */}
+        {/* ── Save ── */}
         <div className="flex flex-col gap-2">
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={saving}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "var(--accent)", boxShadow: canSubmit ? "0 0 24px var(--accent-glow)" : "none" }}
+            style={{ background: "var(--accent)", boxShadow: saving ? "none" : "0 0 24px var(--accent-glow)" }}
           >
-            {submitting ? (
-              <><Loader2 size={16} className="animate-spin" /> {submitStep ?? "Creating clan…"}</>
+            {saving ? (
+              <><Loader2 size={16} className="animate-spin" /> Saving…</>
             ) : (
-              "Create Clan 🛡️"
+              "Save Settings"
             )}
           </button>
 
-          {/* Slow-operation warning */}
           {isSlow && (
             <div className="flex items-center justify-center gap-1.5">
               <AlertCircle size={13} style={{ color: "var(--warning)", flexShrink: 0 }} />
