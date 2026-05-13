@@ -8,6 +8,7 @@ import type {
 import { Badge } from "@/components/ui/Badge";
 import { BracketView } from "@/components/tournament/BracketView";
 import { TournamentRegistration } from "@/components/tournament/TournamentRegistration";
+import { TournamentCreatorActions } from "@/components/tournament/TournamentCreatorActions";
 import { formatDate, getInitials } from "@/lib/utils";
 import {
   computePayouts,
@@ -222,9 +223,32 @@ export default async function TournamentPage({
 
   const hasPrize = tournament.prizePool > 0;
   const isFree   = tournament.entryFee === 0;
+  const isCreator = currentUid !== null && currentUid === tournament.creatorId;
+  const canCancel = isCreator && tournament.status !== "complete" && tournament.status !== "cancelled";
 
   return (
     <div className="max-w-5xl mx-auto">
+
+      {/* ── Cancelled banner ── */}
+      {tournament.status === "cancelled" && (
+        <div
+          className="rounded-2xl px-5 py-4 mb-6 flex items-center gap-3"
+          style={{
+            background: "rgba(239,68,68,0.06)",
+            border:     "1px solid rgba(239,68,68,0.25)",
+          }}
+        >
+          <span className="text-2xl">⛔</span>
+          <div>
+            <p className="font-display font-semibold" style={{ color: "var(--danger)" }}>
+              Tournament cancelled
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+              This tournament was cancelled by the creator. Any paid entry fees have been refunded automatically.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Hero header ── */}
       {tournament.bannerUrl && (
@@ -497,7 +521,7 @@ export default async function TournamentPage({
         </div>
 
         {/* ── Right panel ── */}
-        <aside className="shrink-0" style={{ width: 280, alignSelf: "flex-start", position: "sticky", top: "5rem" }}>
+        <aside className="shrink-0 flex flex-col gap-4" style={{ width: 280, alignSelf: "flex-start", position: "sticky", top: "5rem" }}>
           <TournamentRegistration
             tournamentId={tournament.id ?? ""}
             status={tournament.status}
@@ -512,6 +536,15 @@ export default async function TournamentPage({
             currentAvatarUrl={currentAvatarUrl}
             winner={winner}
           />
+
+          {canCancel && currentUid && (
+            <TournamentCreatorActions
+              tournamentId={tournament.id ?? ""}
+              currentUid={currentUid}
+              isPaid={Boolean(tournament.isPaid)}
+              participantCount={tournament.participantCount}
+            />
+          )}
         </aside>
       </div>
     </div>

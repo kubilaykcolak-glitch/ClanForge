@@ -242,6 +242,147 @@ export async function refundLatePayment(
   }
 }
 
+// ─── withdrawPaidEntry ────────────────────────────────────────────────────────
+// Participant-initiated refund. Allowed until registrationClosesAt.
+//
+// Refund happens BEFORE we touch Firestore so that a Stripe failure leaves
+// the participant doc intact (the user can retry and we never end up with
+// a refunded user still listed). Once the refund succeeds, we run a
+// transaction that deletes the participant, decrements participantCount,
+// and shrinks the prizePool by the same delta used at registration time.
+
+export async function withdrawPaidEntry(
+  uid:           string,
+  tournamentId:  string,
+): Promise<ActionResult> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const { getStripe } = await import("@/lib/stripe");
+    const { prizePoolDeltaForEntry, DEFAULT_PLATFORM_FEE_PCT } = await import("@/lib/prize-splits");
+
+    const tournamentRef  = adminDb.collection("tournaments").doc(tournamentId);
+    const participantRef = tournamentRef.collection("participants").doc(uid);
+
+    const [tSnap, pSnap] = await Promise.all([tournamentRef.get(), participantRef.get()]);
+
+    if (!tSnap.exists)  return { success: false, error: "Tournament not found" };
+    if (!pSnap.exists)  return { success: false, error: "You are not registered for this tournament" };
+
+    const tournament  = tSnap.data()!;
+    const participant = pSnap.data()!;
+
+    if (participant.paymentStatus !== "paid") {
+      return {
+        success: false,
+        error:   "Only paid participants can be refunded. Free entries can just leave the tournament.",
+      };
+    }
+
+    const closesAt = tournament.registrationClosesAt?.toDate?.() ?? new Date(0);
+    if (closesAt <= new Date()) {
+      return { success: false, error: "Registration has closed — refunds are no longer available." };
+    }
+
+    const paymentIntentId = participant.stripePaymentIntentId as string | undefined;
+    if (!paymentIntentId) {
+      return { success: false, error: "Missing payment reference. Contact support via Discord." };
+    }
+
+    // 1) Issue the refund first — Stripe is the source of truth.
+    await getStripe().refunds.create({
+      payment_intent: paymentIntentId,
+      reason:         "requested_by_customer",
+    });
+
+    // 2) Now mirror the change in Firestore, transactionally.
+    const paidAmount = (participant.paidAmount as number) ?? (tournament.entryFee as number);
+    const feePct     = (tournament.platformFeePct as number) ?? DEFAULT_PLATFORM_FEE_PCT;
+    const prizeDelta = prizePoolDeltaForEntry(paidAmount, feePct);
+
+    await adminDb.runTransaction(async tx => {
+      tx.delete(participantRef);
+      tx.update(tournamentRef, {
+        participantCount: FieldValue.increment(-1),
+        prizePool:        FieldValue.increment(-prizeDelta),
+      });
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[withdrawPaidEntry]", err);
+    const message = err instanceof Error ? err.message : "Withdrawal failed";
+    return { success: false, error: message };
+  }
+}
+
+// ─── cancelTournament ─────────────────────────────────────────────────────────
+// Creator (or platform admin) cancels the tournament. All paid participants
+// get a full refund regardless of whether registration has closed. Pending
+// drafts are deleted with no refund (no charge ever completed).
+
+export async function cancelTournament(
+  uid:          string,
+  tournamentId: string,
+): Promise<ActionResult<{ refundedCount: number }>> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const { getStripe } = await import("@/lib/stripe");
+
+    const tournamentRef  = adminDb.collection("tournaments").doc(tournamentId);
+    const participantsCol = tournamentRef.collection("participants");
+
+    const [tSnap, profileSnap] = await Promise.all([
+      tournamentRef.get(),
+      adminDb.collection("profiles").doc(uid).get(),
+    ]);
+
+    if (!tSnap.exists) return { success: false, error: "Tournament not found" };
+
+    const tournament = tSnap.data()!;
+    const isCreator  = tournament.creatorId === uid;
+    const isAdmin    = (profileSnap.data()?.isAdmin as boolean) === true;
+
+    if (!isCreator && !isAdmin) {
+      return { success: false, error: "Only the tournament creator or a platform admin can cancel" };
+    }
+    if (tournament.status === "cancelled") {
+      return { success: false, error: "Tournament is already cancelled" };
+    }
+    if (tournament.status === "complete") {
+      return { success: false, error: "Tournament has already finished — it cannot be cancelled" };
+    }
+
+    // Fetch all participants. Paid: refund + delete. Pending: delete.
+    // Free: delete. Loop sequentially so one Stripe failure aborts cleanly.
+    const participantsSnap = await participantsCol.get();
+    let refundedCount = 0;
+
+    for (const doc of participantsSnap.docs) {
+      const data = doc.data();
+      if (data.paymentStatus === "paid" && data.stripePaymentIntentId) {
+        await getStripe().refunds.create({
+          payment_intent: data.stripePaymentIntentId,
+          reason:         "requested_by_customer",
+        });
+        refundedCount += 1;
+      }
+      await doc.ref.delete();
+    }
+
+    await tournamentRef.update({
+      status:           "cancelled",
+      participantCount: 0,
+      prizePool:        0,
+    });
+
+    return { success: true, data: { refundedCount } };
+  } catch (err) {
+    console.error("[cancelTournament]", err);
+    const message = err instanceof Error ? err.message : "Cancellation failed";
+    return { success: false, error: message };
+  }
+}
+
 // ─── expirePendingDraft (called from the webhook) ─────────────────────────────
 // Deletes a pending_payment draft when Stripe says the Checkout Session
 // expired without payment.

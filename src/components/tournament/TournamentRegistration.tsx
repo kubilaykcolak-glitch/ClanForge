@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/Badge";
 import { CountdownTimer } from "./CountdownTimer";
 import type { TournamentStatus } from "@/types";
 import { formatPence } from "@/lib/prize-splits";
-import { createCheckoutSession } from "@/lib/actions/tournament-payment.actions";
+import { createCheckoutSession, withdrawPaidEntry } from "@/lib/actions/tournament-payment.actions";
 
 interface TournamentRegistrationProps {
   tournamentId:        string;
@@ -141,16 +141,37 @@ export function TournamentRegistration({
   };
 
   // ── Withdraw ──
+  // Free path: client-side Firestore delete (unchanged).
+  // Paid path: server action that issues a Stripe refund then mirrors
+  // the participant deletion + counter decrement transactionally.
   const handleWithdraw = async () => {
-    if (!currentUid || !confirm("Withdraw from this tournament?")) return;
+    if (!currentUid) return;
+    const confirmMsg = isFree
+      ? "Withdraw from this tournament?"
+      : `Withdraw and refund ${formatPence(entryFee)} to your card?`;
+    if (!confirm(confirmMsg)) return;
+
     setBusy(true);
     setOpError(null);
+
     try {
-      await deleteDoc(doc(db, "tournaments", tournamentId, "participants", currentUid));
-      await updateDoc(doc(db, "tournaments", tournamentId), {
-        participantCount: increment(-1),
-      });
-      toast.success("Withdrawn from tournament");
+      if (isFree) {
+        await deleteDoc(doc(db, "tournaments", tournamentId, "participants", currentUid));
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          participantCount: increment(-1),
+        });
+        toast.success("Withdrawn from tournament");
+        router.refresh();
+        return;
+      }
+
+      const result = await withdrawPaidEntry(currentUid, tournamentId);
+      if (!result.success) {
+        setOpError(result.error ?? "Withdrawal failed");
+        toast.error(result.error ?? "Withdrawal failed");
+        return;
+      }
+      toast.success("Refund issued — should land within a few days");
       router.refresh();
     } catch {
       setOpError("Withdrawal failed. Please try again.");
