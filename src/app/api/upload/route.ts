@@ -15,6 +15,8 @@ const ALLOWED_PREFIXES = [
   "clan-assets/",
   "clan-posts/",
   "avatars/",
+  "profile-banners/",
+  "profile-backgrounds/",
 ];
 
 export async function POST(req: NextRequest) {

@@ -203,12 +203,24 @@ export default async function ProfilePage({
       ? Math.round((profile.tournamentsWon / profile.tournamentsPlayed) * 100)
       : 0;
 
-  const bgClass = profile.backgroundId && profile.backgroundId !== "none"
-    ? `profile-bg-${profile.backgroundId}`
-    : "";
+  // Background: custom image takes precedence over the animated theme id.
+  // A scrim overlay (defined in globals.css) is applied to all variants so
+  // page text stays readable.
+  const bgClass = profile.backgroundImageUrl
+    ? "profile-bg-image"
+    : profile.backgroundId && profile.backgroundId !== "none"
+      ? `profile-bg-${profile.backgroundId}`
+      : "";
+
+  const bgStyle: React.CSSProperties | undefined = profile.backgroundImageUrl
+    ? ({ ["--profile-bg-image"]: `url(${profile.backgroundImageUrl})` } as React.CSSProperties)
+    : undefined;
 
   return (
-    <div className={`max-w-4xl mx-auto${bgClass ? ` ${bgClass}` : ""}`}>
+    <div
+      className={`max-w-4xl mx-auto${bgClass ? ` ${bgClass}` : ""}`}
+      style={bgStyle}
+    >
 
       {/* ── Hero — always visible ─────────────────────────────────────────── */}
       <ProfileHero

@@ -28,6 +28,7 @@ import {
   Camera,
 } from "lucide-react";
 import { toast } from "sonner";
+import { validateImageFile } from "@/lib/uploads";
 import { auth, db } from "@/lib/firebase/client";
 import {
   Sheet,
@@ -307,6 +308,7 @@ export default function ProfileEditPage() {
   const [isSaveSlow, setIsSaveSlow]         = useState(false);
   const [profileBannerUrl,    setProfileBannerUrl]    = useState<string | null>(null);
   const [profileBgId,         setProfileBgId]         = useState<string | null>(null);
+  const [profileBgImageUrl,   setProfileBgImageUrl]   = useState<string | null>(null);
   const [profileAccentColour, setProfileAccentColour] = useState<string | null>(null);
   const [isPrivate,           setIsPrivate]           = useState(false);
   const fileRef                             = useRef<HTMLInputElement>(null);
@@ -360,9 +362,10 @@ export default function ProfileEditPage() {
       });
       setOriginalUsername(d.username ?? "");
       if (d.avatarUrl) setAvatarPreview(d.avatarUrl);
-      setProfileBannerUrl(d.bannerUrl    ?? null);
-      setProfileBgId(d.backgroundId      ?? null);
-      setProfileAccentColour(d.accentColour ?? null);
+      setProfileBannerUrl(d.bannerUrl         ?? null);
+      setProfileBgId(d.backgroundId           ?? null);
+      setProfileBgImageUrl(d.backgroundImageUrl ?? null);
+      setProfileAccentColour(d.accentColour   ?? null);
       setIsPrivate(d.isPrivate ?? false);
     });
     return () => unsub();
@@ -404,6 +407,12 @@ export default function ProfileEditPage() {
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const v = validateImageFile(file);
+    if (!v.ok) {
+      toast.error(v.error ?? "Invalid file");
+      e.target.value = "";
+      return;
+    }
     setAvatarFile(file);
     setAvatarPreview(URL.createObjectURL(file));
   };
@@ -478,20 +487,23 @@ export default function ProfileEditPage() {
   // ── Appearance save ──────────────────────────────────────────────────────
 
   const handleAppearanceSave = async (data: {
-    bannerUrl:    string | null;
-    backgroundId: string;
-    accentColour: string;
+    bannerUrl:          string | null;
+    backgroundId:       string;
+    backgroundImageUrl: string | null;
+    accentColour:       string;
   }) => {
     if (!uid) return;
     try {
       await updateDoc(doc(db, "profiles", uid), {
-        bannerUrl:    data.bannerUrl,
-        backgroundId: data.backgroundId,
-        accentColour: data.accentColour,
-        updatedAt:    new Date(),
+        bannerUrl:          data.bannerUrl,
+        backgroundId:       data.backgroundId,
+        backgroundImageUrl: data.backgroundImageUrl,
+        accentColour:       data.accentColour,
+        updatedAt:          new Date(),
       });
       setProfileBannerUrl(data.bannerUrl);
       setProfileBgId(data.backgroundId);
+      setProfileBgImageUrl(data.backgroundImageUrl);
       setProfileAccentColour(data.accentColour);
       toast.success("Appearance saved!");
     } catch {
@@ -859,6 +871,7 @@ export default function ProfileEditPage() {
             uid={uid}
             currentBannerUrl={profileBannerUrl}
             currentBackgroundId={profileBgId}
+            currentBackgroundImageUrl={profileBgImageUrl}
             currentAccentColour={profileAccentColour}
             onSave={handleAppearanceSave}
           />

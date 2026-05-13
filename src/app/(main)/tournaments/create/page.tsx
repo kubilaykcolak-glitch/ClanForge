@@ -10,6 +10,7 @@ import { auth, db } from "@/lib/firebase/client";
 import type { TournamentFormat } from "@/types";
 import ComingSoon from "@/components/ui/ComingSoon";
 import { DateTimePicker } from "@/components/ui/DateTimePicker";
+import { validateImageFile } from "@/lib/uploads";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -274,6 +275,14 @@ function Step1({ state, onChange, errors }: Step1Props) {
 
   const handleBanner = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
+    if (file) {
+      const v = validateImageFile(file);
+      if (!v.ok) {
+        toast.error(v.error ?? "Invalid file");
+        e.target.value = "";
+        return;
+      }
+    }
     if (state.bannerPreview) URL.revokeObjectURL(state.bannerPreview);
     onChange({
       bannerFile:    file,

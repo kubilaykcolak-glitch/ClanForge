@@ -10,6 +10,7 @@ import { auth, db } from "@/lib/firebase/client";
 import Toggle from "@/components/ui/Toggle";
 import ClanTagSettings from "@/components/clan/ClanTagSettings";
 import { disbandClan } from "@/lib/actions/clan.actions";
+import { validateImageFile } from "@/lib/uploads";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,14 @@ function ImageUpload({
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
+    if (file) {
+      const v = validateImageFile(file);
+      if (!v.ok) {
+        toast.error(v.error ?? "Invalid file");
+        e.target.value = "";
+        return;
+      }
+    }
     onChange(file);
     if (preview && !isExisting) URL.revokeObjectURL(preview);
     setPreview(file ? URL.createObjectURL(file) : null);

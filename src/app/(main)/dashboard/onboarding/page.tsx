@@ -18,6 +18,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { AlertCircle, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
+import { validateImageFile } from "@/lib/uploads";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -243,6 +244,11 @@ function Step2({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (file: File) => {
+    const v = validateImageFile(file);
+    if (!v.ok) {
+      toast.error(v.error ?? "Invalid file");
+      return;
+    }
     setAvatarFile(file);
     if (preview) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(file));

@@ -5,6 +5,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { Check, X } from "lucide-react";
 import { storage } from "@/lib/firebase/client";
 import { ANIMATED_BACKGROUNDS } from "@/lib/profile-backgrounds";
+import { validateImageFile, MAX_UPLOAD_LABEL } from "@/lib/uploads";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -19,19 +20,19 @@ const ACCENT_COLOURS = [
   { hex: "#3b82f6", label: "Blue"   },
 ] as const;
 
-const MAX_BYTES = 3 * 1024 * 1024; // 3 MB
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface CustomiseProfilePanelProps {
-  uid:                   string;
-  currentBannerUrl:      string | null;
-  currentBackgroundId:   string | null;
-  currentAccentColour:   string | null;
+  uid:                       string;
+  currentBannerUrl:          string | null;
+  currentBackgroundId:       string | null;
+  currentBackgroundImageUrl: string | null;
+  currentAccentColour:       string | null;
   onSave: (data: {
-    bannerUrl:     string | null;
-    backgroundId:  string;
-    accentColour:  string;
+    bannerUrl:          string | null;
+    backgroundId:       string;
+    backgroundImageUrl: string | null;
+    accentColour:       string;
   }) => void;
 }
 
@@ -61,31 +62,40 @@ export default function CustomiseProfilePanel({
   uid,
   currentBannerUrl,
   currentBackgroundId,
+  currentBackgroundImageUrl,
   currentAccentColour,
   onSave,
 }: CustomiseProfilePanelProps) {
   // ── Local state ─────────────────────────────────────────────────────────────
-  const [bannerUrl,     setBannerUrl]     = useState<string | null>(currentBannerUrl);
-  const [backgroundId,  setBackgroundId]  = useState(currentBackgroundId ?? "none");
-  const [accentColour,  setAccentColour]  = useState(currentAccentColour ?? "#6366f1");
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [uploadError,   setUploadError]   = useState<string | null>(null);
+  const [bannerUrl,          setBannerUrl]          = useState<string | null>(currentBannerUrl);
+  const [backgroundId,       setBackgroundId]       = useState(currentBackgroundId ?? "none");
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(currentBackgroundImageUrl);
+  const [accentColour,       setAccentColour]       = useState(currentAccentColour ?? "#6366f1");
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Independent upload state per slot so banner and bg image don't share UI
+  const [bannerProgress,  setBannerProgress]  = useState<number | null>(null);
+  const [bannerError,     setBannerError]     = useState<string | null>(null);
+  const [bgImageProgress, setBgImageProgress] = useState<number | null>(null);
+  const [bgImageError,    setBgImageError]    = useState<string | null>(null);
+
+  const bannerInputRef  = useRef<HTMLInputElement>(null);
+  const bgImageInputRef = useRef<HTMLInputElement>(null);
 
   // ── Banner upload ────────────────────────────────────────────────────────────
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > MAX_BYTES) {
-      setUploadError("File exceeds 3 MB limit");
+    const v = validateImageFile(file);
+    if (!v.ok) {
+      setBannerError(v.error ?? "Invalid file");
+      if (bannerInputRef.current) bannerInputRef.current.value = "";
       return;
     }
 
-    setUploadError(null);
-    setUploadProgress(0);
+    setBannerError(null);
+    setBannerProgress(0);
 
     const storageRef = ref(storage, `banners/${uid}/profile-banner.jpg`);
     const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
@@ -93,25 +103,76 @@ export default function CustomiseProfilePanel({
     task.on(
       "state_changed",
       snap => {
-        setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+        setBannerProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
       },
       () => {
-        setUploadError("Upload failed — please try again");
-        setUploadProgress(null);
+        setBannerError("Upload failed — please try again");
+        setBannerProgress(null);
       },
       async () => {
         const url = await getDownloadURL(task.snapshot.ref);
         setBannerUrl(url);
-        setUploadProgress(null);
-        // Reset input so the same file can be re-selected after removal
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        setBannerProgress(null);
+        if (bannerInputRef.current) bannerInputRef.current.value = "";
       },
     );
   };
 
   const handleRemoveBanner = () => {
     setBannerUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (bannerInputRef.current) bannerInputRef.current.value = "";
+  };
+
+  // ── Background image upload ─────────────────────────────────────────────────
+
+  const handleBgImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const v = validateImageFile(file);
+    if (!v.ok) {
+      setBgImageError(v.error ?? "Invalid file");
+      if (bgImageInputRef.current) bgImageInputRef.current.value = "";
+      return;
+    }
+
+    setBgImageError(null);
+    setBgImageProgress(0);
+
+    const storageRef = ref(storage, `profile-backgrounds/${uid}/profile-background.jpg`);
+    const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
+
+    task.on(
+      "state_changed",
+      snap => {
+        setBgImageProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+      },
+      () => {
+        setBgImageError("Upload failed — please try again");
+        setBgImageProgress(null);
+      },
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        setBackgroundImageUrl(url);
+        // A custom image takes precedence over the animated theme — clear the
+        // theme selection so the UI accurately reflects what will render.
+        setBackgroundId("none");
+        setBgImageProgress(null);
+        if (bgImageInputRef.current) bgImageInputRef.current.value = "";
+      },
+    );
+  };
+
+  const handleRemoveBgImage = () => {
+    setBackgroundImageUrl(null);
+    if (bgImageInputRef.current) bgImageInputRef.current.value = "";
+  };
+
+  // Picking an animated theme drops any custom image so render priority stays
+  // intuitive: whatever the user clicked last is what they get.
+  const handlePickBackground = (id: string) => {
+    setBackgroundId(id);
+    if (id !== "none") setBackgroundImageUrl(null);
   };
 
   // ── Derived ──────────────────────────────────────────────────────────────────
@@ -119,7 +180,9 @@ export default function CustomiseProfilePanel({
   const selectedBg = ANIMATED_BACKGROUNDS.find(b => b.id === backgroundId)
     ?? ANIMATED_BACKGROUNDS[0];
 
-  const isUploading = uploadProgress !== null;
+  const isBannerUploading  = bannerProgress  !== null;
+  const isBgImageUploading = bgImageProgress !== null;
+  const isUploading        = isBannerUploading || isBgImageUploading;
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -170,7 +233,7 @@ export default function CustomiseProfilePanel({
         </div>
 
         {/* Progress bar */}
-        {isUploading && (
+        {isBannerUploading && (
           <div
             style={{
               height:       4,
@@ -183,7 +246,7 @@ export default function CustomiseProfilePanel({
             <div
               style={{
                 height:     "100%",
-                width:      `${uploadProgress}%`,
+                width:      `${bannerProgress}%`,
                 background: "var(--accent)",
                 transition: "width 0.2s ease",
                 borderRadius: 2,
@@ -192,41 +255,41 @@ export default function CustomiseProfilePanel({
           </div>
         )}
 
-        {uploadError && (
+        {bannerError && (
           <p style={{ fontSize: 12, color: "var(--danger)", marginBottom: 8 }}>
-            {uploadError}
+            {bannerError}
           </p>
         )}
 
         {/* Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <input
-            ref={fileInputRef}
+            ref={bannerInputRef}
             type="file"
             accept="image/*"
             style={{ display: "none" }}
-            onChange={handleFileChange}
+            onChange={handleBannerChange}
           />
           <button
             type="button"
-            disabled={isUploading}
-            onClick={() => fileInputRef.current?.click()}
+            disabled={isBannerUploading}
+            onClick={() => bannerInputRef.current?.click()}
             style={{
               padding:      "7px 14px",
               borderRadius: 7,
               border:       "1px solid var(--border-default)",
               background:   "var(--bg-elevated)",
-              color:        isUploading ? "var(--text-muted)" : "var(--text-secondary)",
+              color:        isBannerUploading ? "var(--text-muted)" : "var(--text-secondary)",
               fontSize:     13,
               fontWeight:   500,
-              cursor:       isUploading ? "not-allowed" : "pointer",
+              cursor:       isBannerUploading ? "not-allowed" : "pointer",
               transition:   "border-color 0.15s ease, color 0.15s ease",
             }}
           >
-            {isUploading ? `Uploading… ${uploadProgress}%` : "Upload Banner"}
+            {isBannerUploading ? `Uploading… ${bannerProgress}%` : "Upload Banner"}
           </button>
 
-          {bannerUrl && !isUploading && (
+          {bannerUrl && !isBannerUploading && (
             <button
               type="button"
               onClick={handleRemoveBanner}
@@ -246,10 +309,140 @@ export default function CustomiseProfilePanel({
               Remove
             </button>
           )}
+
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)" }}>
+            {MAX_UPLOAD_LABEL}
+          </span>
         </div>
       </div>
 
-      {/* ── Section 2: Background theme ───────────────────────────────────── */}
+      {/* ── Section 2: Custom background image ───────────────────────────── */}
+      <div>
+        <SectionHeading>Background image</SectionHeading>
+
+        {/* Preview */}
+        <div
+          style={{
+            width:        "100%",
+            height:       110,
+            borderRadius: 10,
+            overflow:     "hidden",
+            marginBottom: 10,
+            background:   backgroundImageUrl
+              ? `url(${backgroundImageUrl}) center/cover no-repeat`
+              : "linear-gradient(135deg, #1e1b4b 0%, #0a0a0f 100%)",
+            border:       "1px solid var(--border-default)",
+            position:     "relative",
+          }}
+        >
+          {!backgroundImageUrl && (
+            <span
+              style={{
+                position:       "absolute",
+                inset:          0,
+                display:        "flex",
+                alignItems:     "center",
+                justifyContent: "center",
+                fontSize:       12,
+                color:          "var(--text-muted)",
+                letterSpacing:  "0.04em",
+              }}
+            >
+              No custom background — uses theme below
+            </span>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        {isBgImageUploading && (
+          <div
+            style={{
+              height:       4,
+              borderRadius: 2,
+              background:   "var(--bg-elevated)",
+              marginBottom: 8,
+              overflow:     "hidden",
+            }}
+          >
+            <div
+              style={{
+                height:       "100%",
+                width:        `${bgImageProgress}%`,
+                background:   "var(--accent)",
+                transition:   "width 0.2s ease",
+                borderRadius: 2,
+              }}
+            />
+          </div>
+        )}
+
+        {bgImageError && (
+          <p style={{ fontSize: 12, color: "var(--danger)", marginBottom: 8 }}>
+            {bgImageError}
+          </p>
+        )}
+
+        {/* Controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            ref={bgImageInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleBgImageChange}
+          />
+          <button
+            type="button"
+            disabled={isBgImageUploading}
+            onClick={() => bgImageInputRef.current?.click()}
+            style={{
+              padding:      "7px 14px",
+              borderRadius: 7,
+              border:       "1px solid var(--border-default)",
+              background:   "var(--bg-elevated)",
+              color:        isBgImageUploading ? "var(--text-muted)" : "var(--text-secondary)",
+              fontSize:     13,
+              fontWeight:   500,
+              cursor:       isBgImageUploading ? "not-allowed" : "pointer",
+              transition:   "border-color 0.15s ease, color 0.15s ease",
+            }}
+          >
+            {isBgImageUploading ? `Uploading… ${bgImageProgress}%` : "Upload Background"}
+          </button>
+
+          {backgroundImageUrl && !isBgImageUploading && (
+            <button
+              type="button"
+              onClick={handleRemoveBgImage}
+              style={{
+                display:    "inline-flex",
+                alignItems: "center",
+                gap:        4,
+                background: "transparent",
+                border:     "none",
+                cursor:     "pointer",
+                fontSize:   13,
+                color:      "var(--text-muted)",
+                padding:    0,
+              }}
+            >
+              <X size={13} />
+              Remove
+            </button>
+          )}
+
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)" }}>
+            {MAX_UPLOAD_LABEL}
+          </span>
+        </div>
+
+        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+          A custom image overrides the animated theme. A subtle dark overlay is applied
+          automatically so usernames and stats stay readable.
+        </p>
+      </div>
+
+      {/* ── Section 3: Background theme ───────────────────────────────────── */}
       <div>
         <SectionHeading>Background theme</SectionHeading>
 
@@ -280,7 +473,7 @@ export default function CustomiseProfilePanel({
               <button
                 key={bg.id}
                 type="button"
-                onClick={() => setBackgroundId(bg.id)}
+                onClick={() => handlePickBackground(bg.id)}
                 style={{
                   display:       "flex",
                   flexDirection: "column",
@@ -396,27 +589,33 @@ export default function CustomiseProfilePanel({
             background: "#0a0a0f",
           }}
         >
-          {/* Mini banner area with background preview */}
+          {/* Mini banner area with background preview.
+              Custom image takes precedence over the animated theme preview. */}
           <div
             style={{
               height:   52,
               position: "relative",
               overflow: "hidden",
-              ...(() => {
-                // Apply the selected background's preview gradient to the mini banner
-                const s = selectedBg.previewStyle;
-                const result: React.CSSProperties = {};
-                s.split(";").forEach(decl => {
-                  const colon = decl.indexOf(":");
-                  if (colon === -1) return;
-                  const prop  = decl.slice(0, colon).trim();
-                  const value = decl.slice(colon + 1).trim();
-                  if (!prop || !value) return;
-                  const camel = prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()) as keyof React.CSSProperties;
-                  (result as Record<string, string>)[camel] = value;
-                });
-                return result;
-              })(),
+              ...(backgroundImageUrl
+                ? {
+                    backgroundImage:    `url(${backgroundImageUrl})`,
+                    backgroundSize:     "cover",
+                    backgroundPosition: "center",
+                  }
+                : (() => {
+                    const s = selectedBg.previewStyle;
+                    const result: React.CSSProperties = {};
+                    s.split(";").forEach(decl => {
+                      const colon = decl.indexOf(":");
+                      if (colon === -1) return;
+                      const prop  = decl.slice(0, colon).trim();
+                      const value = decl.slice(colon + 1).trim();
+                      if (!prop || !value) return;
+                      const camel = prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()) as keyof React.CSSProperties;
+                      (result as Record<string, string>)[camel] = value;
+                    });
+                    return result;
+                  })()),
             }}
           >
             {/* If there's a real banner, overlay it */}
@@ -496,7 +695,7 @@ export default function CustomiseProfilePanel({
       <button
         type="button"
         disabled={isUploading}
-        onClick={() => onSave({ bannerUrl, backgroundId, accentColour })}
+        onClick={() => onSave({ bannerUrl, backgroundId, backgroundImageUrl, accentColour })}
         style={{
           width:        "100%",
           padding:      "11px 0",

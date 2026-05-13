@@ -5,6 +5,7 @@ import { AlertCircle, Paperclip, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { createPost } from "@/lib/clan-actions";
 import { getInitials } from "@/lib/utils";
+import { validateImageFile } from "@/lib/uploads";
 
 interface ComposePostProps {
   clanId:            string;
@@ -54,12 +55,10 @@ export function ComposePost({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("Only image files are allowed");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image must be under 5 MB");
+    const v = validateImageFile(file);
+    if (!v.ok) {
+      toast.error(v.error ?? "Invalid file");
+      e.target.value = "";
       return;
     }
 

@@ -336,3 +336,45 @@ h1, h2, h3, h4, h5, h6 {
   animation: rain-fall 1.6s linear infinite;
   opacity: 0.8;
 }
+
+/* -- Custom image ---------------------------------------------------------- */
+/* The wrapper sets the image via the --profile-bg-image CSS custom property,
+   e.g. style={{ "--profile-bg-image": `url(${url})` }}. */
+.profile-bg-image {
+  position: relative;
+  isolation: isolate;
+}
+.profile-bg-image::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:    var(--profile-bg-image, none);
+  background-size:     cover;
+  background-position: center center;
+  background-repeat:   no-repeat;
+}
+
+/* -- Readability scrim ----------------------------------------------------- */
+/* A soft dark overlay sits between the animated/image background and the
+   page content so usernames, bios, stats, and tabs always have contrast.
+   Applies to all 8 background variants. Rendered above ::before (later in
+   DOM order at same z-index) and below the wrapper's children. */
+.profile-bg-aurora::after,
+.profile-bg-ember::after,
+.profile-bg-ocean::after,
+.profile-bg-void::after,
+.profile-bg-grid::after,
+.profile-bg-pulse::after,
+.profile-bg-rain::after,
+.profile-bg-image::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(10,10,15,0.30) 0%, rgba(10,10,15,0.55) 100%),
+    radial-gradient(ellipse 85% 75% at 50% 50%, rgba(10,10,15,0.20) 0%, rgba(10,10,15,0.55) 100%);
+}

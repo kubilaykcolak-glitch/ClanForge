@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
 import { slugify } from "@/lib/utils";
 import Toggle from "@/components/ui/Toggle";
+import { validateImageFile } from "@/lib/uploads";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,14 @@ function ImageUpload({
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
+    if (file) {
+      const v = validateImageFile(file);
+      if (!v.ok) {
+        toast.error(v.error ?? "Invalid file");
+        e.target.value = "";
+        return;
+      }
+    }
     onChange(file);
     if (preview) URL.revokeObjectURL(preview);
     setPreview(file ? URL.createObjectURL(file) : null);

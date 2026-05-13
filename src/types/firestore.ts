@@ -33,6 +33,9 @@ export interface Profile {
   bannerUrl?: string | null;
   /** ID matching one of the ANIMATED_BACKGROUNDS entries in lib/profile-backgrounds.ts. */
   backgroundId?: string | null;
+  /** URL of the user's custom full-page profile background image. Takes
+   * precedence over backgroundId when set. */
+  backgroundImageUrl?: string | null;
   /** Hex colour string e.g. '#6366f1' — user-chosen accent override. */
   accentColour?: string | null;
   createdAt: Date;
