@@ -21,9 +21,10 @@ export function getStripe(): Stripe {
   }
 
   _stripe = new Stripe(key, {
-    // Pin the API version so SDK upgrades can't silently change behavior.
-    apiVersion: "2024-06-20",
-    typescript:  true,
+    // No explicit apiVersion pin — the SDK uses its bundled default.
+    // We rely on the package-lock to lock the SDK version, which transitively
+    // locks the API version too.
+    typescript: true,
   });
 
   return _stripe;

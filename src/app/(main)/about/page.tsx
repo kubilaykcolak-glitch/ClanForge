@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Shield, Trophy, Users, MessagesSquare } from "lucide-react";
+import { Shield, Trophy, Users, MessagesSquare, type LucideIcon } from "lucide-react";
 
 const DISCORD_URL = "https://discord.gg/NB9VftUUSJ";
 
@@ -37,7 +37,7 @@ function FeatureRow({
   title,
   children,
 }: {
-  Icon:     React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  Icon:     LucideIcon;
   title:    string;
   children: React.ReactNode;
 }) {
