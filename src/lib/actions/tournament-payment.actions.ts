@@ -425,7 +425,6 @@ export async function finalizeTournament(
       return { success: false, error: "Cancelled tournaments cannot be finalized" };
     }
 
-    const isPaid     = Boolean(tournament.isPaid);
     const prizePool  = (tournament.prizePool as number) ?? 0;
     const prizeSplit = tournament.prizeSplit;
 
