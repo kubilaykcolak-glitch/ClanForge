@@ -1,9 +1,20 @@
-import { headers } from "next/headers";
-import { adminDb } from "@/lib/firebase/admin";
+import { cookies } from "next/headers";
+import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import PlayersClient, { type PlayerRow } from "@/components/player/PlayersClient";
 
 export default async function PlayersPage() {
-  const uid = headers().get("x-user-id");
+  // Resolve the current uid via the session cookie. Middleware does not match
+  // /players, so there's no x-user-id header to read here.
+  let uid: string | null = null;
+  try {
+    const sessionCookie = cookies().get("session")?.value;
+    if (sessionCookie) {
+      const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+      uid = decoded.uid;
+    }
+  } catch {
+    // Invalid session — treat as logged out
+  }
 
   // Fetch top profiles by XP, then filter out private ones in JS.
   // Using .where("isPrivate","==",false) + .orderBy("xp") requires a composite

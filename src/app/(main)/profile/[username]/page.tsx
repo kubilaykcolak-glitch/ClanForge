@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { Pencil } from "lucide-react";
 import type { Clan, ClanMember, GameRecord, Profile } from "@/types";
@@ -194,9 +194,23 @@ export default async function ProfilePage({
   const { profile, gameRecords, clanInfo, clanTag, clanName, clanSlug } =
     await getPageData(params.username);
 
-  const loggedInUid      = headers().get("x-user-id");
-  const profileUid       = profile.id ?? "";
-  const isOwner          = loggedInUid !== null && loggedInUid === profileUid;
+  // Resolve the logged-in user via the session cookie. Middleware does NOT
+  // run on /profile/[username] (route not in matcher), so there's no
+  // x-user-id header to read here — we must verify the session ourselves.
+  let loggedInUid: string | null = null;
+  try {
+    const sessionCookie = cookies().get("session")?.value;
+    if (sessionCookie) {
+      const { adminAuth } = await import("@/lib/firebase/admin");
+      const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+      loggedInUid = decoded.uid;
+    }
+  } catch {
+    // Invalid/expired session — treat as logged out
+  }
+
+  const profileUid        = profile.id ?? "";
+  const isOwner           = loggedInUid !== null && loggedInUid === profileUid;
   const showPrivateScreen = profile.isPrivate === true && !isOwner;
 
   const winRate =
