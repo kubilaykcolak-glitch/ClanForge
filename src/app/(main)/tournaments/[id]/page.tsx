@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import type {
+  PrizePayout,
   Tournament,
   TournamentMatch,
   TournamentParticipant,
@@ -9,6 +10,8 @@ import { Badge } from "@/components/ui/Badge";
 import { BracketView } from "@/components/tournament/BracketView";
 import { TournamentRegistration } from "@/components/tournament/TournamentRegistration";
 import { TournamentCreatorActions } from "@/components/tournament/TournamentCreatorActions";
+import { TournamentFinalize } from "@/components/tournament/TournamentFinalize";
+import { TournamentPrizeClaim } from "@/components/tournament/TournamentPrizeClaim";
 import { formatDate, getInitials } from "@/lib/utils";
 import {
   computePayouts,
@@ -44,6 +47,10 @@ interface ParticipantRow extends TournamentParticipant {
   avatarUrl?: string;
 }
 
+interface PrizeRow extends PrizePayout {
+  id: string;
+}
+
 interface PageData {
   tournament:       Tournament;
   participants:     ParticipantRow[];
@@ -51,8 +58,11 @@ interface PageData {
   participantNames: Record<string, string>; // userId → displayName
   currentUid:       string | null;
   isRegistered:     boolean;
+  isAdmin:          boolean;
   currentDisplayName: string;
   currentAvatarUrl?:  string;
+  /** Prizes belonging to the current user (so they see their own claim cards). */
+  myPrizes:         PrizeRow[];
   winner?: { displayName: string; avatarUrl?: string } | null;
 }
 
@@ -152,6 +162,7 @@ async function getPageData(id: string): Promise<PageData | null> {
   // ── Session ──
   let currentUid:          string | null   = null;
   let isRegistered:        boolean         = false;
+  let isAdmin:             boolean         = false;
   let currentDisplayName:  string          = "";
   let currentAvatarUrl:    string | undefined;
 
@@ -168,10 +179,39 @@ async function getPageData(id: string): Promise<PageData | null> {
         const pData        = profileSnap.data()!;
         currentDisplayName = (pData.displayName as string) ?? "";
         currentAvatarUrl   = pData.avatarUrl as string | undefined;
+        isAdmin            = (pData.isAdmin as boolean) === true;
       }
     }
   } catch {
     // unauthenticated
+  }
+
+  // ── My prizes for this tournament (only fetched when status is complete) ──
+  let myPrizes: PrizeRow[] = [];
+  if (currentUid && tournament.status === "complete") {
+    const prizesSnap = await adminDb
+      .collection("tournaments").doc(id)
+      .collection("prizes")
+      .where("participantId", "==", currentUid)
+      .get();
+
+    myPrizes = prizesSnap.docs
+      .map(d => {
+        const data = d.data();
+        return {
+          id:             d.id,
+          tournamentId:   id,
+          participantId:  data.participantId,
+          position:       data.position,
+          amount:         data.amount,
+          status:         data.status,
+          claimReference: data.claimReference,
+          computedAt:     data.computedAt?.toDate?.() ?? new Date(),
+          claimedAt:      data.claimedAt?.toDate?.(),
+          paidAt:         data.paidAt?.toDate?.(),
+        } as PrizeRow;
+      })
+      .sort((a, b) => a.position - b.position);
   }
 
   return {
@@ -181,8 +221,10 @@ async function getPageData(id: string): Promise<PageData | null> {
     participantNames,
     currentUid,
     isRegistered,
+    isAdmin,
     currentDisplayName,
     currentAvatarUrl,
+    myPrizes,
     winner,
   };
 }
@@ -216,15 +258,18 @@ export default async function TournamentPage({
     participantNames,
     currentUid,
     isRegistered,
+    isAdmin,
     currentDisplayName,
     currentAvatarUrl,
+    myPrizes,
     winner,
   } = data;
 
-  const hasPrize = tournament.prizePool > 0;
-  const isFree   = tournament.entryFee === 0;
-  const isCreator = currentUid !== null && currentUid === tournament.creatorId;
-  const canCancel = isCreator && tournament.status !== "complete" && tournament.status !== "cancelled";
+  const hasPrize    = tournament.prizePool > 0;
+  const isFree      = tournament.entryFee === 0;
+  const isCreator   = currentUid !== null && currentUid === tournament.creatorId;
+  const canCancel   = isCreator && tournament.status !== "complete" && tournament.status !== "cancelled";
+  const canFinalize = isCreator && tournament.status !== "complete" && tournament.status !== "cancelled" && participants.length > 0;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -536,6 +581,37 @@ export default async function TournamentPage({
             currentAvatarUrl={currentAvatarUrl}
             winner={winner}
           />
+
+          {/* Prize claim cards — visible to the winning user once the
+              tournament has been finalized. */}
+          {myPrizes.length > 0 && currentUid && (
+            <>
+              {myPrizes.map(prize => (
+                <TournamentPrizeClaim
+                  key={prize.id}
+                  tournamentId={tournament.id ?? ""}
+                  prizeId={prize.id}
+                  position={prize.position}
+                  amountPence={prize.amount}
+                  status={prize.status}
+                  claimReference={prize.claimReference}
+                  currentUid={currentUid}
+                  isAdmin={isAdmin}
+                />
+              ))}
+            </>
+          )}
+
+          {canFinalize && currentUid && (
+            <TournamentFinalize
+              tournamentId={tournament.id ?? ""}
+              currentUid={currentUid}
+              prizeSplit={tournament.prizeSplit ?? null}
+              prizePool={tournament.prizePool}
+              participants={participants.map(p => ({ userId: p.userId, displayName: p.displayName }))}
+              participantCount={tournament.participantCount}
+            />
+          )}
 
           {canCancel && currentUid && (
             <TournamentCreatorActions

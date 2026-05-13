@@ -383,6 +383,194 @@ export async function cancelTournament(
   }
 }
 
+// ─── finalizeTournament ───────────────────────────────────────────────────────
+// Creator (or admin) declares the final standings. We compute the per-position
+// payouts from prizeSplit + prizePool, write one PrizePayout doc per winner
+// to /tournaments/{id}/prizes, mark the participants as "winner" / "eliminated",
+// and flip the tournament status to "complete". No payouts leave Stripe at
+// this point — winners claim manually via Discord (see initiatePrizeClaim).
+//
+// Idempotent: if status is already "complete" we no-op.
+
+export async function finalizeTournament(
+  uid:            string,
+  tournamentId:   string,
+  /** Ordered list of winning userIds: index 0 = 1st place, 1 = 2nd, … */
+  winnerUserIds:  string[],
+): Promise<ActionResult<{ prizesCreated: number }>> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const { computePayouts, getPresetPositionsCount } = await import("@/lib/prize-splits");
+
+    const tournamentRef = adminDb.collection("tournaments").doc(tournamentId);
+    const prizesCol     = tournamentRef.collection("prizes");
+
+    const [tSnap, profileSnap] = await Promise.all([
+      tournamentRef.get(),
+      adminDb.collection("profiles").doc(uid).get(),
+    ]);
+
+    if (!tSnap.exists) return { success: false, error: "Tournament not found" };
+
+    const tournament = tSnap.data()!;
+    const isCreator  = tournament.creatorId === uid;
+    const isAdmin    = (profileSnap.data()?.isAdmin as boolean) === true;
+    if (!isCreator && !isAdmin) {
+      return { success: false, error: "Only the tournament creator or a platform admin can finalize" };
+    }
+    if (tournament.status === "complete") {
+      return { success: false, error: "Tournament is already finalized" };
+    }
+    if (tournament.status === "cancelled") {
+      return { success: false, error: "Cancelled tournaments cannot be finalized" };
+    }
+
+    const isPaid     = Boolean(tournament.isPaid);
+    const prizePool  = (tournament.prizePool as number) ?? 0;
+    const prizeSplit = tournament.prizeSplit;
+
+    let prizesCreated = 0;
+    const batch = adminDb.batch();
+
+    // Compute payouts only when there's a real prize pool. Free tournaments
+    // with no creator-funded prize pool still finalize — they just don't
+    // create any prize records.
+    if (prizePool > 0 && prizeSplit) {
+      const expectedPositions = getPresetPositionsCount(prizeSplit);
+      // The bracket may not have filled every payable position (e.g. top_5
+      // with 3 participants). Use min(expected, winnerUserIds.length,
+      // participantCount). Unused prize-pool money stays in the platform
+      // account by design (logged in createPayout for audit).
+      const filledPositions = Math.min(
+        expectedPositions,
+        winnerUserIds.length,
+        tournament.participantCount as number,
+      );
+
+      const payouts = computePayouts(prizePool, prizeSplit).slice(0, filledPositions);
+      const shortRef = tournamentId.slice(0, 6).toLowerCase();
+
+      payouts.forEach((p, i) => {
+        const winnerUid = winnerUserIds[i];
+        if (!winnerUid) return;
+
+        const prizeRef = prizesCol.doc();
+        batch.set(prizeRef, {
+          tournamentId,
+          participantId:  winnerUid,
+          position:       p.position,
+          amount:         p.amount,
+          status:         "pending",
+          claimReference: `TRN-${shortRef}-${p.position}`,
+          computedAt:     new Date(),
+        });
+        prizesCreated += 1;
+
+        if (p.position === 1) {
+          const participantRef = tournamentRef.collection("participants").doc(winnerUid);
+          batch.update(participantRef, { status: "winner" });
+        }
+      });
+
+      // Log if any pot stayed in the platform account.
+      const distributed = payouts.reduce((s, p) => s + p.amount, 0);
+      if (distributed < prizePool) {
+        console.log(
+          `[finalizeTournament] ${prizePool - distributed} pence stayed in platform account ` +
+          `for tournament ${tournamentId} (${expectedPositions - filledPositions} unfilled positions)`,
+        );
+      }
+    } else if (winnerUserIds[0]) {
+      // No money, but still mark the 1st-placer as "winner" for display.
+      const participantRef = tournamentRef.collection("participants").doc(winnerUserIds[0]);
+      batch.update(participantRef, { status: "winner" });
+    }
+
+    batch.update(tournamentRef, { status: "complete" });
+    await batch.commit();
+
+    return { success: true, data: { prizesCreated } };
+  } catch (err) {
+    console.error("[finalizeTournament]", err);
+    const message = err instanceof Error ? err.message : "Failed to finalize tournament";
+    return { success: false, error: message };
+  }
+}
+
+// ─── initiatePrizeClaim ───────────────────────────────────────────────────────
+// The winner clicks "Claim £X" on the tournament page. We flip the prize
+// status from "pending" to "claim_initiated" and return the claimReference
+// the user should mention when DMing the ClanForge Discord.
+
+export async function initiatePrizeClaim(
+  uid:           string,
+  tournamentId:  string,
+  prizeId:       string,
+): Promise<ActionResult<{ claimReference: string }>> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const prizeRef = adminDb
+      .collection("tournaments").doc(tournamentId)
+      .collection("prizes").doc(prizeId);
+
+    const snap = await prizeRef.get();
+    if (!snap.exists) return { success: false, error: "Prize not found" };
+
+    const prize = snap.data()!;
+    if (prize.participantId !== uid) {
+      return { success: false, error: "Only the prize winner can claim this prize" };
+    }
+    if (prize.status === "paid") {
+      return { success: false, error: "This prize has already been paid out" };
+    }
+
+    await prizeRef.update({
+      status:    "claim_initiated",
+      claimedAt: new Date(),
+    });
+
+    return { success: true, data: { claimReference: prize.claimReference as string } };
+  } catch (err) {
+    console.error("[initiatePrizeClaim]", err);
+    const message = err instanceof Error ? err.message : "Could not start claim";
+    return { success: false, error: message };
+  }
+}
+
+// ─── markPrizePaid ────────────────────────────────────────────────────────────
+// Platform admin records that they've paid out the prize manually (bank
+// transfer, Stripe transfer, etc.). Verified against profile.isAdmin.
+
+export async function markPrizePaid(
+  adminUid:      string,
+  tournamentId:  string,
+  prizeId:       string,
+): Promise<ActionResult> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const profileSnap = await adminDb.collection("profiles").doc(adminUid).get();
+    if ((profileSnap.data()?.isAdmin as boolean) !== true) {
+      return { success: false, error: "Admin permission required" };
+    }
+
+    await adminDb
+      .collection("tournaments").doc(tournamentId)
+      .collection("prizes").doc(prizeId)
+      .update({
+        status: "paid",
+        paidAt: new Date(),
+      });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[markPrizePaid]", err);
+    const message = err instanceof Error ? err.message : "Could not mark prize paid";
+    return { success: false, error: message };
+  }
+}
+
 // ─── expirePendingDraft (called from the webhook) ─────────────────────────────
 // Deletes a pending_payment draft when Stripe says the Checkout Session
 // expired without payment.
