@@ -378,3 +378,20 @@ h1, h2, h3, h4, h5, h6 {
     linear-gradient(180deg, rgba(10,10,15,0.30) 0%, rgba(10,10,15,0.55) 100%),
     radial-gradient(ellipse 85% 75% at 50% 50%, rgba(10,10,15,0.20) 0%, rgba(10,10,15,0.55) 100%);
 }
+
+/* -- Layer offset for app chrome ------------------------------------------- */
+/* The background and scrim layers must not cover the left sidebar (240px
+   wide on desktop). On mobile the sidebar collapses into a drawer that has
+   its own backdrop, so 0 is correct there. */
+@media (min-width: 768px) {
+  .profile-bg-aurora::before, .profile-bg-aurora::after,
+  .profile-bg-ember::before,  .profile-bg-ember::after,
+  .profile-bg-ocean::before,  .profile-bg-ocean::after,
+  .profile-bg-void::before,   .profile-bg-void::after,
+  .profile-bg-grid::before,   .profile-bg-grid::after,
+  .profile-bg-pulse::before,  .profile-bg-pulse::after,
+  .profile-bg-rain::before,   .profile-bg-rain::after,
+  .profile-bg-image::before,  .profile-bg-image::after {
+    left: 240px; /* matches Sidebar w-60 (= 15rem = 240px) */
+  }
+}
