@@ -199,7 +199,7 @@ function SidebarBody({
         {isAuthenticated ? (
           <>
             <Link
-              href="/profile/edit"
+              href="/settings"
               onClick={onNavigate}
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
               style={{ color: "var(--text-muted)" }}

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import Link from "next/link";
+import { Pencil } from "lucide-react";
 import type { Clan, ClanMember, GameRecord, Profile } from "@/types";
 import ProfileHero from "@/components/profile/ProfileHero";
 import PrivateProfileScreen from "@/components/profile/PrivateProfileScreen";
@@ -231,6 +232,24 @@ export default async function ProfilePage({
         bannerUrl={profile.bannerUrl ?? null}
         accentColour={profile.accentColour ?? null}
       />
+
+      {/* ── Owner toolbar (Edit profile) ─────────────────────────────────── */}
+      {isOwner && (
+        <div className="px-2 mb-6 flex justify-end">
+          <Link
+            href="/profile/edit"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+            style={{
+              background: "var(--bg-elevated)",
+              border:     "1px solid var(--border-default)",
+              color:      "var(--text-secondary)",
+            }}
+          >
+            <Pencil size={14} />
+            Edit Profile
+          </Link>
+        </div>
+      )}
 
       {/* ── Private gate ─────────────────────────────────────────────────── */}
       {showPrivateScreen && <PrivateProfileScreen />}

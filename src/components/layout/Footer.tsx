@@ -10,10 +10,11 @@ const FOOTER_LINKS = [
 export function Footer() {
   return (
     <footer
-      className="w-full px-6 py-6"
+      className="w-full px-6 py-6 relative"
       style={{
         background: "var(--bg-surface)",
-        borderTop: "1px solid var(--border-subtle)",
+        borderTop:  "1px solid var(--border-subtle)",
+        zIndex:     1, // sit above any fixed profile-bg layers (which paint at z-index -1)
       }}
     >
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6">

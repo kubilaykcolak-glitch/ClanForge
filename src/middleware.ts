@@ -23,6 +23,7 @@ const PROTECTED_EXACT = [
   "/profile/edit",
   "/clans/create",
   "/tournaments/create",
+  "/settings",
 ];
 
 // Routes that should redirect to /dashboard when already authenticated
@@ -74,6 +75,7 @@ export const config = {
     "/profile/edit",
     "/clans/create",
     "/tournaments/create",
+    "/settings",
     "/login",
     "/register",
   ],
