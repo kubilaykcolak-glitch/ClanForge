@@ -2,7 +2,7 @@ import Link from "next/link";
 
 const FOOTER_LINKS = [
   { href: "/about",   label: "About" },
-  { href: "https://discord.gg/clanforge", label: "Discord", external: true },
+  { href: "https://discord.gg/NB9VftUUSJ", label: "Discord", external: true },
   { href: "/terms",   label: "Terms" },
   { href: "/privacy", label: "Privacy" },
 ];
