@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   deleteDoc,
   doc,
@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/Badge";
 import { CountdownTimer } from "./CountdownTimer";
 import type { TournamentStatus } from "@/types";
 import { formatPence } from "@/lib/prize-splits";
+import { createCheckoutSession } from "@/lib/actions/tournament-payment.actions";
 
 interface TournamentRegistrationProps {
   tournamentId:        string;
@@ -48,8 +49,9 @@ export function TournamentRegistration({
   currentAvatarUrl,
   winner,
 }: TournamentRegistrationProps) {
-  const router       = useRouter();
-  const [busy, setBusy]     = useState(false);
+  const router         = useRouter();
+  const searchParams   = useSearchParams();
+  const [busy, setBusy]   = useState(false);
   const [isSlow, setIsSlow] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,6 +59,27 @@ export function TournamentRegistration({
   const isFull   = participantCount >= maxParticipants;
   const isFree   = entryFee === 0;
   const hasPrize = prizePool > 0;
+
+  // Surface Stripe Checkout outcomes once when the user returns from the
+  // hosted page (?payment=success | cancelled). The participant won't show
+  // as "paid" until the webhook lands, so success is celebratory but
+  // tentative — router.refresh() pulls the new state when it's ready.
+  useEffect(() => {
+    const status = searchParams.get("payment");
+    if (status === "success") {
+      toast.success("Payment received — finalising your registration…");
+      router.refresh();
+    } else if (status === "cancelled") {
+      toast.info("Payment cancelled. You can retry whenever you're ready.");
+    }
+    // Strip the param so it doesn't fire again on next render.
+    if (status) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("payment");
+      window.history.replaceState({}, "", url.toString());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (busy) {
@@ -69,29 +92,50 @@ export function TournamentRegistration({
   }, [busy]);
 
   // ── Register ──
+  // Free tournaments: direct Firestore write (existing behaviour).
+  // Paid tournaments: server action → Stripe Checkout → webhook confirms.
   const handleRegister = async () => {
     if (!currentUid) { window.location.href = "/login"; return; }
     setBusy(true);
     setOpError(null);
+
     try {
-      await setDoc(doc(db, "tournaments", tournamentId, "participants", currentUid), {
-        userId:      currentUid,
-        seed:        0,
-        status:      "registered",
-        registeredAt: new Date(),
+      if (isFree) {
+        await setDoc(doc(db, "tournaments", tournamentId, "participants", currentUid), {
+          userId:        currentUid,
+          seed:          0,
+          status:        "registered",
+          paymentStatus: "free",
+          registeredAt:  new Date(),
+          displayName:   currentDisplayName,
+          avatarUrl:     currentAvatarUrl ?? null,
+        });
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          participantCount: increment(1),
+        });
+        toast.success("You're registered! 🏆");
+        router.refresh();
+        return;
+      }
+
+      // Paid path — redirect to Stripe Checkout. Note: setBusy(false) is
+      // intentionally NOT in `finally` for the success path because
+      // window.location.href fires before React can rerender.
+      const result = await createCheckoutSession(currentUid, tournamentId, {
         displayName: currentDisplayName,
-        avatarUrl:   currentAvatarUrl ?? null,
+        avatarUrl:   currentAvatarUrl,
       });
-      await updateDoc(doc(db, "tournaments", tournamentId), {
-        participantCount: increment(1),
-      });
-      toast.success("You're registered! 🏆");
-      router.refresh();
+      if (!result.success || !result.data?.checkoutUrl) {
+        setOpError(result.error ?? "Could not start payment. Try again.");
+        toast.error(result.error ?? "Could not start payment");
+        setBusy(false);
+        return;
+      }
+      window.location.href = result.data.checkoutUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Registration failed";
       setOpError(msg.includes("permission") ? "Permission denied — you may already be registered." : "Registration failed. Please try again.");
       toast.error("Registration failed. Try again.");
-    } finally {
       setBusy(false);
     }
   };
@@ -197,7 +241,9 @@ export function TournamentRegistration({
             }}
           >
             {busy && <Loader2 size={14} className="animate-spin" />}
-            {busy ? "Registering…" : "Register Now"}
+            {busy
+              ? (isFree ? "Registering…" : "Redirecting…")
+              : (isFree ? "Register Now" : `Register & Pay ${formatPence(entryFee)}`)}
           </button>
           <CountdownTimer targetDate={registrationClosesAt} />
         </>
