@@ -3,6 +3,7 @@ import { Users } from "lucide-react";
 import type { Tournament } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
+import { formatPence } from "@/lib/prize-splits";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -102,7 +103,7 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
               color: "var(--warning)",
             }}
           >
-            £{Math.floor(tournament.prizePool / 100)} Prize
+            {formatPence(tournament.prizePool)} Prize
           </span>
         )}
       </div>
@@ -132,7 +133,7 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
             {tournament.participantCount} / {tournament.maxParticipants}
           </span>
           <span style={{ color: isFree ? "var(--success)" : "var(--warning)" }}>
-            {isFree ? "Free Entry" : `£${Math.floor(tournament.entryFee / 100)} Entry`}
+            {isFree ? "Free Entry" : `${formatPence(tournament.entryFee)} Entry`}
           </span>
         </div>
 

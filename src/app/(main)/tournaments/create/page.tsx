@@ -7,10 +7,16 @@ import { addDoc, collection } from "firebase/firestore";
 import { AlertCircle, ChevronLeft, ChevronRight, Loader2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
-import type { TournamentFormat } from "@/types";
-import ComingSoon from "@/components/ui/ComingSoon";
+import type { PrizeSplit, TournamentFormat } from "@/types";
 import { DateTimePicker } from "@/components/ui/DateTimePicker";
 import { validateImageFile } from "@/lib/uploads";
+import {
+  PRIZE_SPLIT_PRESETS,
+  DEFAULT_PLATFORM_FEE_PCT,
+  ENTRY_FEE_MIN_PENCE,
+  ENTRY_FEE_MAX_PENCE,
+  prizePoolDeltaForEntry,
+} from "@/lib/prize-splits";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -446,7 +452,10 @@ function Step1({ state, onChange, errors }: Step1Props) {
 
 interface Step2State {
   maxParticipants:       number | null;
-  prizePool:             number;   // whole pounds
+  prizePool:             number;   // whole pounds (free tournament only)
+  isPaid:                boolean;
+  entryFee:              number;   // whole pounds — only meaningful when isPaid
+  prizeSplit:            PrizeSplit;
   registrationClosesAt:  Date | null;
   startsAt:              Date | null;
   rules:                 string;
@@ -493,62 +502,147 @@ function Step2({ state, onChange, errors }: Step2Props) {
       </Section>
 
       <Section title="Entry & Prize">
-        {/* Entry type toggle — always free for now */}
+        {/* ── Entry type toggle ── */}
         <div
-          className="flex items-center justify-between p-3 rounded-xl"
+          className="p-3 rounded-xl"
           style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
         >
-          <div>
-            <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Entry Type</p>
-            <p className="text-xs mt-0.5" style={{ color: "var(--success)" }}>Free Entry</p>
-          </div>
-          {/* SNIPPET B: Paid entry — Phase 2 placeholder */}
-          <ComingSoon label="Phase 2">
-            {/* Disabled toggle row */}
-            <div
-              className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-not-allowed"
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onChange({ isPaid: false })}
+              className="rounded-lg p-3 text-left transition-all"
               style={{
-                background: "var(--bg-overlay)",
-                border:     "1px solid var(--border-default)",
+                background: state.isPaid ? "transparent" : "rgba(34,197,94,0.10)",
+                border:     `1px solid ${state.isPaid ? "var(--border-default)" : "var(--success)"}`,
+                color:      state.isPaid ? "var(--text-secondary)" : "var(--success)",
               }}
             >
-              {/* Toggle track */}
-              <div
-                className="relative shrink-0 rounded-full"
-                style={{ width: 36, height: 20, background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
-              >
-                <div
-                  className="absolute top-0.5 left-0.5 rounded-full"
-                  style={{ width: 16, height: 16, background: "var(--text-muted)" }}
-                />
-              </div>
-              <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-                Paid Entry
-              </span>
-            </div>
-          </ComingSoon>
-          <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-            Paid tournaments with Stripe integration — coming soon.
-          </p>
+              <p className="text-sm font-semibold">Free Entry</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Anyone can register for free
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onChange({ isPaid: true })}
+              className="rounded-lg p-3 text-left transition-all"
+              style={{
+                background: state.isPaid ? "rgba(99,102,241,0.10)" : "transparent",
+                border:     `1px solid ${state.isPaid ? "var(--accent)" : "var(--border-default)"}`,
+                color:      state.isPaid ? "var(--accent)" : "var(--text-secondary)",
+              }}
+            >
+              <p className="text-sm font-semibold">Paid Entry</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Entry fee, prize pool, Stripe
+              </p>
+            </button>
+          </div>
         </div>
 
-        {/* Prize pool */}
-        <div>
-          <Label>Prize Pool (£)</Label>
-          <input
-            type="number"
-            min={0}
-            value={state.prizePool || ""}
-            onChange={e => onChange({ prizePool: Number(e.target.value) || 0 })}
-            placeholder="e.g. 50 for a £50 prize"
-            style={inputStyle()}
-            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
-            onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
-          />
-          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            Leave 0 for no prize pool. Enter whole pounds (e.g. 50 = £50).
-          </p>
-        </div>
+        {/* ── Paid: entry fee + prize split ── */}
+        {state.isPaid ? (
+          <>
+            <div>
+              <Label>
+                Entry Fee (£) <span style={{ color: "var(--danger)" }}>*</span>
+              </Label>
+              <input
+                type="number"
+                min={ENTRY_FEE_MIN_PENCE / 100}
+                max={ENTRY_FEE_MAX_PENCE / 100}
+                step="0.01"
+                value={state.entryFee || ""}
+                onChange={e => onChange({ entryFee: Number(e.target.value) || 0 })}
+                placeholder="e.g. 5.00"
+                style={inputStyle()}
+                onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+                onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
+              />
+              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                Between £{ENTRY_FEE_MIN_PENCE / 100} and £{ENTRY_FEE_MAX_PENCE / 100}. ClanForge keeps
+                a {DEFAULT_PLATFORM_FEE_PCT}% platform fee; the rest goes to the prize pool.
+              </p>
+              {errors.entryFee && (
+                <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>{errors.entryFee}</p>
+              )}
+            </div>
+
+            <div>
+              <Label>
+                Prize Split <span style={{ color: "var(--danger)" }}>*</span>
+              </Label>
+              <div className="flex flex-col gap-2">
+                {PRIZE_SPLIT_PRESETS.map(preset => {
+                  const selected = state.prizeSplit === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => onChange({ prizeSplit: preset.id })}
+                      className="rounded-lg p-3 text-left transition-all"
+                      style={{
+                        background: selected ? "rgba(99,102,241,0.08)" : "var(--bg-elevated)",
+                        border:     `1px solid ${selected ? "var(--accent)" : "var(--border-default)"}`,
+                        color:      selected ? "var(--accent)" : "var(--text-secondary)",
+                      }}
+                    >
+                      <p className="text-sm font-medium">{preset.label}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Live prize-pool projection */}
+            {state.entryFee > 0 && state.maxParticipants && (
+              <div
+                className="p-3 rounded-xl text-xs"
+                style={{
+                  background: "var(--bg-elevated)",
+                  border:     "1px solid var(--border-default)",
+                  color:      "var(--text-muted)",
+                }}
+              >
+                <p>
+                  At full capacity ({state.maxParticipants} players), prize pool would be{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    £
+                    {(
+                      (prizePoolDeltaForEntry(
+                        Math.round(state.entryFee * 100),
+                        DEFAULT_PLATFORM_FEE_PCT,
+                      ) *
+                        state.maxParticipants) /
+                      100
+                    ).toFixed(2)}
+                  </strong>
+                  . The prize pool grows as people register.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          // Free tournament — optional fixed prize pool funded by the creator
+          <div>
+            <Label>Prize Pool (£)</Label>
+            <input
+              type="number"
+              min={0}
+              value={state.prizePool || ""}
+              onChange={e => onChange({ prizePool: Number(e.target.value) || 0 })}
+              placeholder="e.g. 50 for a £50 prize"
+              style={inputStyle()}
+              onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
+            />
+            <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              Optional. Enter whole pounds (e.g. 50 = £50). Prizes are funded and paid out manually by you.
+            </p>
+          </div>
+        )}
       </Section>
 
       <Section title="Schedule">
@@ -613,13 +707,24 @@ function Step3({ step1, step2 }: Step3Props) {
     round_robin:  "Round Robin",
   };
 
+  const splitLabel = step2.isPaid
+    ? PRIZE_SPLIT_PRESETS.find(p => p.id === step2.prizeSplit)?.label ?? "—"
+    : "—";
+
   const rows: [string, string][] = [
     ["Name",              step1.name],
     ["Game",              step1.game],
     ["Format",            formatLabels[step1.format] ?? step1.format],
     ["Max participants",  step2.maxParticipants?.toString() ?? "—"],
-    ["Entry",             "Free"],
-    ["Prize pool",        step2.prizePool > 0 ? `£${step2.prizePool}` : "None"],
+    ["Entry",             step2.isPaid ? `£${step2.entryFee.toFixed(2)} (paid)` : "Free"],
+    ...(step2.isPaid
+      ? ([
+          ["Platform fee",  `${DEFAULT_PLATFORM_FEE_PCT}%`],
+          ["Prize split",   splitLabel],
+        ] as [string, string][])
+      : ([
+          ["Prize pool",    step2.prizePool > 0 ? `£${step2.prizePool}` : "None"],
+        ] as [string, string][])),
     ["Registration closes", step2.registrationClosesAt
       ? step2.registrationClosesAt.toLocaleString()
       : "—"],
@@ -710,6 +815,9 @@ export default function CreateTournamentPage() {
   const [s2, setS2] = useState<Step2State>({
     maxParticipants:      null,
     prizePool:            0,
+    isPaid:               false,
+    entryFee:             0,
+    prizeSplit:           "winner_takes_all",
     registrationClosesAt: null,
     startsAt:             null,
     rules:                "",
@@ -751,6 +859,15 @@ export default function CreateTournamentPage() {
       e.startsAt = "Set a start date";
     else if (s2.registrationClosesAt && s2.startsAt <= s2.registrationClosesAt)
       e.startsAt = "Must be after registration closes";
+
+    if (s2.isPaid) {
+      const entryFeePence = Math.round(s2.entryFee * 100);
+      if (entryFeePence < ENTRY_FEE_MIN_PENCE)
+        e.entryFee = `Minimum entry fee is £${ENTRY_FEE_MIN_PENCE / 100}`;
+      else if (entryFeePence > ENTRY_FEE_MAX_PENCE)
+        e.entryFee = `Maximum entry fee is £${ENTRY_FEE_MAX_PENCE / 100}`;
+    }
+
     setErrors2(e);
     return Object.keys(e).length === 0;
   };
@@ -802,6 +919,9 @@ export default function CreateTournamentPage() {
       const bannerUrl = await uploadBanner();
       setSubmitStep("Creating tournament…");
 
+      const entryFeePence = s2.isPaid ? Math.round(s2.entryFee * 100) : 0;
+      const prizePoolPence = s2.isPaid ? 0 : s2.prizePool * 100; // grows via paid registrations
+
       const docRef = await addDoc(collection(db, "tournaments"), {
         name:                 s1.name.trim(),
         game:                 s1.game,
@@ -809,8 +929,13 @@ export default function CreateTournamentPage() {
         format:               s1.format,
         bannerUrl:            bannerUrl,
         maxParticipants:      s2.maxParticipants,
-        entryFee:             0,
-        prizePool:            s2.prizePool * 100, // convert £ to pence
+        entryFee:             entryFeePence,
+        prizePool:            prizePoolPence,
+        isPaid:               s2.isPaid,
+        ...(s2.isPaid && {
+          prizeSplit:     s2.prizeSplit,
+          platformFeePct: DEFAULT_PLATFORM_FEE_PCT,
+        }),
         registrationClosesAt: s2.registrationClosesAt,
         startsAt:             s2.startsAt,
         rosterLockedAt:       s2.startsAt, // same as start for now

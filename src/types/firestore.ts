@@ -1,4 +1,13 @@
-import type { ClanRole, MatchStatus, ParticipantStatus, TournamentFormat, TournamentStatus } from "./index";
+import type {
+  ClanRole,
+  MatchStatus,
+  ParticipantStatus,
+  PaymentStatus,
+  PrizePayoutStatus,
+  PrizeSplit,
+  TournamentFormat,
+  TournamentStatus,
+} from "./index";
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 
@@ -115,8 +124,18 @@ export interface Tournament {
   format: TournamentFormat;
   status: TournamentStatus;
   maxParticipants: number;
+  /** Entry fee in pence (e.g. 500 = £5). 0 for free tournaments. */
   entryFee: number;
+  /** Current prize pool in pence. Auto-grows on paid registrations,
+   * shrinks on refunds. Set explicitly to 0 for free tournaments. */
   prizePool: number;
+  /** When true, registration requires a Stripe payment of `entryFee`. */
+  isPaid?: boolean;
+  /** Preset that controls how `prizePool` is distributed to top finishers. */
+  prizeSplit?: PrizeSplit;
+  /** Platform fee % applied at registration time (captured for the historical
+   * record so existing tournaments aren't affected by future fee changes). */
+  platformFeePct?: number;
   rules?: string;
   bannerUrl?: string;
   creatorId: string;
@@ -136,6 +155,37 @@ export interface TournamentParticipant {
   seed: number;
   status: ParticipantStatus;
   registeredAt: Date;
+  /** Payment lifecycle for this entry. "free" for free tournaments. */
+  paymentStatus?: PaymentStatus;
+  /** Stripe Checkout Session id — used to reconcile webhook events. */
+  stripeCheckoutSessionId?: string;
+  /** Stripe PaymentIntent id — required to issue a refund. */
+  stripePaymentIntentId?: string;
+  /** Amount actually paid in pence at registration time. */
+  paidAmount?: number;
+  paidAt?: Date;
+  refundedAt?: Date;
+}
+
+// ─── PrizePayout ──────────────────────────────────────────────────────────────
+// Stored as a subcollection: /tournaments/{tournamentId}/prizes/{prizeId}
+
+export interface PrizePayout {
+  id?: string;
+  tournamentId: string;
+  /** Winning participant's user id (matches /tournaments/{id}/participants/{userId}). */
+  participantId: string;
+  /** Placement, 1 = winner, 2 = runner-up, etc. */
+  position: number;
+  /** Award amount in pence. */
+  amount: number;
+  status: PrizePayoutStatus;
+  /** Short human-readable code shown to the user when they message support
+   * in Discord, e.g. "TOURN-abc1-1". */
+  claimReference: string;
+  computedAt: Date;
+  claimedAt?: Date;
+  paidAt?: Date;
 }
 
 // ─── TournamentMatch ──────────────────────────────────────────────────────────

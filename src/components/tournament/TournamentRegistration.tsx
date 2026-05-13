@@ -15,6 +15,7 @@ import { db } from "@/lib/firebase/client";
 import { Badge } from "@/components/ui/Badge";
 import { CountdownTimer } from "./CountdownTimer";
 import type { TournamentStatus } from "@/types";
+import { formatPence } from "@/lib/prize-splits";
 
 interface TournamentRegistrationProps {
   tournamentId:        string;
@@ -143,7 +144,7 @@ export function TournamentRegistration({
             className="font-display font-bold text-2xl"
             style={{ color: "var(--warning)" }}
           >
-            £{Math.floor(prizePool / 100)} Prize Pool
+            {formatPence(prizePool)} Prize Pool
           </span>
         </div>
       )}
@@ -155,7 +156,7 @@ export function TournamentRegistration({
           className="font-semibold"
           style={{ color: isFree ? "var(--success)" : "var(--text-primary)" }}
         >
-          {isFree ? "Free" : `£${Math.floor(entryFee / 100)}`}
+          {isFree ? "Free" : formatPence(entryFee)}
         </span>
       </div>
 

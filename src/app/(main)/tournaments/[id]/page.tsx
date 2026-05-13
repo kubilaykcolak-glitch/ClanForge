@@ -9,6 +9,12 @@ import { Badge } from "@/components/ui/Badge";
 import { BracketView } from "@/components/tournament/BracketView";
 import { TournamentRegistration } from "@/components/tournament/TournamentRegistration";
 import { formatDate, getInitials } from "@/lib/utils";
+import {
+  computePayouts,
+  formatPence,
+  getPresetLabel,
+  positionLabel,
+} from "@/lib/prize-splits";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -275,7 +281,7 @@ export default async function TournamentPage({
                 className="font-display font-bold text-3xl mb-2"
                 style={{ color: "var(--warning)" }}
               >
-                £{Math.floor(tournament.prizePool / 100)} Prize Pool
+                {formatPence(tournament.prizePool)} Prize Pool
               </p>
             )}
 
@@ -285,9 +291,32 @@ export default async function TournamentPage({
               <span
                 style={{ color: isFree ? "var(--success)" : "var(--text-primary)" }}
               >
-                {isFree ? "Free" : `£${Math.floor(tournament.entryFee / 100)}`}
+                {isFree ? "Free" : formatPence(tournament.entryFee)}
               </span>
             </p>
+
+            {/* Prize split breakdown — paid tournaments with a split set */}
+            {tournament.isPaid && tournament.prizeSplit && tournament.prizePool > 0 && (
+              <div
+                className="mt-3 inline-block rounded-lg p-3"
+                style={{
+                  background: "var(--bg-surface)",
+                  border:     "1px solid var(--border-default)",
+                }}
+              >
+                <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+                  Prize split — <span style={{ color: "var(--text-secondary)" }}>{getPresetLabel(tournament.prizeSplit)}</span>
+                </p>
+                <ul className="text-sm flex flex-wrap gap-x-4 gap-y-1" style={{ color: "var(--text-secondary)" }}>
+                  {computePayouts(tournament.prizePool, tournament.prizeSplit).map(p => (
+                    <li key={p.position}>
+                      <span style={{ color: "var(--text-muted)" }}>{positionLabel(p.position)}</span>{" "}
+                      <strong style={{ color: "var(--text-primary)" }}>{formatPence(p.amount)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Date */}
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
