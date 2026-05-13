@@ -1,3 +1,9 @@
 {
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/purge-empty-tournaments",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

@@ -17,6 +17,7 @@ import {
   ENTRY_FEE_MAX_PENCE,
   prizePoolDeltaForEntry,
 } from "@/lib/prize-splits";
+import { canCreateTournament } from "@/lib/actions/tournament-limits.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -826,6 +827,10 @@ export default function CreateTournamentPage() {
   const [errors1, setErrors1] = useState<Partial<Record<keyof Step1State, string>>>({});
   const [errors2, setErrors2] = useState<Partial<Record<keyof Step2State, string>>>({});
 
+  // Anti-spam gate. `gate === null` means "still checking"; `{ allowed: false }`
+  // shows a banner instead of the wizard.
+  const [gate, setGate] = useState<{ allowed: boolean; reason?: string } | null>(null);
+
   // ── Auth gate ──
   useEffect(() => {
     return onAuthStateChanged(auth, user => {
@@ -833,6 +838,24 @@ export default function CreateTournamentPage() {
       setUid(user.uid);
     });
   }, []);
+
+  // ── Creation rate-limit gate ──
+  // Runs once when the signed-in uid first resolves. The server action also
+  // re-runs on submit, so this is purely for upfront UX.
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    (async () => {
+      const result = await canCreateTournament(uid);
+      if (cancelled) return;
+      if (!result.success || !result.data) {
+        setGate({ allowed: true });
+        return;
+      }
+      setGate({ allowed: result.data.allowed, reason: result.data.reason });
+    })();
+    return () => { cancelled = true; };
+  }, [uid]);
 
   // ── Validation ──
   const validateStep1 = (): boolean => {
@@ -915,6 +938,19 @@ export default function CreateTournamentPage() {
     slowTimerRef.current = setTimeout(() => setIsSlow(true), 8_000);
 
     try {
+      // Re-check the creation gate at submit time. The mount-time check is for
+      // UX; this is the real enforcement (a user could keep the page open
+      // for hours and bypass the mount check otherwise).
+      const gateRecheck = await canCreateTournament(uid);
+      if (gateRecheck.success && gateRecheck.data && !gateRecheck.data.allowed) {
+        toast.error(gateRecheck.data.reason ?? "You can't create a tournament right now");
+        if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+        setSubmitting(false);
+        setSubmitStep(null);
+        setGate({ allowed: false, reason: gateRecheck.data.reason });
+        return;
+      }
+
       if (s1.bannerFile) setSubmitStep("Uploading banner…");
       const bannerUrl = await uploadBanner();
       setSubmitStep("Creating tournament…");
@@ -959,10 +995,63 @@ export default function CreateTournamentPage() {
     }
   };
 
-  if (!uid) {
+  if (!uid || gate === null) {
     return (
       <div className="flex items-center justify-center min-h-64">
         <Loader2 size={24} className="animate-spin" style={{ color: "var(--text-muted)" }} />
+      </div>
+    );
+  }
+
+  // Anti-spam gate: account too new, or rate limit hit.
+  if (!gate.allowed) {
+    return (
+      <div className="max-w-xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="p-2 rounded-lg transition-colors"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <h1 className="font-display font-bold text-2xl" style={{ color: "var(--text-primary)" }}>
+            Create Tournament
+          </h1>
+        </div>
+
+        <div
+          className="rounded-2xl p-6 flex flex-col items-start gap-4"
+          style={{
+            background: "rgba(245,158,11,0.06)",
+            border:     "1px solid rgba(245,158,11,0.30)",
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} style={{ color: "var(--warning)", marginTop: 2, flexShrink: 0 }} />
+            <div>
+              <p className="font-display font-semibold" style={{ color: "var(--warning)" }}>
+                Not available right now
+              </p>
+              <p className="text-sm mt-1 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {gate.reason ?? "You can't create a tournament at the moment."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push("/tournaments")}
+            className="ml-auto px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+            style={{
+              background: "var(--bg-elevated)",
+              border:     "1px solid var(--border-default)",
+              color:      "var(--text-secondary)",
+            }}
+          >
+            Back to Tournaments
+          </button>
+        </div>
       </div>
     );
   }
