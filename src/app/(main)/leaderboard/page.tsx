@@ -4,7 +4,6 @@ import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
 import { getClanLeaderboard } from "@/lib/actions/leaderboard.actions";
 import { getActiveSeason } from "@/lib/actions/season.actions";
 import type { LeaderboardEntry, LeaderboardPeriod } from "@/lib/actions/leaderboard.actions";
-import type { SeasonRow } from "@/lib/actions/season.actions";
 
 // ── Data fetch ────────────────────────────────────────────────────────────────
 

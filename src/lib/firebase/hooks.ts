@@ -1,6 +1,6 @@
 "use client";
 
-import { collection, doc, limit, orderBy, query, where } from "firebase/firestore";
+import { collection, doc, limit, orderBy, query } from "firebase/firestore";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { useCollectionData, useDocumentData } from "react-firebase-hooks/firestore";
 import type { User } from "firebase/auth";

@@ -16,7 +16,6 @@ import {
   LogOut,
   LogIn,
   UserPlus,
-  Bell,
 } from "lucide-react";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { cn } from "@/lib/utils";

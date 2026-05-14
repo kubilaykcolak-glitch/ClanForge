@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Trophy, Calendar, Users } from "lucide-react";
+import { Trophy, Calendar } from "lucide-react";
 import { getAllChallenges } from "@/lib/actions/challenge.actions";
 import { getAllSeasons } from "@/lib/actions/season.actions";
 

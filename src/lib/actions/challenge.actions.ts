@@ -284,7 +284,6 @@ export async function trackChallengeProgress(
     const clanData = clanSnap.data()!;
 
     for (const challengeDoc of challengesSnap.docs) {
-      const challenge = challengeDoc.data() as ClanChallenge & { id: string };
       const entryRef = adminDb
         .collection("challenges")
         .doc(challengeDoc.id)

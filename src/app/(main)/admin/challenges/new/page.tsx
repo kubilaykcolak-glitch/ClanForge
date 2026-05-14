@@ -26,7 +26,7 @@ async function getAdminUid(): Promise<string> {
 async function handleCreate(formData: FormData) {
   "use server";
 
-  const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
+  const { adminAuth } = await import("@/lib/firebase/admin");
   const sessionCookie = cookies().get("session")?.value ?? "";
   let uid = "";
   try {

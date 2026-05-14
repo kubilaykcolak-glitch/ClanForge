@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Trophy, Clock, ChevronRight, Zap, Users } from "lucide-react";
+import { Trophy, Clock, ChevronRight, Zap } from "lucide-react";
 import { getClanActiveChallenges, type ClanChallengeWidgetData } from "@/lib/actions/challenge.actions";
 import { ChallengeProgressBar } from "./ChallengeProgressBar";
 
@@ -82,7 +82,6 @@ export function ClanChallengesWidget({ clanId }: Props) {
 
   const { challenge, entry, topEntries } = current;
   const progress = entry?.progress ?? 0;
-  const pct      = Math.min(100, Math.round((progress / challenge.targetValue) * 100));
 
   return (
     <div

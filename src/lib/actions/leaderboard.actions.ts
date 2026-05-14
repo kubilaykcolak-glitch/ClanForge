@@ -8,8 +8,6 @@ interface ActionResult<T = undefined> {
   error?:  string;
 }
 
-const toMs = (v: unknown) =>
-  (v as { toDate?: () => Date } | undefined)?.toDate?.().getTime() ?? Date.now();
 
 export interface LeaderboardEntry {
   rank:         number;

@@ -261,13 +261,9 @@ export async function getClanXpFeed(
 
 async function _sendLevelUpNotifications(clanId: string, newLevel: number): Promise<void> {
   try {
-    const { adminDb }         = await import("@/lib/firebase/admin");
-    const { getClanLevel }    = await import("@/lib/clan-levels");
+    const { adminDb }            = await import("@/lib/firebase/admin");
+    const { CLAN_LEVELS }        = await import("@/lib/clan-levels");
     const { createNotification } = await import("@/lib/actions/notification.actions");
-
-    const levelDef = getClanLevel(newLevel * 1000); // get the def for this level
-    // Actually find the def directly
-    const { CLAN_LEVELS } = await import("@/lib/clan-levels");
     const def = CLAN_LEVELS.find(d => d.level === newLevel);
     const tierName = def ? `${def.icon} ${def.name}` : `Level ${newLevel}`;
 
