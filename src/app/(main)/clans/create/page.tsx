@@ -11,6 +11,8 @@ import { slugify } from "@/lib/utils";
 import Toggle from "@/components/ui/Toggle";
 import { validateImageFile } from "@/lib/uploads";
 import { awardXp } from "@/lib/actions/xp.actions";
+import { checkClanNameAvailable } from "@/lib/actions/clan-name.actions";
+import { normalizeClanName, MIN_NAME_KEY_LENGTH } from "@/lib/clan-name";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -155,6 +157,10 @@ export default function CreateClanPage() {
   const [slugStatus, setSlugStatus]       = useState<"idle" | "checking" | "available" | "taken">("idle");
   const slugDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Name uniqueness (more aggressive than slug — catches case/punctuation/leetspeak copycats)
+  const [nameStatus, setNameStatus] = useState<"idle" | "checking" | "available" | "taken" | "too_short">("idle");
+  const nameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Images
   const [avatarFile, setAvatarFile]   = useState<File | null>(null);
   const [bannerFile, setBannerFile]   = useState<File | null>(null);
@@ -217,6 +223,35 @@ export default function CreateClanPage() {
     return () => { if (slugDebounce.current) clearTimeout(slugDebounce.current); };
   }, [slug, checkSlug]);
 
+  // ── Name uniqueness check (anti-copycat) ──
+  // Catches variants the slug check misses: case differences,
+  // diacritics, leetspeak, punctuation, zero-width spoofs.
+  useEffect(() => {
+    if (nameDebounce.current) clearTimeout(nameDebounce.current);
+    const trimmed = form.name.trim();
+    if (!trimmed) {
+      setNameStatus("idle");
+      return;
+    }
+    const key = normalizeClanName(trimmed);
+    if (key.length < MIN_NAME_KEY_LENGTH) {
+      setNameStatus("too_short");
+      return;
+    }
+    setNameStatus("checking");
+    nameDebounce.current = setTimeout(async () => {
+      const result = await checkClanNameAvailable(trimmed);
+      if (!result.success || !result.data) {
+        setNameStatus("idle");
+        return;
+      }
+      if (result.data.available)              setNameStatus("available");
+      else if (result.data.reason === "too_short") setNameStatus("too_short");
+      else                                    setNameStatus("taken");
+    }, 600);
+    return () => { if (nameDebounce.current) clearTimeout(nameDebounce.current); };
+  }, [form.name]);
+
   // ── Helpers ──
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm(prev => ({ ...prev, [key]: value }));
@@ -260,6 +295,24 @@ export default function CreateClanPage() {
       toast.error("Choose a different clan name — that slug is taken"); return;
     }
 
+    // Re-check the normalised name at submit time. The debounced status
+    // could be stale (or skipped if the user mashed Submit before it ran).
+    const nameKeyCheck = await checkClanNameAvailable(form.name);
+    if (!nameKeyCheck.success || !nameKeyCheck.data) {
+      toast.error("Couldn't verify clan name uniqueness. Please try again.");
+      return;
+    }
+    if (!nameKeyCheck.data.available) {
+      if (nameKeyCheck.data.reason === "too_short") {
+        toast.error("Clan name needs more letters or numbers — it normalised too short.");
+      } else {
+        toast.error("A clan with a very similar name already exists. Pick something more distinctive.");
+        setNameStatus("taken");
+      }
+      return;
+    }
+    const nameKey = nameKeyCheck.data.nameKey;
+
     setSubmitting(true);
     setSubmitStep("Preparing…");
     setIsSlow(false);
@@ -283,6 +336,7 @@ export default function CreateClanPage() {
 
       batch.set(clanRef, {
         name:         form.name.trim(),
+        nameKey,
         slug,
         description:  form.description.trim(),
         gameFocus:    form.gameFocus,
@@ -300,6 +354,9 @@ export default function CreateClanPage() {
       });
 
       batch.set(doc(db, "clanSlugs", slug), { clanId });
+      // Uniqueness index for the normalised clan name. Doc id = nameKey.
+      // Collisions block create — checked above before this batch runs.
+      batch.set(doc(db, "clanNameKeys", nameKey), { clanId });
 
       batch.set(doc(db, "clans", clanId, "members", uid), {
         userId:      uid,
@@ -354,7 +411,10 @@ export default function CreateClanPage() {
     form.name.length >= 3 &&
     form.gameFocus !== "" &&
     slugStatus !== "taken" &&
-    slugStatus !== "checking";
+    slugStatus !== "checking" &&
+    nameStatus !== "taken" &&
+    nameStatus !== "too_short" &&
+    nameStatus !== "checking";
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -419,6 +479,19 @@ export default function CreateClanPage() {
                 {slugStatus === "taken"     && <X     size={13} style={{ color: "var(--danger)"  }} />}
                 {slugStatus === "taken"     && <span className="text-xs" style={{ color: "var(--danger)" }}>Name already taken</span>}
               </div>
+            )}
+
+            {/* Name uniqueness check (anti-copycat) */}
+            {nameStatus === "taken" && (
+              <p className="mt-1.5 text-xs flex items-start gap-1.5" style={{ color: "var(--danger)" }}>
+                <X size={13} className="mt-0.5 shrink-0" />
+                A clan with a very similar name already exists. Try something more distinctive.
+              </p>
+            )}
+            {nameStatus === "too_short" && (
+              <p className="mt-1.5 text-xs" style={{ color: "var(--warning)" }}>
+                Use at least {MIN_NAME_KEY_LENGTH} letters or numbers.
+              </p>
             )}
           </div>
 

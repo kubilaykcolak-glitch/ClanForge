@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { AlertCircle, ChevronLeft, Loader2, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
@@ -11,6 +11,7 @@ import Toggle from "@/components/ui/Toggle";
 import ClanTagSettings from "@/components/clan/ClanTagSettings";
 import { disbandClan } from "@/lib/actions/clan.actions";
 import { validateImageFile } from "@/lib/uploads";
+import { checkClanNameAvailable } from "@/lib/actions/clan-name.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -146,6 +147,8 @@ export default function ClanSettingsPage() {
   // Clan
   const [clanId, setClanId]       = useState<string | null>(null);
   const [currentTag, setCurrentTag] = useState<string | null>(null);
+  const [originalName, setOriginalName] = useState<string>("");
+  const [originalNameKey, setOriginalNameKey] = useState<string>("");
   const [loading, setLoading]     = useState(true);
   const [notOwner, setNotOwner]   = useState(false);
   const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | undefined>();
@@ -209,6 +212,8 @@ export default function ClanSettingsPage() {
 
       setClanId(id);
       setCurrentTag((data.clanTag as string | null) ?? null);
+      setOriginalName((data.name as string) ?? "");
+      setOriginalNameKey((data.nameKey as string | undefined) ?? "");
       setExistingAvatarUrl(data.avatarUrl ?? undefined);
       setExistingBannerUrl(data.bannerUrl ?? undefined);
       setGameQuery(data.gameFocus ?? "");
@@ -271,6 +276,30 @@ export default function ClanSettingsPage() {
       toast.error("Select a primary game"); return;
     }
 
+    // If the name changed, run the same anti-copycat check the create page
+    // uses. Excluding `clanId` so the clan isn't told its own current name
+    // is taken (e.g. when only description changed).
+    const newName = form.name.trim();
+    const renamed = newName !== originalName;
+    let newNameKey: string | null = null;
+
+    if (renamed) {
+      const check = await checkClanNameAvailable(newName, clanId);
+      if (!check.success || !check.data) {
+        toast.error("Couldn't verify clan name uniqueness. Please try again.");
+        return;
+      }
+      if (!check.data.available) {
+        if (check.data.reason === "too_short") {
+          toast.error("Clan name needs more letters or numbers.");
+        } else {
+          toast.error("A clan with a very similar name already exists. Pick something more distinctive.");
+        }
+        return;
+      }
+      newNameKey = check.data.nameKey;
+    }
+
     setSaving(true);
     setIsSlow(false);
     slowTimerRef.current = setTimeout(() => setIsSlow(true), 8_000);
@@ -282,18 +311,42 @@ export default function ClanSettingsPage() {
         bannerFile ? uploadFile(bannerFile, `clan-assets/${clanId}/banner`) : Promise.resolve(null),
       ]);
 
-      await updateDoc(doc(db, "clans", clanId), {
-        name:         form.name.trim(),
-        description:  form.description.trim(),
-        gameFocus:    form.gameFocus,
-        tags:         form.tags,
-        isPublic:     form.isPublic,
-        isRecruiting: form.isRecruiting,
-        memberLimit:  form.memberLimit,
-        ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
-        ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
-        updatedAt: new Date(),
-      });
+      if (renamed && newNameKey) {
+        // Atomic key swap: write the new index entry, delete the old, and
+        // update the clan doc in one batch so the index is always consistent.
+        const batch = writeBatch(db);
+        batch.update(doc(db, "clans", clanId), {
+          name:         newName,
+          nameKey:      newNameKey,
+          description:  form.description.trim(),
+          gameFocus:    form.gameFocus,
+          tags:         form.tags,
+          isPublic:     form.isPublic,
+          isRecruiting: form.isRecruiting,
+          memberLimit:  form.memberLimit,
+          ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
+          ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
+          updatedAt: new Date(),
+        });
+        batch.set(doc(db, "clanNameKeys", newNameKey), { clanId });
+        if (originalNameKey && originalNameKey !== newNameKey) {
+          batch.delete(doc(db, "clanNameKeys", originalNameKey));
+        }
+        await batch.commit();
+      } else {
+        await updateDoc(doc(db, "clans", clanId), {
+          name:         newName,
+          description:  form.description.trim(),
+          gameFocus:    form.gameFocus,
+          tags:         form.tags,
+          isPublic:     form.isPublic,
+          isRecruiting: form.isRecruiting,
+          memberLimit:  form.memberLimit,
+          ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
+          ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
+          updatedAt: new Date(),
+        });
+      }
 
       toast.success("Settings saved");
       router.push(`/clans/${slug}`);

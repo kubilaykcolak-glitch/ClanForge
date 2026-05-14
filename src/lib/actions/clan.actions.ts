@@ -422,12 +422,14 @@ export async function disbandClan(
       return { success: false, error: "Only the clan leader can disband the clan" };
     }
 
-    // Fetch clan doc for slug
+    // Fetch clan doc for slug + nameKey
     const clanSnap = await adminDb.collection("clans").doc(clanId).get();
     if (!clanSnap.exists) {
       return { success: false, error: "Clan not found" };
     }
-    const slug = clanSnap.data()!.slug as string;
+    const clanData = clanSnap.data()!;
+    const slug    = clanData.slug as string;
+    const nameKey = (clanData.nameKey as string | undefined) ?? null;
 
     // Fetch all members
     const membersSnap = await adminDb
@@ -451,8 +453,12 @@ export async function disbandClan(
       });
     }
 
-    // Delete clanSlugs entry and the clan doc itself
+    // Delete clanSlugs entry, the name-uniqueness index entry, and the
+    // clan doc itself.
     batch.delete(adminDb.collection("clanSlugs").doc(slug));
+    if (nameKey) {
+      batch.delete(adminDb.collection("clanNameKeys").doc(nameKey));
+    }
     batch.delete(adminDb.collection("clans").doc(clanId));
 
     await batch.commit();

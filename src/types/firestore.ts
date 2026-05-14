@@ -91,6 +91,11 @@ export interface Clan {
   xp: number;
   /** Max 4 uppercase letters, e.g. "WOLF". Null until the leader sets one. */
   clanTag?: string | null;
+  /** Normalised, case-folded, punctuation-stripped form of `name`.
+   * Used as the uniqueness key (along with the /clanNameKeys/{nameKey}
+   * index doc) to block copycat names like "Shadow Clan" vs "ShadowClan"
+   * vs "Sh4d0w Cl4n". Compute with src/lib/clan-name.ts → normalizeClanName. */
+  nameKey?: string;
   createdAt: Date;
   updatedAt: Date;
 }

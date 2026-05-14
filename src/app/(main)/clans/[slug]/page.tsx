@@ -61,6 +61,12 @@ async function getPageData(slug: string): Promise<PageData | null> {
     updatedAt:   clanData.updatedAt?.toDate?.()  ?? new Date(),
   };
 
+  // Lazy backfill of the name-uniqueness index for clans created before the
+  // index existed. Fire-and-forget — never blocks page render.
+  if (!clanData.nameKey) {
+    import("@/lib/actions/clan-name.actions").then(m => m.backfillClanNameKey(clanId)).catch(() => {});
+  }
+
   // Convert + sort members
   const members: MemberData[] = membersSnap.docs.map(d => {
     const data = d.data();
