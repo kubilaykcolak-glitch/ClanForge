@@ -425,7 +425,7 @@ export default function RegisterPage() {
                 />
                 <span className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                   I agree to the{" "}
-                  <Link href="/terms" className="underline" style={{ color: "var(--accent)" }}>
+                  <Link href="/terms" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--accent)" }}>
                     Terms of Service
                   </Link>
                 </span>
