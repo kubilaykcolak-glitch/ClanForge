@@ -502,13 +502,11 @@ function TournamentsSection({
             <Link
               key={t.id}
               href={`/tournaments/${t.id}`}
-              className="flex items-center gap-4 rounded-xl p-4 transition-all"
+              className="hover-accent-border flex items-center gap-4 rounded-xl p-4"
               style={{
                 background: "var(--bg-surface)",
                 border:     "1px solid var(--border-default)",
               }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)"; }}
             >
               {/* Game colour strip */}
               <div

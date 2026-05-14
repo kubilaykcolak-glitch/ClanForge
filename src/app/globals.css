@@ -395,3 +395,11 @@ h1, h2, h3, h4, h5, h6 {
     left: 240px; /* matches Sidebar w-60 (= 15rem = 240px) */
   }
 }
+
+/* Hover-accent border — used in Server Components where onMouseEnter is not allowed */
+.hover-accent-border {
+  transition: border-color 150ms ease;
+}
+.hover-accent-border:hover {
+  border-color: var(--accent) !important;
+}
