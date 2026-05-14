@@ -154,7 +154,9 @@ export default async function ClanPage({
 
   const isMember = currentRole !== null && currentRole !== "pending";
   const isPrivateClan = !clan.isPublic;
-  const showGate = isPrivateClan && currentRole === null;
+  // Gate the feed and roster from anyone who isn't an active member,
+  // regardless of whether the clan is public or private.
+  const showGate = !isMember;
 
   // Border slug derived from the clan's current level — same for all members
   const clanBorder = getClanBorderSlug(getClanLevel(clan.xp ?? 0).level);
@@ -311,7 +313,7 @@ export default async function ClanPage({
         </div>
       )}
 
-      {/* ── Private gate (non-members of a private clan) ── */}
+      {/* ── Member gate ── */}
       {showGate && (
         <div
           className="flex flex-col items-center justify-center rounded-2xl py-20 text-center mb-8"
@@ -325,10 +327,14 @@ export default async function ClanPage({
             className="font-display font-semibold mb-2"
             style={{ fontSize: 20, color: "var(--text-primary)" }}
           >
-            This clan is private
+            {isPrivateClan ? "This clan is private" : "Members only"}
           </h2>
           <p style={{ fontSize: 14, color: "var(--text-muted)", maxWidth: 320 }}>
-            Only members can see the clan feed and roster.
+            {currentRole === "pending"
+              ? "Your join request is pending approval. You'll get access once a leader accepts you."
+              : isPrivateClan
+              ? "Request to join to see the clan feed and member list."
+              : "Join this clan to see the feed, member list, and active challenges."}
           </p>
         </div>
       )}
