@@ -175,6 +175,8 @@ export function TournamentRegistration({
         });
         toast.success("Withdrawn from tournament");
         router.refresh();
+        // busy stays true — component re-renders via router.refresh(), preventing
+        // an immediate re-register click while the server state is in-flight.
         return;
       }
 
@@ -182,14 +184,15 @@ export function TournamentRegistration({
       if (!result.success) {
         setOpError(result.error ?? "Withdrawal failed");
         toast.error(result.error ?? "Withdrawal failed");
+        setBusy(false);
         return;
       }
       toast.success("Refund issued — should land within a few days");
       router.refresh();
+      // busy stays true (same pattern as paid register path)
     } catch {
       setOpError("Withdrawal failed. Please try again.");
       toast.error("Withdrawal failed. Try again.");
-    } finally {
       setBusy(false);
     }
   };

@@ -102,13 +102,7 @@ export async function awardClanXp(
       if (!targetId) {
         return { success: false, error: `Reason "${reason}" requires a targetId` };
       }
-      const snap = await eventsCol
-        .where("reason",   "==", reason)
-        .where("targetId", "==", targetId)
-        .where("amount",   ">",  0)
-        .limit(1)
-        .get();
-      if (!snap.empty) capped = true;
+      // Race-safe check is done inside the transaction via deterministic doc ID below.
     } else if (rule.type === "daily_cap") {
       const cap   = rule.dailyCap ?? 1;
       const since = new Date(Date.now() - TWENTY_FOUR_HOURS_MS);
@@ -123,7 +117,13 @@ export async function awardClanXp(
     }
     // per_event: never capped
 
-    const effectiveAmount = capped ? 0 : amount;
+    let effectiveAmount = capped ? 0 : amount;
+
+    // Deterministic doc ID for once_per_target — concurrent calls can't both slip
+    // through; the second retries, reads the committed doc, and is capped.
+    const eventRef = (rule.type === "once_per_target" && targetId)
+      ? eventsCol.doc(`${reason}:${targetId}`)
+      : eventsCol.doc();
 
     // ── Transaction: log event + increment XP + detect level-up ──────────────
     let newTotal = 0;
@@ -131,6 +131,16 @@ export async function awardClanXp(
     let newLevel = 0;
 
     await adminDb.runTransaction(async tx => {
+      // Race-safe once_per_target dedup inside transaction
+      if (rule.type === "once_per_target" && !capped) {
+        const existing = await tx.get(eventRef);
+        if (existing.exists && ((existing.data()?.amount as number) ?? 0) > 0) {
+          capped          = true;
+          effectiveAmount = 0;
+          return; // already awarded — no writes needed
+        }
+      }
+
       const clanSnap = await tx.get(clanRef);
       if (!clanSnap.exists) throw new Error("Clan not found");
 
@@ -139,8 +149,6 @@ export async function awardClanXp(
       newTotal = currentXp + effectiveAmount;
       newLevel = getClanLevel(newTotal).level;
 
-      // Write XP event
-      const eventRef = eventsCol.doc();
       tx.set(eventRef, {
         reason,
         amount:         effectiveAmount,

@@ -68,16 +68,7 @@ export async function awardXp(
       if (!targetId) {
         return { success: false, error: `Reason "${reason}" requires a targetId` };
       }
-      const snap = await eventsCol
-        .where("reason", "==", reason)
-        .where("targetId", "==", targetId)
-        .where("amount", ">", 0)
-        .limit(1)
-        .get();
-      if (!snap.empty) {
-        capped = true;
-        capReason = "once_per_target";
-      }
+      // Race-safe check is done inside the transaction via deterministic doc ID below.
     } else if (rule.type === "daily_cap") {
       const cap = rule.dailyCap ?? 0;
       const since = new Date(Date.now() - TWENTY_FOUR_HOURS_MS);
@@ -97,15 +88,32 @@ export async function awardXp(
     }
 
     // ── Write event + maybe increment xp ─────────────────────────────────────
-    const amount = capped ? 0 : rule.amount;
-    const now    = new Date();
-    const eventRef = eventsCol.doc();
+    let amount = capped ? 0 : rule.amount;
+    const now  = new Date();
+    // Deterministic doc ID for once_per_target so the dedup check can happen
+    // inside the transaction — Firestore's optimistic locking means the second
+    // concurrent call retries, reads the committed doc, and is capped.
+    const eventRef = (rule.type === "once_per_target" && targetId)
+      ? eventsCol.doc(`${reason}:${targetId}`)
+      : eventsCol.doc();
 
     await adminDb.runTransaction(async tx => {
+      // Race-safe once_per_target dedup: read the deterministic doc inside the
+      // transaction so Firestore's optimistic locking retries the second caller.
+      if (rule.type === "once_per_target" && !capped) {
+        const existing = await tx.get(eventRef);
+        if (existing.exists && ((existing.data()?.amount as number) ?? 0) > 0) {
+          capped  = true;
+          capReason = "once_per_target";
+          amount  = 0;
+          return; // already awarded — no writes needed
+        }
+      }
+
       tx.set(eventRef, {
         reason,
         amount,
-        targetId: targetId ?? null,
+        targetId:  targetId ?? null,
         capped,
         capReason: capReason ?? null,
         createdAt: now,
