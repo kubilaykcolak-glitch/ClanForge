@@ -1,6 +1,7 @@
 "use server";
 
 import type { Profile } from "@/types";
+import { getSessionUid } from "./server-auth";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -11,17 +12,17 @@ interface ActionResult<T = undefined> {
 }
 
 // ── updateProfile ─────────────────────────────────────────────────────────────
-// Merges `data` into /profiles/{uid}, always stamping updatedAt.
-// NOTE: does NOT migrate the /usernames collection — call a dedicated rename
-// action if the username field changes.
+// Merges `data` into /profiles/{uid}. The caller must be authenticated as uid.
 
 export async function updateProfile(
   uid: string,
   data: Partial<Omit<Profile, "id" | "createdAt">>,
 ): Promise<ActionResult> {
   try {
-    const { adminDb } = await import("@/lib/firebase/admin");
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
 
+    const { adminDb } = await import("@/lib/firebase/admin");
     await adminDb.collection("profiles").doc(uid).update({
       ...data,
       updatedAt: new Date(),
@@ -42,8 +43,10 @@ export async function setProfilePrivacy(
   isPrivate: boolean,
 ): Promise<ActionResult> {
   try {
-    const { adminDb } = await import("@/lib/firebase/admin");
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
 
+    const { adminDb } = await import("@/lib/firebase/admin");
     await adminDb.collection("profiles").doc(uid).update({
       isPrivate,
       updatedAt: new Date(),
@@ -58,8 +61,6 @@ export async function setProfilePrivacy(
 }
 
 // ── checkUsernameAvailable ────────────────────────────────────────────────────
-// Looks up /usernames/{username.toLowerCase()}.
-// Returns data.available = true when the doc does NOT exist.
 
 export async function checkUsernameAvailable(
   username: string,
@@ -70,7 +71,6 @@ export async function checkUsernameAvailable(
     }
 
     const { adminDb } = await import("@/lib/firebase/admin");
-
     const snap = await adminDb
       .collection("usernames")
       .doc(username.toLowerCase())
@@ -85,19 +85,21 @@ export async function checkUsernameAvailable(
 }
 
 // ── uploadAvatarUrl ───────────────────────────────────────────────────────────
-// Persists a Storage download URL that was already uploaded client-side.
+// Persists a Storage download URL. The caller must be authenticated as uid.
 
 export async function uploadAvatarUrl(
   uid: string,
   downloadUrl: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     if (!downloadUrl.startsWith("https://")) {
       return { success: false, error: "Invalid download URL" };
     }
 
     const { adminDb } = await import("@/lib/firebase/admin");
-
     await adminDb.collection("profiles").doc(uid).update({
       avatarUrl: downloadUrl,
       updatedAt: new Date(),

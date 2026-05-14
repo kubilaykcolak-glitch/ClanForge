@@ -59,7 +59,6 @@ service cloud.firestore {
       allow write: if isOwner(userId);
 
       // ─── /profiles/{userId}/gameRecords/{recordId} ─────────────────────────
-      // Owner can read, write, and delete their own game records.
 
       match /gameRecords/{recordId} {
         allow read, write, delete: if isOwner(userId);
@@ -67,8 +66,6 @@ service cloud.firestore {
     }
 
     // ─── /usernames/{username} ────────────────────────────────────────────────
-    // Authenticated user can create if the doc's uid matches their own.
-    // No updates or deletes allowed (username reservation is permanent).
 
     match /usernames/{username} {
       allow read: if true;
@@ -77,7 +74,6 @@ service cloud.firestore {
     }
 
     // ─── /clanSlugs/{slug} ───────────────────────────────────────────────────
-    // Authenticated user can create only. No updates or deletes.
 
     match /clanSlugs/{slug} {
       allow read: if true;
@@ -86,14 +82,14 @@ service cloud.firestore {
     }
 
     // ─── /clans/{clanId} ─────────────────────────────────────────────────────
-    // Any authenticated user can read; only the owner can update.
+    // Public clans are readable by any authenticated user.
+    // Private clans are only readable by members.
 
     match /clans/{clanId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() &&
+        (resource.data.isPublic == true || isClanMember(clanId));
       allow create: if isSignedIn();
       allow update: if isClanOwner(clanId) &&
-        // If clanTag is being changed, the writer must be the leader
-        // and the value must be null or 1–4 uppercase letters.
         (
           !("clanTag" in request.resource.data.diff(resource.data).affectedKeys()) ||
           (isClanLeader(clanId) && validClanTag(request.resource.data.clanTag))
@@ -101,9 +97,6 @@ service cloud.firestore {
       allow delete: if isClanOwner(clanId);
 
       // ─── /clans/{clanId}/members/{userId} ──────────────────────────────────
-      // Any clan member can read the list.
-      // A user can write their own doc (to join).
-      // Leader or officer can update or delete other members.
 
       match /members/{userId} {
         allow read: if isClanMember(clanId) || isOwner(userId);
@@ -122,7 +115,6 @@ service cloud.firestore {
         allow delete: if isSignedIn() && request.auth.uid == resource.data.authorId;
 
         // ─── /clans/{clanId}/posts/{postId}/likes/{userId} ─────────────────
-        // Authenticated users can read; users can write/delete their own like.
 
         match /likes/{userId} {
           allow read: if isSignedIn();
@@ -132,8 +124,22 @@ service cloud.firestore {
       }
     }
 
+    // ─── /notifications/{userId}/items/{itemId} ───────────────────────────────
+    // Only the owner can read or modify their own notifications.
+    // Writes come from trusted server actions (Admin SDK bypasses these rules).
+
+    match /notifications/{userId} {
+      allow read, write: if false;
+
+      match /items/{itemId} {
+        allow read: if isOwner(userId);
+        allow update: if isOwner(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+        allow create, delete: if false;
+      }
+    }
+
     // ─── /tournaments/{tournamentId} ─────────────────────────────────────────
-    // Authenticated users can read; the creator can write and update.
 
     match /tournaments/{tournamentId} {
       allow read: if isSignedIn();
@@ -142,18 +148,18 @@ service cloud.firestore {
       allow delete: if isTournamentCreator(tournamentId);
 
       // ─── /tournaments/{tournamentId}/participants/{pid} ───────────────────
-      // Authenticated users can read; authenticated user can create their own;
-      // creator can update any participant doc.
 
       match /participants/{pid} {
         allow read: if isSignedIn();
         allow create: if isOwner(pid);
-        allow update: if isTournamentCreator(tournamentId);
+        // Creator can update result/status but NOT payment fields.
+        allow update: if isTournamentCreator(tournamentId) &&
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['paymentStatus', 'paidAmount', 'stripeSessionId']);
         allow delete: if isTournamentCreator(tournamentId);
       }
 
       // ─── /tournaments/{tournamentId}/matches/{matchId} ───────────────────
-      // Authenticated users can read; creator and the two participants can update.
 
       match /matches/{matchId} {
         allow read: if isSignedIn();

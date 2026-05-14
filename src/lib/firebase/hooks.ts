@@ -74,15 +74,18 @@ export function useClanPosts(
 
 // ─── useNotifications ─────────────────────────────────────────────────────────
 //
-// Real-time listener on /notifications/{uid}/items for the notification bell.
-// Returns the 20 most recent items and the unread count.
+// Real-time listener on /notifications/{uid}/items.
+// Pass enabled=false to skip opening the listener (e.g. before the panel opens).
 
-export function useNotifications(uid: string | null): {
+export function useNotifications(
+  uid:     string | null,
+  enabled: boolean = true,
+): {
   notifications: Notification[];
   unreadCount:   number;
   loading:       boolean;
 } {
-  const ref = uid
+  const ref = (uid && enabled)
     ? query(
         collection(db, "notifications", uid, "items"),
         orderBy("createdAt", "desc"),

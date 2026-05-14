@@ -5,8 +5,9 @@ import { NotificationBell } from "@/components/layout/NotificationBell";
 import type { Profile } from "@/types";
 
 interface SessionResult {
-  profile: Profile | null;
-  isAuthenticated: boolean;
+  profile:            Profile | null;
+  isAuthenticated:    boolean;
+  initialUnreadCount: number;
 }
 
 async function getSessionData(): Promise<SessionResult> {
@@ -15,13 +16,20 @@ async function getSessionData(): Promise<SessionResult> {
 
     const cookieStore = cookies();
     const sessionCookie = cookieStore.get("session")?.value;
-    if (!sessionCookie) return { profile: null, isAuthenticated: false };
+    if (!sessionCookie) return { profile: null, isAuthenticated: false, initialUnreadCount: 0 };
 
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
 
-    const snap = await adminDb.collection("profiles").doc(decoded.uid).get();
+    // Fetch profile + unread notification count in parallel
+    const [snap, unreadSnap] = await Promise.all([
+      adminDb.collection("profiles").doc(decoded.uid).get(),
+      adminDb
+        .collection("notifications").doc(decoded.uid)
+        .collection("items").where("read", "==", false).get(),
+    ]);
+
     if (!snap.exists) {
-      return { profile: null, isAuthenticated: true };
+      return { profile: null, isAuthenticated: true, initialUnreadCount: 0 };
     }
 
     const data = snap.data()!;
@@ -33,9 +41,9 @@ async function getSessionData(): Promise<SessionResult> {
       updatedAt: data.updatedAt?.toDate?.()  ?? new Date(),
     };
 
-    return { profile, isAuthenticated: true };
+    return { profile, isAuthenticated: true, initialUnreadCount: unreadSnap.size };
   } catch {
-    return { profile: null, isAuthenticated: false };
+    return { profile: null, isAuthenticated: false, initialUnreadCount: 0 };
   }
 }
 
@@ -44,7 +52,7 @@ export default async function MainLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { profile, isAuthenticated } = await getSessionData();
+  const { profile, isAuthenticated, initialUnreadCount } = await getSessionData();
 
   return (
     <>
@@ -65,7 +73,7 @@ export default async function MainLayout({
       </div>
 
       {/* Floating notification bell — fixed bottom-right, visible on all authenticated pages */}
-      {profile?.id && <NotificationBell uid={profile.id} />}
+      {profile?.id && <NotificationBell uid={profile.id} initialUnreadCount={initialUnreadCount} />}
     </>
   );
 }

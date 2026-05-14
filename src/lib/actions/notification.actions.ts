@@ -3,7 +3,10 @@
 // ─── Notification server actions ───────────────────────────────────────────────
 //
 // In-app notifications stored at /notifications/{uid}/items/{notifId}.
-// The client reads these via a real-time hook (useNotifications in hooks.ts).
+// Read/mark-read actions verify the session matches the uid.
+// createNotification is an internal server-only helper — no session check.
+
+import { getSessionUid } from "./server-auth";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -46,6 +49,9 @@ export async function getNotifications(
   limit: number = 20,
 ): Promise<ActionResult<NotificationRow[]>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const snap = await adminDb
       .collection("notifications").doc(uid)
@@ -62,6 +68,9 @@ export async function getNotifications(
 
 export async function getUnreadCount(uid: string): Promise<ActionResult<number>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const snap = await adminDb
       .collection("notifications").doc(uid)
@@ -80,6 +89,9 @@ export async function markNotificationRead(
   notifId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     await adminDb
       .collection("notifications").doc(uid)
@@ -93,6 +105,9 @@ export async function markNotificationRead(
 
 export async function markAllNotificationsRead(uid: string): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const snap = await adminDb
       .collection("notifications").doc(uid)
@@ -112,6 +127,8 @@ export async function markAllNotificationsRead(uid: string): Promise<ActionResul
   }
 }
 
+// Internal server-only helper — called by other server actions (clan-xp, challenges, etc.)
+// No session check: the caller is trusted server-side code.
 export async function createNotification(
   uid:   string,
   notif: Omit<NotificationRow, "id" | "createdAt" | "read">,

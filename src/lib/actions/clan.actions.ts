@@ -3,6 +3,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import type { Clan, ClanRole, Profile } from "@/types";
 import { getClanLevel, getClanBorderSlug } from "@/lib/clan-levels";
+import { getSessionUid } from "./server-auth";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -34,6 +35,9 @@ export async function createClan(
   profile: Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult<{ clanId: string; slug: string }>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     // Reserve a Firestore-generated ID before the batch so we can reference it.
@@ -96,6 +100,9 @@ export async function joinClan(
   profile: Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     await adminDb.runTransaction(async tx => {
@@ -179,6 +186,9 @@ export async function leaveClan(
   clanId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     await adminDb.runTransaction(async tx => {
@@ -225,6 +235,9 @@ export async function updateMemberRole(
   newRole: ClanRole,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     if (uid === targetUserId) {
       return { success: false, error: "You cannot change your own role" };
     }
@@ -285,6 +298,9 @@ export async function removeMember(
   targetUserId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     if (uid === targetUserId) {
       return { success: false, error: "Use leaveClan to remove yourself" };
     }
@@ -356,6 +372,9 @@ export async function updateClanTag(
   const { tag } = validation;
 
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     // Verify the caller is the leader
@@ -416,6 +435,9 @@ export async function disbandClan(
   clanId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     // Verify caller is the leader
@@ -493,6 +515,9 @@ export async function createPost(
   profile: Pick<Profile, "username" | "avatarUrl">,
 ): Promise<ActionResult<{ postId: string }>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     if (!content.trim()) {
       return { success: false, error: "Post content cannot be empty" };
     }
@@ -550,6 +575,9 @@ export async function likePost(
   postId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const likeRef = adminDb
@@ -594,6 +622,9 @@ export async function unlikePost(
   postId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const likeRef = adminDb
@@ -638,6 +669,9 @@ export async function deletePost(
   postId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const postRef = adminDb

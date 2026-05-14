@@ -18,13 +18,19 @@ const TYPE_ICONS: Record<string, string> = {
 };
 
 interface Props {
-  uid: string;
+  uid:                string;
+  initialUnreadCount: number;
 }
 
-export function NotificationBell({ uid }: Props) {
-  const { notifications, unreadCount } = useNotifications(uid);
-  const [open, setOpen]       = useState(false);
-  const [marking, setMarking] = useState(false);
+export function NotificationBell({ uid, initialUnreadCount }: Props) {
+  const [open, setOpen]         = useState(false);
+  const [everOpened, setEverOpened] = useState(false);
+  const [marking, setMarking]   = useState(false);
+
+  // Listener only activates after the panel is first opened.
+  // Before that, the server-rendered initialUnreadCount drives the badge.
+  const { notifications, unreadCount: liveCount } = useNotifications(uid, everOpened);
+  const unreadCount = everOpened ? liveCount : initialUnreadCount;
 
   const handleMarkAll = async () => {
     setMarking(true);
@@ -171,7 +177,7 @@ export function NotificationBell({ uid }: Props) {
 
       {/* ── Floating bell button ── */}
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { setEverOpened(true); setOpen(o => !o); }}
         className="relative flex items-center justify-center rounded-full shadow-lg transition-transform active:scale-95"
         style={{
           width:      52,
