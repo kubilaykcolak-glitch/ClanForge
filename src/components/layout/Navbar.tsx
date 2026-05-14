@@ -7,22 +7,26 @@ import { Menu, X, ChevronDown, LogOut, User, Shield, Settings } from "lucide-rea
 import { cn } from "@/lib/utils";
 import { getInitials } from "@/lib/utils";
 import type { Profile } from "@/types";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 
 interface NavbarProps {
   profile: Profile | null;
   isAuthenticated?: boolean;
+  uid?: string | null;
 }
 
 const NAV_LINKS_GUEST = [
-  { href: "/",            label: "Home" },
-  { href: "/clans",       label: "Clans" },
-  { href: "/tournaments", label: "Tournaments" },
+  { href: "/",             label: "Home"        },
+  { href: "/clans",        label: "Clans"       },
+  { href: "/tournaments",  label: "Tournaments" },
+  { href: "/leaderboard",  label: "Leaderboard" },
 ];
 
 const NAV_LINKS_AUTH = [
-  { href: "/dashboard",   label: "Home" },
-  { href: "/clans",       label: "Clans" },
-  { href: "/tournaments", label: "Tournaments" },
+  { href: "/dashboard",    label: "Home"        },
+  { href: "/clans",        label: "Clans"       },
+  { href: "/tournaments",  label: "Tournaments" },
+  { href: "/leaderboard",  label: "Leaderboard" },
 ];
 
 async function handleSignOut() {
@@ -30,7 +34,7 @@ async function handleSignOut() {
   window.location.href = "/";
 }
 
-export function Navbar({ profile, isAuthenticated = false }: NavbarProps) {
+export function Navbar({ profile, isAuthenticated = false, uid }: NavbarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -85,6 +89,7 @@ export function Navbar({ profile, isAuthenticated = false }: NavbarProps) {
 
         {/* ── Right section ── */}
         <div className="ml-auto flex items-center gap-3">
+          {isAuthenticated && uid && <NotificationBell uid={uid} />}
           {/* Authenticated but no profile yet (e.g. Google sign-in pending onboarding) */}
           {isAuthenticated && !profile && (
             <button

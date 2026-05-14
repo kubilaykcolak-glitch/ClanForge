@@ -15,7 +15,9 @@ export type XpReason =
   | "tournament_place_3"
   | "tournament_place_4_5"
   | "post_create"
-  | "post_receive_like";
+  | "post_receive_like"
+  | "challenge_complete"
+  | "member_recruit";
 
 /** How the dedupe/limit check is applied for each rule. */
 export type RuleType =
@@ -47,6 +49,8 @@ export const XP_RULES: Record<XpReason, XpRule> = {
   tournament_place_4_5: { reason: "tournament_place_4_5", amount: 100, type: "once_per_target", label: "Top 5 finish" },
   post_create:          { reason: "post_create",          amount:  10, type: "daily_cap",       dailyCap:  1, label: "Daily clan post" },
   post_receive_like:    { reason: "post_receive_like",    amount:   2, type: "daily_cap",       dailyCap: 20, label: "Someone liked your post" },
+  challenge_complete:   { reason: "challenge_complete",   amount:  75, type: "once_per_target",               label: "Clan challenge completed" },
+  member_recruit:       { reason: "member_recruit",       amount:  30, type: "once_per_target",               label: "Recruited a new member" },
 };
 
 // ─── Clan join cooldown (anti-grind) ──────────────────────────────────────────

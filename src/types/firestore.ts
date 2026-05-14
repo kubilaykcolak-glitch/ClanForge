@@ -51,6 +51,10 @@ export interface Profile {
   backgroundImageUrl?: string | null;
   /** Hex colour string e.g. '#6366f1' — user-chosen accent override. */
   accentColour?: string | null;
+  /** Earned badge slugs, e.g. ["challenge_champion", "first_blood"]. */
+  badges?: string[];
+  /** Display title, e.g. "Season 1 Champion". */
+  title?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -89,6 +93,8 @@ export interface Clan {
   memberLimit: number;
   memberCount: number;
   xp: number;
+  /** Denormalised clan level derived from xp. Updated by awardClanXp on level-up. */
+  level?: number;
   /** Max 4 uppercase letters, e.g. "WOLF". Null until the leader sets one. */
   clanTag?: string | null;
   /** Normalised, case-folded, punctuation-stripped form of `name`.
@@ -211,4 +217,124 @@ export interface TournamentMatch {
   status: MatchStatus;
   scheduledAt?: Date;
   completedAt?: Date;
+}
+
+// ─── ClanChallenge ────────────────────────────────────────────────────────────
+
+export type ChallengeType =
+  | "tournament_participate"
+  | "tournament_win"
+  | "post_create"
+  | "member_recruit"
+  | "xp_earn"
+  | "match_win";
+
+export type ChallengeDuration = "daily" | "weekly" | "monthly" | "seasonal";
+
+export type ChallengeStatus = "upcoming" | "active" | "completed" | "cancelled";
+
+export interface ClanChallenge {
+  id?: string;
+  title: string;
+  description: string;
+  type: ChallengeType;
+  duration: ChallengeDuration;
+  /** Collective target — e.g. 5 posts, 3 tournament wins, 1000 XP earned. */
+  targetValue: number;
+  /** Challenge-points awarded to the clan on completion. */
+  pointValue: number;
+  /** XP awarded to each contributing member on completion. */
+  memberXpReward: number;
+  /** XP added to the clan document on completion. */
+  clanXpReward: number;
+  /** Badge slug to award to contributing members. Optional. */
+  badgeReward?: string | null;
+  /** Title string to award to contributing members. Optional. */
+  titleReward?: string | null;
+  /** Links this challenge to a season. Null = standalone. */
+  seasonId?: string | null;
+  startAt: Date;
+  endAt: Date;
+  status: ChallengeStatus;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ─── ClanChallengeEntry ───────────────────────────────────────────────────────
+// Stored as /challenges/{challengeId}/entries/{clanId}
+
+export interface ClanChallengeEntry {
+  clanId:         string;
+  clanName:       string;
+  clanSlug:       string;
+  clanAvatarUrl?: string | null;
+  clanTag?:       string | null;
+  progress:       number;
+  completed:      boolean;
+  completedAt?:   Date | null;
+  pointsEarned:   number;
+  /** uid → contribution count */
+  contributors:   Record<string, number>;
+  updatedAt:      Date;
+}
+
+// ─── ClanSeason ───────────────────────────────────────────────────────────────
+
+export interface ClanSeason {
+  id?: string;
+  name: string;
+  description?: string;
+  startAt: Date;
+  endAt: Date;
+  status: "upcoming" | "active" | "completed";
+  createdAt: Date;
+}
+
+// ─── ClanPoints ───────────────────────────────────────────────────────────────
+// One document per clan at /clan_points/{clanId}. Denormalised leaderboard
+// data — updated atomically whenever a challenge is completed.
+
+export interface ClanPoints {
+  clanId:         string;
+  clanName:       string;
+  clanSlug:       string;
+  clanAvatarUrl?: string | null;
+  clanTag?:       string | null;
+  memberCount:    number;
+  totalPoints:    number;
+  weeklyPoints:   number;
+  monthlyPoints:  number;
+  /** seasonId → points earned in that season */
+  seasonPoints:   Record<string, number>;
+  /** ISO week key used to detect when to reset weeklyPoints, e.g. "2026-W20" */
+  currentWeekKey:  string;
+  /** "YYYY-MM" key used to detect when to reset monthlyPoints */
+  currentMonthKey: string;
+  updatedAt: Date;
+}
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+// Stored as /notifications/{uid}/items/{notifId}
+
+export type NotificationType =
+  | "challenge_started"
+  | "challenge_completed"
+  | "rank_up"
+  | "rank_down"
+  | "reward_earned"
+  | "rival_overtook"
+  | "clan_level_up";
+
+export interface Notification {
+  id?: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  read: boolean;
+  /** Optional click-through URL */
+  href?: string;
+  clanId?: string;
+  challengeId?: string;
+  createdAt: Date;
 }

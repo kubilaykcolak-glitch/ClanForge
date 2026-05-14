@@ -4,7 +4,10 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { Profile } from "@/types";
 import { setProfilePrivacy } from "@/lib/actions/profile.actions";
+import { getPlayers, type PlayerSort } from "@/lib/actions/player-list.actions";
 import Toggle from "@/components/ui/Toggle";
+import { LoadMoreButton } from "@/components/ui/LoadMoreButton";
+import { SortDropdown } from "@/components/ui/SortDropdown";
 import PlayerCard from "./PlayerCard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,7 +20,8 @@ export type PlayerRow = Omit<Profile, "createdAt" | "updatedAt"> & {
 };
 
 interface PlayersClientProps {
-  players:          PlayerRow[];
+  initialPlayers:   PlayerRow[];
+  initialCursor:    string | null;
   uid:              string | null;
   initialIsPrivate: boolean;
 }
@@ -26,17 +30,32 @@ interface PlayersClientProps {
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
+const SORT_OPTIONS: ReadonlyArray<{ value: PlayerSort; label: string }> = [
+  { value: "xp_desc",          label: "Top XP" },
+  { value: "wins_desc",        label: "Most wins" },
+  { value: "tournaments_desc", label: "Most tournaments" },
+  { value: "newest",           label: "Newest accounts" },
+];
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PlayersClient({
-  players,
+  initialPlayers,
+  initialCursor,
   uid,
   initialIsPrivate,
 }: PlayersClientProps) {
+  const [players,    setPlayers]    = useState<PlayerRow[]>(initialPlayers);
+  const [cursor,     setCursor]     = useState<string | null>(initialCursor);
+  const [sort,       setSort]       = useState<PlayerSort>("xp_desc");
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [resetting,  setResetting]  = useState(false);
+
   const [search,     setSearch]     = useState("");
   const [isPrivate,  setIsPrivate]  = useState(initialIsPrivate);
   const [activeOnly, setActiveOnly] = useState(false);
 
+  // ── Privacy toggle ──
   const handlePrivacyToggle = async (visible: boolean) => {
     const next = !visible;
     setIsPrivate(next); // optimistic
@@ -49,6 +68,36 @@ export default function PlayersClient({
     }
   };
 
+  // ── Sort change ── Resets the list to a fresh page in the new order.
+  const handleSortChange = async (next: PlayerSort) => {
+    if (next === sort) return;
+    setSort(next);
+    setResetting(true);
+    const result = await getPlayers(next, null);
+    setResetting(false);
+    if (!result.success || !result.data) {
+      toast.error(result.error ?? "Couldn't reorder the list");
+      return;
+    }
+    setPlayers(result.data.items);
+    setCursor(result.data.nextCursor);
+  };
+
+  // ── Load more ──
+  const handleLoadMore = async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    const result = await getPlayers(sort, cursor);
+    setLoadingMore(false);
+    if (!result.success || !result.data) {
+      toast.error(result.error ?? "Couldn't load more players");
+      return;
+    }
+    setPlayers(prev => [...prev, ...result.data!.items]);
+    setCursor(result.data.nextCursor);
+  };
+
+  // ── Client-side filter (search + active-30d) ──
   const filtered = useMemo(() => {
     const now = Date.now();
     const q   = search.trim().toLowerCase();
@@ -68,7 +117,7 @@ export default function PlayersClient({
     <div className="max-w-6xl mx-auto">
 
       {/* ── Header row ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
         <div>
           <h1
             className="font-display font-bold text-4xl"
@@ -91,35 +140,8 @@ export default function PlayersClient({
         )}
       </div>
 
-      {/* ── Search bar ─────────────────────────────────────────────────────── */}
-      <div className="mb-4">
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search by username or clan tag..."
-          style={{
-            width:        "100%",
-            background:   "var(--bg-surface)",
-            border:       "1px solid var(--border-default)",
-            borderRadius: 10,
-            padding:      "11px 16px",
-            fontSize:     14,
-            color:        "var(--text-primary)",
-            outline:      "none",
-            transition:   "border-color 0.15s ease",
-          }}
-          onFocus={e => {
-            (e.currentTarget as HTMLInputElement).style.borderColor = "var(--accent)";
-          }}
-          onBlur={e => {
-            (e.currentTarget as HTMLInputElement).style.borderColor = "var(--border-default)";
-          }}
-        />
-      </div>
-
-      {/* ── Filter row ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 mb-8">
+      {/* ── Sort + filter row ──────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <button
           type="button"
           onClick={() => setActiveOnly(v => !v)}
@@ -151,10 +173,43 @@ export default function PlayersClient({
           Active recently
         </button>
 
+        <SortDropdown
+          label="Sort"
+          options={SORT_OPTIONS}
+          value={sort}
+          onChange={handleSortChange}
+        />
+      </div>
+
+      {/* ── Search bar ─────────────────────────────────────────────────────── */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by username or clan tag..."
+          style={{
+            width:        "100%",
+            background:   "var(--bg-surface)",
+            border:       "1px solid var(--border-default)",
+            borderRadius: 10,
+            padding:      "11px 16px",
+            fontSize:     14,
+            color:        "var(--text-primary)",
+            outline:      "none",
+            transition:   "border-color 0.15s ease",
+          }}
+          onFocus={e => {
+            (e.currentTarget as HTMLInputElement).style.borderColor = "var(--accent)";
+          }}
+          onBlur={e => {
+            (e.currentTarget as HTMLInputElement).style.borderColor = "var(--border-default)";
+          }}
+        />
         {(search || activeOnly) && (
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {filtered.length} of {players.length} players
-          </span>
+          <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+            Showing {filtered.length} of {players.length} loaded players
+          </p>
         )}
       </div>
 
@@ -165,7 +220,9 @@ export default function PlayersClient({
             display:             "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
             gap:                 16,
-            marginBottom:        32,
+            marginBottom:        12,
+            opacity:             resetting ? 0.5 : 1,
+            transition:          "opacity 0.15s ease",
           }}
         >
           {filtered.map(player => (
@@ -199,32 +256,13 @@ export default function PlayersClient({
       )}
 
       {/* ── Load more ──────────────────────────────────────────────────────── */}
-      <div className="flex justify-center pb-16">
-        <button
-          type="button"
-          style={{
-            padding:      "10px 32px",
-            borderRadius: 10,
-            border:       "1px solid var(--border-default)",
-            background:   "transparent",
-            color:        "var(--text-secondary)",
-            fontSize:     14,
-            fontWeight:   500,
-            cursor:       "pointer",
-            transition:   "border-color 0.15s ease, color 0.15s ease",
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)";
-            (e.currentTarget as HTMLElement).style.color       = "var(--accent)";
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)";
-            (e.currentTarget as HTMLElement).style.color       = "var(--text-secondary)";
-          }}
-        >
-          Load more
-        </button>
-      </div>
+      <LoadMoreButton
+        onClick={handleLoadMore}
+        loading={loadingMore}
+        exhausted={cursor === null}
+        exhaustedLabel="You've seen every player"
+        hide={filtered.length === 0}
+      />
     </div>
   );
 }

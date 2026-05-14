@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Clan, ClanPost, Tournament } from "@/types";
 import { ClanCard } from "@/components/clan/ClanCard";
+import { DashboardChallengesWidget } from "@/components/challenges/DashboardChallengesWidget";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate, timeAgo, getInitials, clamp } from "@/lib/utils";
 
@@ -686,6 +687,9 @@ export default async function DashboardPage() {
         won={tournamentsWon}
         gamesLogged={gamesLogged}
       />
+
+      {/* ── Active challenges (shown only if user is in a clan) ── */}
+      {clanId && <DashboardChallengesWidget clanId={clanId} />}
 
       {/* ── Two-column: Clan Feed | Active Tournaments ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">

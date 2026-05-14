@@ -4,6 +4,7 @@ import type { Clan } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { getInitials } from "@/lib/utils";
 import { ClanCardJoinButton } from "./ClanCardJoinButton";
+import { ClanLevelBadge } from "./ClanLevelBadge";
 
 interface ClanCardProps {
   clan:               Clan;
@@ -87,6 +88,7 @@ export function ClanCard({
             >
               {clan.name}
             </h3>
+            <ClanLevelBadge xp={clan.xp ?? 0} size="sm" />
           </div>
 
           <div className="flex items-center gap-2 mb-3">

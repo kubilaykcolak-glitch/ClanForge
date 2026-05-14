@@ -5,6 +5,9 @@ import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useClanPosts } from "@/lib/firebase/hooks";
 import { ClanPost } from "./ClanPost";
 import { ComposePost } from "./ComposePost";
+import { LoadMoreButton } from "@/components/ui/LoadMoreButton";
+
+const POSTS_PAGE_SIZE = 15;
 
 interface ClanFeedProps {
   clanId:            string;
@@ -28,7 +31,8 @@ export function ClanFeed({
   authorDisplayName,
   authorAvatarUrl,
 }: ClanFeedProps) {
-  const { posts, loading, error } = useClanPosts(clanId);
+  const [pageLimit, setPageLimit] = useState(POSTS_PAGE_SIZE);
+  const { posts, loading, error, hasMore } = useClanPosts(clanId, pageLimit);
   const [isSlow, setIsSlow] = useState(false);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -110,16 +114,25 @@ export function ClanFeed({
 
       {/* Posts */}
       {!error && !loading && posts.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {posts.map(post => (
-            <ClanPost
-              key={post.id}
-              post={post}
-              clanId={clanId}
-              currentUserId={currentUserId}
-            />
-          ))}
-        </div>
+        <>
+          <div className="flex flex-col gap-3">
+            {posts.map(post => (
+              <ClanPost
+                key={post.id}
+                post={post}
+                clanId={clanId}
+                currentUserId={currentUserId}
+              />
+            ))}
+          </div>
+
+          <LoadMoreButton
+            onClick={() => setPageLimit(l => l + POSTS_PAGE_SIZE)}
+            loading={false /* re-renders inline as the listener expands */}
+            exhausted={!hasMore}
+            exhaustedLabel="You've seen everything in this clan's feed"
+          />
+        </>
       )}
 
       {/* Empty */}

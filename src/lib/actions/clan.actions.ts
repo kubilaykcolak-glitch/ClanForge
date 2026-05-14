@@ -153,6 +153,11 @@ export async function joinClan(
       });
     });
 
+    // Award clan XP for the new member joining (fire-and-forget)
+    import("@/lib/actions/clan-xp.actions")
+      .then(m => m.awardClanXp(clanId, "member_join", uid, uid))
+      .catch(() => {});
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to join clan";
@@ -516,6 +521,11 @@ export async function createPost(
       likesCount:      0,
       createdAt:       new Date(),
     });
+
+    // Award clan XP for the post (daily capped, fire-and-forget)
+    import("@/lib/actions/clan-xp.actions")
+      .then(m => m.awardClanXp(clanId, "post_created", uid))
+      .catch(() => {});
 
     return { success: true, data: { postId: ref.id } };
   } catch (err) {

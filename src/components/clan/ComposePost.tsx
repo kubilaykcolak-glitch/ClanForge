@@ -7,6 +7,7 @@ import { createPost } from "@/lib/clan-actions";
 import { getInitials } from "@/lib/utils";
 import { validateImageFile } from "@/lib/uploads";
 import { awardXp } from "@/lib/actions/xp.actions";
+import { trackChallengeProgress } from "@/lib/actions/challenge.actions";
 
 interface ComposePostProps {
   clanId:            string;
@@ -128,6 +129,9 @@ export function ComposePost({
       if (xp.success && xp.data && xp.data.awarded > 0) {
         toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
       }
+
+      // Fire-and-forget challenge progress tracking
+      trackChallengeProgress(clanId, "post_create", authorId).catch(() => {});
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to post";
       setPostError(msg);

@@ -1,10 +1,10 @@
 "use client";
 
-import { collection, doc, limit, orderBy, query } from "firebase/firestore";
+import { collection, doc, limit, orderBy, query, where } from "firebase/firestore";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { useCollectionData, useDocumentData } from "react-firebase-hooks/firestore";
 import type { User } from "firebase/auth";
-import type { Clan, ClanPost, Profile, Tournament } from "@/types";
+import type { Clan, ClanPost, Notification, Profile, Tournament } from "@/types";
 import { auth, db } from "./client";
 import {
   clanConverter,
@@ -41,21 +41,59 @@ export function useClan(clanId: string | null): { clan: Clan | null; loading: bo
 }
 
 // ─── useClanPosts ─────────────────────────────────────────────────────────────
+//
+// Streams the most-recent `pageLimit` posts in real-time. To paginate, the
+// caller raises pageLimit (typically by PAGE_SIZE per Load More click).
+//
+// We over-fetch by 1 so the consumer can tell whether there's another page
+// without an extra query: if we receive (pageLimit + 1) docs, `hasMore` is
+// true; otherwise we've hit the end and the +1 is just unused.
 
-export function useClanPosts(clanId: string | null): {
-  posts: ClanPost[];
+export function useClanPosts(
+  clanId:    string | null,
+  pageLimit: number = 15,
+): {
+  posts:   ClanPost[];
   loading: boolean;
-  error: Error | undefined;
+  error:   Error | undefined;
+  hasMore: boolean;
 } {
   const ref = clanId
     ? query(
         collection(db, "clans", clanId, "posts").withConverter(postConverter),
         orderBy("createdAt", "desc"),
-        limit(20)
+        limit(pageLimit + 1),
       )
     : null;
-  const [posts, loading, error] = useCollectionData(ref);
-  return { posts: posts ?? [], loading, error };
+  const [rows, loading, error] = useCollectionData(ref);
+  const all     = rows ?? [];
+  const hasMore = all.length > pageLimit;
+  const posts   = hasMore ? all.slice(0, pageLimit) : all;
+  return { posts, loading, error, hasMore };
+}
+
+// ─── useNotifications ─────────────────────────────────────────────────────────
+//
+// Real-time listener on /notifications/{uid}/items for the notification bell.
+// Returns the 20 most recent items and the unread count.
+
+export function useNotifications(uid: string | null): {
+  notifications: Notification[];
+  unreadCount:   number;
+  loading:       boolean;
+} {
+  const ref = uid
+    ? query(
+        collection(db, "notifications", uid, "items"),
+        orderBy("createdAt", "desc"),
+        limit(20),
+      )
+    : null;
+
+  const [rows, loading] = useCollectionData(ref);
+  const all         = (rows ?? []) as Notification[];
+  const unreadCount = all.filter(n => !n.read).length;
+  return { notifications: all, unreadCount, loading };
 }
 
 // ─── useTournament ────────────────────────────────────────────────────────────

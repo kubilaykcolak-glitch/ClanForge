@@ -122,6 +122,11 @@ export function TournamentRegistration({
           toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
         }
 
+        // Award clan XP for tournament participation (fire-and-forget)
+        import("@/lib/actions/clan-xp.actions")
+          .then(m => m.awardClanXpForMember(currentUid, "tournament_participate", tournamentId))
+          .catch(() => {});
+
         router.refresh();
         return;
       }

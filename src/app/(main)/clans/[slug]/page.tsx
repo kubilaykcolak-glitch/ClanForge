@@ -6,6 +6,10 @@ import { Badge } from "@/components/ui/Badge";
 import { MemberRow } from "@/components/clan/MemberRow";
 import { ClanActions } from "@/components/clan/ClanActions";
 import { ClanFeed } from "@/components/clan/ClanFeed";
+import { ClanChallengesWidget } from "@/components/challenges/ClanChallengesWidget";
+import { ClanXpBar } from "@/components/clan/ClanXpBar";
+import { ClanXpFeed } from "@/components/clan/ClanXpFeed";
+import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
 import { formatDate } from "@/lib/utils";
 
 // ── Role sort order ───────────────────────────────────────────────────────────
@@ -212,6 +216,7 @@ export default async function ClanPage({
             >
               {clan.name}
             </h1>
+            <ClanLevelBadge xp={clan.xp ?? 0} size="md" showName />
             {clan.clanTag && (
               <span
                 style={{
@@ -275,6 +280,11 @@ export default async function ClanPage({
         </div>
       </div>
 
+      {/* ── Clan XP & Level ── */}
+      <div className="px-2 mb-6">
+        <ClanXpBar xp={clan.xp ?? 0} showPerks />
+      </div>
+
       {/* ── Tags ── */}
       {clan.tags && clan.tags.length > 0 && (
         <div className="px-2 flex flex-wrap gap-2 mb-8">
@@ -305,6 +315,9 @@ export default async function ClanPage({
           </p>
         </div>
       )}
+
+      {/* ── Active challenges widget ── */}
+      {!showGate && <ClanChallengesWidget clanId={clanId} />}
 
       {/* ── Two-column layout (members only) ── */}
       {!showGate && <div className="flex gap-6">
@@ -368,6 +381,20 @@ export default async function ClanPage({
                 No members yet
               </p>
             )}
+          </div>
+
+          {/* XP Activity feed */}
+          <div
+            className="mt-4 pt-4"
+            style={{ borderTop: "1px solid var(--border-subtle)" }}
+          >
+            <h3
+              className="font-display font-semibold text-sm mb-3"
+              style={{ color: "var(--text-primary)" }}
+            >
+              XP Activity
+            </h3>
+            <ClanXpFeed clanId={clanId} limit={6} />
           </div>
         </aside>
       </div>}

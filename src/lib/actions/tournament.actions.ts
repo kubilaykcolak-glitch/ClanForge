@@ -208,6 +208,11 @@ export async function reportMatchResult(
     const { awardXp } = await import("@/lib/actions/xp.actions");
     await awardXp(winnerId, "tournament_match_win", matchId);
 
+    // Award clan XP for the win (fire-and-forget)
+    import("@/lib/actions/clan-xp.actions")
+      .then(m => m.awardClanXpForMember(winnerId, "tournament_win", matchId))
+      .catch(() => {});
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to report match result";

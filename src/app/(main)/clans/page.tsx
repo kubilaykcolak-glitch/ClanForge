@@ -1,39 +1,24 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import type { Clan } from "@/types";
-import { ClanCard } from "@/components/clan/ClanCard";
+import { getClanList, type ClanRow } from "@/lib/actions/clan-list.actions";
+import { ClansClient } from "@/components/clan/ClansClient";
 
 // ── Data fetch ────────────────────────────────────────────────────────────────
 
-interface PageData {
-  publicClans:        Clan[];
+async function getPageData(): Promise<{
+  initialItems:       ClanRow[];
+  initialCursor:      string | null;
   ownClan:            Clan | null;
   currentUid:         string | null;
   currentClanId:      string | null;
   currentDisplayName: string;
   currentAvatarUrl:   string | undefined;
-}
-
-async function getPageData(): Promise<PageData> {
+}> {
   const { adminDb, adminAuth } = await import("@/lib/firebase/admin");
 
-  // Public clans (browse list)
-  const snap = await adminDb
-    .collection("clans")
-    .where("isPublic", "==", true)
-    .orderBy("memberCount", "desc")
-    .limit(12)
-    .get();
-
-  const publicClans: Clan[] = snap.docs.map(d => {
-    const data = d.data();
-    return {
-      id:        d.id,
-      ...(data as Omit<Clan, "id" | "createdAt" | "updatedAt">),
-      createdAt: data.createdAt?.toDate?.() ?? new Date(),
-      updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
-    } as Clan;
-  });
+  // Public clans — default sort (most members)
+  const listResult = await getClanList("members", null);
 
   let ownClan:            Clan | null   = null;
   let currentUid:         string | null = null;
@@ -56,9 +41,6 @@ async function getPageData(): Promise<PageData> {
         currentAvatarUrl   = pData.avatarUrl as string | undefined;
 
         // Surface private clan so owner/members can always find it.
-        // Primary path: profile has clanId (stamped on join/create).
-        // Fallback: query by ownerId for clans created before the profile
-        // stamp was added (client-side create batch didn't update profile).
         let candidateClanId = currentClanId;
 
         if (!candidateClanId) {
@@ -93,14 +75,23 @@ async function getPageData(): Promise<PageData> {
     // Invalid/missing session — continue with nulls
   }
 
-  return { publicClans, ownClan, currentUid, currentClanId, currentDisplayName, currentAvatarUrl };
+  return {
+    initialItems:       listResult.data?.items      ?? [],
+    initialCursor:      listResult.data?.nextCursor ?? null,
+    ownClan,
+    currentUid,
+    currentClanId,
+    currentDisplayName,
+    currentAvatarUrl,
+  };
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ClansPage() {
   const {
-    publicClans,
+    initialItems,
+    initialCursor,
     ownClan,
     currentUid,
     currentClanId,
@@ -143,7 +134,6 @@ export default async function ClansPage() {
           }}
         >
           <div className="flex items-center gap-3 min-w-0">
-            {/* Clan avatar */}
             <div
               className="shrink-0 rounded-lg flex items-center justify-center text-white font-bold font-display overflow-hidden"
               style={{
@@ -171,15 +161,15 @@ export default async function ClansPage() {
                 </span>
                 <span
                   style={{
-                    fontSize:     10,
-                    fontWeight:   700,
+                    fontSize:      10,
+                    fontWeight:    700,
                     letterSpacing: "0.05em",
-                    padding:      "2px 7px",
-                    borderRadius: 999,
-                    background:   "rgba(239,68,68,0.12)",
-                    color:        "var(--danger)",
-                    border:       "1px solid rgba(239,68,68,0.25)",
-                    whiteSpace:   "nowrap",
+                    padding:       "2px 7px",
+                    borderRadius:  999,
+                    background:    "rgba(239,68,68,0.12)",
+                    color:         "var(--danger)",
+                    border:        "1px solid rgba(239,68,68,0.25)",
+                    whiteSpace:    "nowrap",
                   }}
                 >
                   PRIVATE
@@ -205,47 +195,16 @@ export default async function ClansPage() {
         </div>
       )}
 
-      {/* ── Public clans grid ── */}
-      {publicClans.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {publicClans.map(clan => (
-            <ClanCard
-              key={clan.id}
-              clan={clan}
-              currentUid={currentUid}
-              currentClanId={currentClanId}
-              currentDisplayName={currentDisplayName}
-              currentAvatarUrl={currentAvatarUrl}
-            />
-          ))}
-        </div>
-      ) : (
-        <div
-          className="flex flex-col items-center justify-center rounded-2xl py-24 text-center"
-          style={{
-            background: "var(--bg-surface)",
-            border: "1px solid var(--border-subtle)",
-          }}
-        >
-          <span className="text-6xl mb-5 opacity-30">🛡️</span>
-          <p
-            className="font-display font-semibold text-xl mb-2"
-            style={{ color: "var(--text-primary)" }}
-          >
-            No clans yet
-          </p>
-          <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
-            Be the first to create a clan and start recruiting.
-          </p>
-          <Link
-            href="/clans/create"
-            className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
-            style={{ background: "var(--accent)" }}
-          >
-            + Create Clan
-          </Link>
-        </div>
-      )}
+      {/* ── Interactive clans list ── */}
+      <ClansClient
+        initialItems={initialItems}
+        initialCursor={initialCursor}
+        currentUid={currentUid}
+        currentClanId={currentClanId}
+        currentDisplayName={currentDisplayName}
+        currentAvatarUrl={currentAvatarUrl}
+      />
+
     </div>
   );
 }

@@ -16,7 +16,9 @@ import {
   LogOut,
   LogIn,
   UserPlus,
+  Bell,
 } from "lucide-react";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { cn } from "@/lib/utils";
 import { getInitials, clamp } from "@/lib/utils";
 import type { Profile } from "@/types";
@@ -64,7 +66,7 @@ function SidebarBody({
     { href: "/clans",       label: "My Clan",       icon: <Shield size={18} /> },
     { href: "/tournaments", label: "Tournaments",   icon: <Trophy size={18} /> },
     { href: "/players",     label: "Find Players",  icon: <Users size={18} /> },
-    { href: "/clan-challenges", label: "Clan Challenges", icon: <Shield size={18} />, comingSoon: true, comingSoonLabel: "Phase 2" },
+    { href: "/leaderboard", label: "Leaderboard",   icon: <Trophy size={18} /> },
     { href: "/lfg",         label: "LFG Board",     icon: <MessageSquare size={18} />, comingSoon: true },
   ];
 
@@ -198,6 +200,14 @@ function SidebarBody({
       >
         {isAuthenticated ? (
           <>
+            {profile?.id && (
+              <div className="flex items-center gap-3 px-3 py-1.5">
+                <span className="text-sm font-medium" style={{ color: "var(--text-muted)", flex: 1 }}>
+                  Notifications
+                </span>
+                <NotificationBell uid={profile.id} />
+              </div>
+            )}
             <Link
               href="/settings"
               onClick={onNavigate}

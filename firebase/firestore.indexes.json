@@ -78,6 +78,109 @@
       ]
     },
 
+    // Tournaments sort: prize (largest prize pool first)
+    {
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",     "order": "ASCENDING"  },
+        { "fieldPath": "prizePool",  "order": "DESCENDING" }
+      ]
+    },
+
+    // Tournaments sort: most participants first
+    {
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",           "order": "ASCENDING"  },
+        { "fieldPath": "participantCount", "order": "DESCENDING" }
+      ]
+    },
+
+    // Clans sort: newest first (isPublic filter + createdAt desc)
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic",  "order": "ASCENDING"  },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+
+    // Clan name prefix search: isPublic filter + name range
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "name",     "order": "ASCENDING" }
+      ]
+    },
+
+    // ── challenges ───────────────────────────────────────────────────────────
+
+    // Active challenges by type (progress tracking lookup)
+    {
+      "collectionGroup": "challenges",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "type",   "order": "ASCENDING" }
+      ]
+    },
+
+    // Challenges by season
+    {
+      "collectionGroup": "challenges",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "seasonId", "order": "ASCENDING" },
+        { "fieldPath": "startAt",  "order": "DESCENDING" }
+      ]
+    },
+
+    // ── clan_points ───────────────────────────────────────────────────────────
+
+    // Weekly leaderboard
+    {
+      "collectionGroup": "clan_points",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "weeklyPoints", "order": "DESCENDING" }
+      ]
+    },
+
+    // Monthly leaderboard
+    {
+      "collectionGroup": "clan_points",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "monthlyPoints", "order": "DESCENDING" }
+      ]
+    },
+
+    // All-time leaderboard
+    {
+      "collectionGroup": "clan_points",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "totalPoints", "order": "DESCENDING" }
+      ]
+    },
+
+    // ── notifications (subcollection) ─────────────────────────────────────────
+
+    // Unread notifications per user
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "read",      "order": "ASCENDING"  },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+
     // ── profiles ─────────────────────────────────────────────────────────────
 
     // Players page leaderboard: top XP (single-field — auto-indexed by Firestore,
