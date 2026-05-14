@@ -13,8 +13,24 @@ import { auth, db } from "@/lib/firebase/client";
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
+function calcAge(dateString: string): number {
+  const birth = new Date(dateString);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 const schema = z
   .object({
+    dateOfBirth: z
+      .string()
+      .min(1, "Date of birth is required")
+      .refine(v => {
+        const d = new Date(v);
+        return !isNaN(d.getTime()) && calcAge(v) >= 13;
+      }, "You must be at least 13 years old to register"),
     username: z
       .string()
       .min(3, "At least 3 characters")
@@ -120,6 +136,8 @@ export default function RegisterPage() {
         tournamentsWon:    0,
         isVerified:        false,
         isAdmin:           false,
+        dateOfBirth:       values.dateOfBirth,
+        ageVerifiedAt:     new Date(),
         createdAt:         new Date(),
         updatedAt:         new Date(),
       });
@@ -221,6 +239,35 @@ export default function RegisterPage() {
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+
+            {/* Date of birth */}
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Date of Birth
+              </label>
+              <input
+                {...register("dateOfBirth")}
+                type="date"
+                max={new Date().toISOString().split("T")[0]}
+                min="1900-01-01"
+                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
+                style={{
+                  background:   "var(--bg-elevated)",
+                  border:       `1px solid ${errors.dateOfBirth ? "var(--danger)" : "var(--border-default)"}`,
+                  color:        "var(--text-primary)",
+                  colorScheme:  "dark",
+                }}
+              />
+              {errors.dateOfBirth ? (
+                <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
+                  {errors.dateOfBirth.message}
+                </p>
+              ) : (
+                <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                  You must be at least 13 years old. This is stored for age verification purposes only.
+                </p>
+              )}
+            </div>
 
             {/* Username */}
             <div>

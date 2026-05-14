@@ -550,6 +550,15 @@ function Step3({ onBack }: { onBack: () => void }) {
 // USERNAME SETUP (shown before step 1 for Google SSO users with no profile)
 // ─────────────────────────────────────────────────────────────────────────────
 
+function calcAge(dateString: string): number {
+  const birth = new Date(dateString);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 function UsernameSetup({
   uid,
   onDone,
@@ -559,6 +568,8 @@ function UsernameSetup({
 }) {
   const [username,    setUsername]    = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [dob,         setDob]         = useState("");
+  const [dobError,    setDobError]    = useState<string | null>(null);
   const [status,      setStatus]      = useState<"idle" | "checking" | "ok" | "taken">("idle");
   const [saving,      setSaving]      = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -583,21 +594,35 @@ function UsernameSetup({
 
   const handleCreate = async () => {
     if (!username || status === "taken" || status === "checking") return;
+
+    // Validate date of birth
+    if (!dob) {
+      setDobError("Date of birth is required");
+      return;
+    }
+    if (isNaN(new Date(dob).getTime()) || calcAge(dob) < 13) {
+      setDobError("You must be at least 13 years old to register");
+      return;
+    }
+    setDobError(null);
+
     setSaving(true);
     try {
       const batch = writeBatch(db);
       batch.set(doc(db, "profiles", uid), {
         username,
-        displayName: displayName.trim() || username,
-        avatarUrl:   null,
-        bio:         "",
-        xp:          0,
+        displayName:   displayName.trim() || username,
+        avatarUrl:     null,
+        bio:           "",
+        xp:            0,
         tournamentsPlayed: 0,
         tournamentsWon:    0,
-        isVerified:  false,
-        isAdmin:     false,
-        createdAt:   new Date(),
-        updatedAt:   new Date(),
+        isVerified:    false,
+        isAdmin:       false,
+        dateOfBirth:   dob,
+        ageVerifiedAt: new Date(),
+        createdAt:     new Date(),
+        updatedAt:     new Date(),
       });
       batch.set(doc(db, "usernames", username), { uid });
       await batch.commit();
@@ -680,6 +705,34 @@ function UsernameSetup({
             className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
             style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
           />
+        </div>
+
+        {/* Date of birth */}
+        <div>
+          <label className="block text-sm font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+            Date of Birth
+          </label>
+          <input
+            type="date"
+            value={dob}
+            onChange={e => { setDob(e.target.value); setDobError(null); }}
+            max={new Date().toISOString().split("T")[0]}
+            min="1900-01-01"
+            className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+            style={{
+              background:  "var(--bg-elevated)",
+              border:      `1px solid ${dobError ? "var(--danger)" : "var(--border-default)"}`,
+              color:       "var(--text-primary)",
+              colorScheme: "dark",
+            }}
+          />
+          {dobError ? (
+            <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>{dobError}</p>
+          ) : (
+            <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+              You must be at least 13 years old. Stored for age verification only.
+            </p>
+          )}
         </div>
 
         <button
