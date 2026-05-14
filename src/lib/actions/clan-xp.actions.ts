@@ -32,7 +32,7 @@ export interface ClanXpRule {
   label:     string;
 }
 
-export const CLAN_XP_RULES: Record<ClanXpReason, ClanXpRule> = {
+const CLAN_XP_RULES: Record<ClanXpReason, ClanXpRule> = {
   member_join:            { reason: "member_join",            amount:  50,  type: "once_per_target", label: "New member joined"              },
   post_created:           { reason: "post_created",           amount:  20,  type: "daily_cap", dailyCap: 3, label: "Clan post published"      },
   tournament_participate: { reason: "tournament_participate",  amount: 100,  type: "once_per_target", label: "Tournament entry"              },

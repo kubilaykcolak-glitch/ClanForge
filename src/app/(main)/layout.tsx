@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Footer } from "@/components/layout/Footer";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import type { Profile } from "@/types";
 
 interface SessionResult {
@@ -16,21 +17,15 @@ async function getSessionData(): Promise<SessionResult> {
     const sessionCookie = cookieStore.get("session")?.value;
     if (!sessionCookie) return { profile: null, isAuthenticated: false };
 
-    // Will throw if cookie is invalid/expired
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
 
-    // Try to fetch profile — may not exist yet (e.g. Google sign-in without onboarding)
     const snap = await adminDb.collection("profiles").doc(decoded.uid).get();
     if (!snap.exists) {
-      // Valid session but no profile doc yet — still authenticated
       return { profile: null, isAuthenticated: true };
     }
 
     const data = snap.data()!;
 
-    // Firestore Timestamp objects are class instances and cannot be passed from
-    // Server Components to Client Components. Convert every date field to a
-    // plain Date (React's serialiser supports the Date built-in).
     const profile: Profile = {
       ...(data as Omit<Profile, "id" | "createdAt" | "updatedAt">),
       id:        snap.id,
@@ -52,20 +47,25 @@ export default async function MainLayout({
   const { profile, isAuthenticated } = await getSessionData();
 
   return (
-    <div
-      className="min-h-screen flex flex-col"
-      style={{ background: "var(--bg-base)" }}
-    >
-      <div className="flex flex-1">
-        <Sidebar profile={profile} isAuthenticated={isAuthenticated} />
+    <>
+      <div
+        className="min-h-screen flex flex-col"
+        style={{ background: "var(--bg-base)" }}
+      >
+        <div className="flex flex-1">
+          <Sidebar profile={profile} isAuthenticated={isAuthenticated} />
 
-        <div className="flex flex-col flex-1 min-w-0">
-          <main className="flex-1 px-6 py-6 pl-16 md:pl-6">
-            {children}
-          </main>
-          <Footer />
+          <div className="flex flex-col flex-1 min-w-0">
+            <main className="flex-1 px-6 py-6 pl-16 md:pl-6">
+              {children}
+            </main>
+            <Footer />
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Floating notification bell — fixed bottom-right, visible on all authenticated pages */}
+      {profile?.id && <NotificationBell uid={profile.id} />}
+    </>
   );
 }

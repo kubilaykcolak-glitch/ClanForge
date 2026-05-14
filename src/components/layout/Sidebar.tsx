@@ -17,7 +17,6 @@ import {
   LogIn,
   UserPlus,
 } from "lucide-react";
-import { NotificationBell } from "@/components/layout/NotificationBell";
 import { cn } from "@/lib/utils";
 import { getInitials, clamp } from "@/lib/utils";
 import type { Profile } from "@/types";
@@ -199,14 +198,6 @@ function SidebarBody({
       >
         {isAuthenticated ? (
           <>
-            {profile?.id && (
-              <div className="flex items-center gap-3 px-3 py-1.5">
-                <span className="text-sm font-medium" style={{ color: "var(--text-muted)", flex: 1 }}>
-                  Notifications
-                </span>
-                <NotificationBell uid={profile.id} />
-              </div>
-            )}
             <Link
               href="/settings"
               onClick={onNavigate}

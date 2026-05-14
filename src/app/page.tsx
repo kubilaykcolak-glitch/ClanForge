@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { Trophy, Shield, Zap, ArrowRight, Users } from "lucide-react";
+import { Trophy, Shield, Zap, ArrowRight } from "lucide-react";
 import { auth } from "@/lib/firebase/client";
 
 // ── Static data ───────────────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ export default function LandingPage() {
                   Create Profile <ArrowRight size={17} />
                 </Link>
                 <Link
-                  href="/clans"
+                  href="/login"
                   className="lp-ghost-btn inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-medium"
                   style={{
                     fontSize:   16,
@@ -319,7 +319,7 @@ export default function LandingPage() {
                     transition: "border-color 0.15s, color 0.15s",
                   }}
                 >
-                  <Users size={17} /> Browse Clans
+                  Log In <ArrowRight size={17} />
                 </Link>
               </div>
 
