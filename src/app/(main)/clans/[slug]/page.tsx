@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { Lock, Users } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Lock, Users } from "lucide-react";
 import type { Clan, ClanMember, ClanRole, Profile } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { MemberRow } from "@/components/clan/MemberRow";
@@ -159,6 +160,18 @@ export default async function ClanPage({
 
   return (
     <div className="max-w-5xl mx-auto">
+
+      {/* ── Breadcrumb ── */}
+      <div className="flex items-center gap-1.5 mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+        <Link
+          href="/clans"
+          className="transition-colors hover:text-[color:var(--text-secondary)]"
+        >
+          Browse Clans
+        </Link>
+        <ChevronRight size={12} />
+        <span style={{ color: "var(--text-secondary)" }}>{clan.name}</span>
+      </div>
 
       {/* ── Hero banner ── */}
       <div className="relative mb-14">

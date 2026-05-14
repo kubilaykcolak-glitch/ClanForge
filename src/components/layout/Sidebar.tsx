@@ -30,6 +30,8 @@ interface NavItem {
   href:              string;
   label:             string;
   icon:              React.ReactNode;
+  /** Override the path prefix used for the active highlight. */
+  activePrefix?:     string;
   comingSoon?:       boolean;
   comingSoonLabel?:  string;
 }
@@ -61,7 +63,12 @@ function SidebarBody({
   const navItems: NavItem[] = [
     { href: "/dashboard",   label: "Dashboard",    icon: <LayoutDashboard size={18} /> },
     { href: profile?.username ? `/profile/${profile.username}` : "/dashboard/onboarding", label: "My Profile", icon: <User size={18} /> },
-    { href: "/clans",       label: "My Clan",       icon: <Shield size={18} /> },
+    {
+      href:         profile?.clanSlug ? `/clans/${profile.clanSlug}` : "/clans",
+      label:        "My Clan",
+      icon:         <Shield size={18} />,
+      activePrefix: "/clans",
+    },
     { href: "/tournaments", label: "Tournaments",   icon: <Trophy size={18} /> },
     { href: "/players",     label: "Find Players",  icon: <Users size={18} /> },
     { href: "/leaderboard", label: "Leaderboard",   icon: <Trophy size={18} /> },
@@ -138,8 +145,9 @@ function SidebarBody({
 
       {/* ── Nav links ── */}
       <nav className="flex flex-col gap-0.5 flex-1">
-        {navItems.map(({ href, label, icon, comingSoon, comingSoonLabel }) => {
-          const active = pathname === href || (href !== "/" && pathname.startsWith(href));
+        {navItems.map(({ href, label, icon, activePrefix, comingSoon, comingSoonLabel }) => {
+          const checkPrefix = activePrefix ?? href;
+          const active = pathname === href || (checkPrefix !== "/" && pathname.startsWith(checkPrefix));
 
           if (comingSoon) {
             return (
