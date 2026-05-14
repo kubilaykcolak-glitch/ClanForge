@@ -112,13 +112,27 @@ async function getPageData(username: string) {
     }
 
   } else {
-    // ── Fallback: clanId is absent OR null on the profile, but the user
-    //    might still be a member if an earlier join didn't stamp the profile.
-    //    Query the members collectionGroup by userId (requires the field
-    //    to be set on the member doc — newer writes include it).
-    //    If we find a match, backfill the profile denorm fields so the fast
-    //    path works next time.
+    // ── Layered fallbacks: clanId is absent/null on the profile doc ──────────
+    //
+    // Fallback 1 — collectionGroup query by userId field.
+    //   Covers users who joined/created after the userId field was added but
+    //   whose profile clanId was never stamped.
+    //
+    // Fallback 2 — ownerId query on the clans collection.
+    //   Catches users who created a clan before the member doc userId field
+    //   and profile clanId stamp were introduced. The clan doc always has
+    //   ownerId, so this is the last-resort guarantee for creators.
+    //
+    // On any successful match: backfill BOTH the profile doc (clanId + denorm
+    // fields) AND the member doc (userId field) so the fast path works next
+    // time and the collectionGroup fallback works as a secondary safety net.
+
+    let foundClanId:   string | null = null;
+    let foundClanSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+    let foundRole:     string = "member";
+
     try {
+      // Fallback 1: collectionGroup by userId field
       const memberGroupSnap = await adminDb
         .collectionGroup("members")
         .where("userId", "==", uid)
@@ -126,40 +140,60 @@ async function getPageData(username: string) {
         .get();
 
       if (!memberGroupSnap.empty) {
-        const memberDoc = memberGroupSnap.docs[0];
-        // Parent path is /clans/{clanId}/members, so parent.parent is /clans/{clanId}
-        const clanId    = memberDoc.ref.parent.parent!.id;
-        const clanSnap  = await adminDb.collection("clans").doc(clanId).get();
-
-        if (clanSnap.exists) {
-          const clanData   = clanSnap.data() as Clan;
-          const memberData = memberDoc.data() as ClanMember;
-
-          clanInfo = {
-            id:          clanSnap.id,
-            slug:        clanData.slug,
-            name:        clanData.name,
-            avatarUrl:   clanData.avatarUrl,
-            memberCount: clanData.memberCount,
-            role:        memberData.role ?? "member",
-          };
-
-          clanTag  = clanData.clanTag  ?? null;
-          clanName = clanData.name;
-          clanSlug = clanData.slug;
-
-          // Backfill the profile so the fast path works next time. Fire-and-
-          // forget — not awaited because the page render shouldn't block on it.
-          adminDb.collection("profiles").doc(uid).update({
-            clanId,
-            clanTag:  clanData.clanTag  ?? null,
-            clanSlug: clanData.slug,
-            clanName: clanData.name,
-          }).catch(() => { /* best-effort — ignore failures */ });
-        }
+        const memberDoc  = memberGroupSnap.docs[0];
+        foundClanId      = memberDoc.ref.parent.parent!.id;
+        foundRole        = (memberDoc.data() as ClanMember).role ?? "member";
+        foundClanSnap    = await adminDb.collection("clans").doc(foundClanId).get();
       }
-    } catch {
-      // Silently degrade — no clan will be shown for this profile.
+    } catch { /* continue to next fallback */ }
+
+    // Fallback 2: owned clan (no userId field on member doc — pre-migration creators)
+    if (!foundClanId) {
+      try {
+        const ownedSnap = await adminDb
+          .collection("clans")
+          .where("ownerId", "==", uid)
+          .limit(1)
+          .get();
+
+        if (!ownedSnap.empty) {
+          foundClanSnap = ownedSnap.docs[0];
+          foundClanId   = foundClanSnap.id;
+          foundRole     = "leader";
+        }
+      } catch { /* degrade gracefully */ }
+    }
+
+    if (foundClanId && foundClanSnap?.exists) {
+      const clanData = foundClanSnap.data() as Clan;
+
+      clanInfo = {
+        id:          foundClanId,
+        slug:        clanData.slug,
+        name:        clanData.name,
+        avatarUrl:   clanData.avatarUrl,
+        memberCount: clanData.memberCount,
+        role:        foundRole,
+      };
+
+      clanTag  = clanData.clanTag  ?? null;
+      clanName = clanData.name;
+      clanSlug = clanData.slug;
+
+      // Backfill both the profile doc AND the member doc so future loads use
+      // the fast path and the collectionGroup fallback works as a safety net.
+      const profileRef = adminDb.collection("profiles").doc(uid);
+      const memberRef  = adminDb.collection("clans").doc(foundClanId).collection("members").doc(uid);
+
+      Promise.all([
+        profileRef.update({
+          clanId:   foundClanId,
+          clanTag:  clanData.clanTag  ?? null,
+          clanSlug: clanData.slug,
+          clanName: clanData.name,
+        }),
+        memberRef.set({ userId: uid }, { merge: true }),
+      ]).catch(() => { /* best-effort — never blocks the render */ });
     }
   }
 
