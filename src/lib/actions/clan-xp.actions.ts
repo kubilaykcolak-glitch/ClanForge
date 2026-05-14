@@ -7,7 +7,7 @@
 // getClanXpFeed    — returns recent XP events for the activity feed
 
 import { FieldValue } from "firebase-admin/firestore";
-import { getClanLevel } from "@/lib/clan-levels";
+import { getClanLevel, CLAN_LEVELS } from "@/lib/clan-levels";
 
 // ── XP rule definitions ───────────────────────────────────────────────────────
 
@@ -179,9 +179,22 @@ export async function awardClanXp(
       }
     });
 
-    // ── Level-up notifications (outside transaction) ──────────────────────────
+    // ── Level-up side-effects (outside transaction) ───────────────────────────
     const leveledUp = newLevel > oldLevel && effectiveAmount > 0;
     if (leveledUp) {
+      // Enforce the highest member_cap perk accumulated up to the new level
+      const highestCap = CLAN_LEVELS
+        .filter(d => d.level <= newLevel)
+        .flatMap(d => d.perks)
+        .filter(p => p.type === "member_cap")
+        .reduce((max, p) => Math.max(max, typeof p.value === "number" ? p.value : 0), 0);
+
+      if (highestCap > 0) {
+        adminDb.collection("clans").doc(clanId)
+          .update({ memberLimit: highestCap })
+          .catch(() => {});
+      }
+
       await _sendLevelUpNotifications(clanId, newLevel).catch(() => {});
     }
 

@@ -7,16 +7,18 @@ import ProfileHero from "@/components/profile/ProfileHero";
 import PrivateProfileScreen from "@/components/profile/PrivateProfileScreen";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { Badge } from "@/components/ui/Badge";
+import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ClanInfo {
   id:          string;
-  slug:        string;       // used for /clans/[slug] navigation
+  slug:        string;
   name:        string;
   avatarUrl?:  string;
   memberCount: number;
   role:        string;
+  xp:          number;
 }
 
 // ── Server-side data fetch ────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ async function getPageData(username: string) {
         avatarUrl:   clanData.avatarUrl,
         memberCount: clanData.memberCount,
         role:        memberData?.role ?? "member",
+        xp:          clanData.xp ?? 0,
       };
 
       // Fill hero fields from clan doc if the profile denorm fields are stale
@@ -174,6 +177,7 @@ async function getPageData(username: string) {
         avatarUrl:   clanData.avatarUrl,
         memberCount: clanData.memberCount,
         role:        foundRole,
+        xp:          clanData.xp ?? 0,
       };
 
       clanTag  = clanData.clanTag  ?? null;
@@ -375,12 +379,15 @@ export default async function ProfilePage({
               </div>
 
               <div className="flex-1 min-w-0">
-                <p
-                  className="font-display font-semibold text-lg truncate"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {clanInfo.name}
-                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p
+                    className="font-display font-semibold text-lg truncate"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {clanInfo.name}
+                  </p>
+                  <ClanLevelBadge xp={clanInfo.xp} size="sm" showName />
+                </div>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="clan">{clanInfo.role}</Badge>
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>

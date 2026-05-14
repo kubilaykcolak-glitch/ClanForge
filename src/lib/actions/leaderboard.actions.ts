@@ -105,6 +105,60 @@ export async function getClanLeaderboard(
   }
 }
 
+// ── Player XP leaderboard ─────────────────────────────────────────────────────
+
+export interface PlayerLeaderboardEntry {
+  rank:        number;
+  uid:         string;
+  username:    string;
+  displayName: string;
+  avatarUrl:   string | null;
+  xp:          number;
+  level:       number;
+}
+
+export async function getPlayerLeaderboard(
+  limit = 25,
+): Promise<ActionResult<PlayerLeaderboardEntry[]>> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    // Fetch extra entries to account for private profiles being filtered out
+    const snap = await adminDb
+      .collection("profiles")
+      .orderBy("xp", "desc")
+      .limit(limit * 3)
+      .get();
+
+    const entries: PlayerLeaderboardEntry[] = snap.docs
+      .map(d => {
+        const data = d.data();
+        const xp   = (data.xp as number) ?? 0;
+        return {
+          rank:        0,
+          uid:         d.id,
+          username:    (data.username    as string) ?? "",
+          displayName: (data.displayName as string) ?? "",
+          avatarUrl:   (data.avatarUrl   as string | null) ?? null,
+          xp,
+          level:       Math.floor(xp / 1000) + 1,
+          isPrivate:   (data.isPrivate   as boolean) ?? false,
+        };
+      })
+      .filter(e => !e.isPrivate && e.username)
+      .slice(0, limit)
+      .map((e, i) => {
+        const { isPrivate: _, ...rest } = e as typeof e & { isPrivate: boolean };
+        return { ...rest, rank: i + 1 };
+      });
+
+    return { success: true, data: entries };
+  } catch (err) {
+    console.error("[getPlayerLeaderboard]", err);
+    return { success: false, error: err instanceof Error ? err.message : "Failed to load player leaderboard" };
+  }
+}
+
 export async function getClanRank(
   clanId:  string,
   period:  LeaderboardPeriod,

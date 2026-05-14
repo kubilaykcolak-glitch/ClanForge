@@ -1,18 +1,19 @@
 import Link from "next/link";
-import { Trophy, Users, Star } from "lucide-react";
+import { Trophy, Users, Star, Zap } from "lucide-react";
 import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
-import { getClanLeaderboard } from "@/lib/actions/leaderboard.actions";
+import { getClanLeaderboard, getPlayerLeaderboard } from "@/lib/actions/leaderboard.actions";
 import { getActiveSeason } from "@/lib/actions/season.actions";
-import type { LeaderboardEntry, LeaderboardPeriod } from "@/lib/actions/leaderboard.actions";
+import type { LeaderboardEntry, LeaderboardPeriod, PlayerLeaderboardEntry } from "@/lib/actions/leaderboard.actions";
 
 // ── Data fetch ────────────────────────────────────────────────────────────────
 
 async function getLeaderboardData() {
-  const [weekly, monthly, alltime, seasonResult] = await Promise.all([
+  const [weekly, monthly, alltime, seasonResult, playersResult] = await Promise.all([
     getClanLeaderboard("weekly",  undefined, 25),
     getClanLeaderboard("monthly", undefined, 25),
     getClanLeaderboard("alltime", undefined, 25),
     getActiveSeason(),
+    getPlayerLeaderboard(25),
   ]);
 
   const season = seasonResult.data ?? null;
@@ -21,10 +22,11 @@ async function getLeaderboardData() {
     : { success: true, data: [] as LeaderboardEntry[] };
 
   return {
-    weekly:   weekly.data   ?? [],
-    monthly:  monthly.data  ?? [],
-    alltime:  alltime.data  ?? [],
-    seasonal: seasonal.data ?? [],
+    weekly:   weekly.data       ?? [],
+    monthly:  monthly.data      ?? [],
+    alltime:  alltime.data      ?? [],
+    seasonal: seasonal.data     ?? [],
+    players:  playersResult.data ?? [],
     season,
   };
 }
@@ -149,6 +151,102 @@ function LeaderboardTable({ entries, emptyLabel }: { entries: LeaderboardEntry[]
   );
 }
 
+// ── Player table ──────────────────────────────────────────────────────────────
+
+function PlayerTable({ entries }: { entries: PlayerLeaderboardEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center rounded-2xl py-20 text-center"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+      >
+        <Trophy size={32} className="mb-3 opacity-20" style={{ color: "var(--text-muted)" }} />
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>No players on the board yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
+    >
+      {/* Column headers */}
+      <div
+        className="grid items-center px-5 py-2.5"
+        style={{
+          gridTemplateColumns: "48px 1fr auto auto",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        {["Rank", "Player", "Level", "XP"].map(h => (
+          <span key={h} className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+            {h}
+          </span>
+        ))}
+      </div>
+
+      {entries.map((entry, i) => (
+        <Link
+          key={entry.uid}
+          href={`/profile/${entry.username}`}
+          className="grid items-center px-5 py-4 transition-colors"
+          style={{
+            gridTemplateColumns: "48px 1fr auto auto",
+            borderBottom: i < entries.length - 1 ? "1px solid var(--border-subtle)" : "none",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-elevated)")}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          {/* Rank */}
+          <div className="flex items-center">
+            <RankBadge rank={entry.rank} />
+          </div>
+
+          {/* Player */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white font-bold text-sm overflow-hidden"
+              style={{ background: "var(--accent)" }}
+            >
+              {entry.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={entry.avatarUrl} alt={entry.displayName} className="w-full h-full object-cover" />
+              ) : (
+                entry.displayName[0]?.toUpperCase()
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm truncate" style={{ color: "var(--text-primary)" }}>
+                {entry.displayName}
+              </p>
+              <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                @{entry.username}
+              </p>
+            </div>
+          </div>
+
+          {/* Level */}
+          <div className="text-sm pr-6" style={{ color: "var(--text-secondary)" }}>
+            Lv. {entry.level}
+          </div>
+
+          {/* XP */}
+          <div className="text-right">
+            <div className="flex items-center gap-1 justify-end">
+              <Zap size={12} style={{ color: "var(--accent)" }} />
+              <span className="font-bold font-display text-base" style={{ color: "var(--accent)" }}>
+                {entry.xp.toLocaleString()}
+              </span>
+            </div>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>XP</span>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 // ── Tab component (pure CSS, no client JS needed) ─────────────────────────────
 
 function TabLink({ href, label, active }: { href: string; label: string; active: boolean }) {
@@ -174,20 +272,23 @@ interface Props {
 }
 
 export default async function LeaderboardPage({ searchParams }: Props) {
-  const { weekly, monthly, alltime, seasonal, season } = await getLeaderboardData();
-  const tab = (searchParams.tab ?? "weekly") as LeaderboardPeriod;
+  const { weekly, monthly, alltime, seasonal, players, season } = await getLeaderboardData();
+  const tab = searchParams.tab ?? "weekly";
 
-  const tabs: Array<{ value: string; label: string }> = [
+  const isPlayersTab = tab === "players";
+  const clanPeriod   = tab as LeaderboardPeriod;
+
+  const clanTabs: Array<{ value: string; label: string }> = [
     { value: "weekly",   label: "Weekly"   },
     { value: "monthly",  label: "Monthly"  },
     ...(season ? [{ value: "season", label: season.name }] : []),
     { value: "alltime",  label: "All-Time" },
   ];
 
-  const current =
-    tab === "weekly"  ? weekly   :
-    tab === "monthly" ? monthly  :
-    tab === "season"  ? seasonal :
+  const currentClan =
+    clanPeriod === "weekly"  ? weekly   :
+    clanPeriod === "monthly" ? monthly  :
+    clanPeriod === "season"  ? seasonal :
     alltime;
 
   return (
@@ -196,15 +297,17 @@ export default async function LeaderboardPage({ searchParams }: Props) {
       {/* ── Header ── */}
       <div className="mb-8">
         <h1 className="font-display font-bold text-4xl" style={{ color: "var(--text-primary)" }}>
-          Clan Leaderboard
+          Leaderboard
         </h1>
         <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
-          Top clans ranked by challenge points earned.
+          {isPlayersTab
+            ? "Top players ranked by total XP earned."
+            : "Top clans ranked by challenge points earned."}
         </p>
       </div>
 
-      {/* ── Season banner ── */}
-      {season && (
+      {/* ── Season banner (clans only) ── */}
+      {!isPlayersTab && season && (
         <div
           className="rounded-xl px-5 py-4 mb-6 flex items-center gap-3"
           style={{
@@ -224,31 +327,43 @@ export default async function LeaderboardPage({ searchParams }: Props) {
         </div>
       )}
 
-      {/* ── Tab nav ── */}
-      <div
-        className="flex items-center gap-1 p-1 rounded-xl mb-6 w-fit"
-        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
-      >
-        {tabs.map(t => (
-          <TabLink
-            key={t.value}
-            href={`/leaderboard?tab=${t.value}`}
-            label={t.label}
-            active={tab === t.value}
-          />
-        ))}
+      {/* ── Top-level view toggle (Clans / Players) ── */}
+      <div className="flex items-center gap-3 mb-4">
+        <TabLink href="/leaderboard?tab=weekly"  label="Clans"   active={!isPlayersTab} />
+        <TabLink href="/leaderboard?tab=players" label="Players" active={isPlayersTab}  />
       </div>
 
+      {/* ── Period tabs (clans only) ── */}
+      {!isPlayersTab && (
+        <div
+          className="flex items-center gap-1 p-1 rounded-xl mb-6 w-fit"
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+        >
+          {clanTabs.map(t => (
+            <TabLink
+              key={t.value}
+              href={`/leaderboard?tab=${t.value}`}
+              label={t.label}
+              active={tab === t.value}
+            />
+          ))}
+        </div>
+      )}
+
       {/* ── Table ── */}
-      <LeaderboardTable
-        entries={current}
-        emptyLabel={
-          tab === "weekly"  ? "No points earned this week yet. Complete challenges to get on the board!" :
-          tab === "monthly" ? "No points earned this month yet." :
-          tab === "season"  ? "No season points yet. Complete challenges to climb the rankings!" :
-          "No points on record yet."
-        }
-      />
+      {isPlayersTab ? (
+        <PlayerTable entries={players} />
+      ) : (
+        <LeaderboardTable
+          entries={currentClan}
+          emptyLabel={
+            tab === "weekly"  ? "No points earned this week yet. Complete challenges to get on the board!" :
+            tab === "monthly" ? "No points earned this month yet." :
+            tab === "season"  ? "No season points yet. Complete challenges to climb the rankings!" :
+            "No points on record yet."
+          }
+        />
+      )}
     </div>
   );
 }
