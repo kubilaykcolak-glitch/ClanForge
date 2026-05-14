@@ -302,6 +302,7 @@ export default function CreateClanPage() {
       batch.set(doc(db, "clanSlugs", slug), { clanId });
 
       batch.set(doc(db, "clans", clanId, "members", uid), {
+        userId:      uid,
         role:        "leader",
         joinedAt:    new Date(),
         displayName: displayName || "Unknown",

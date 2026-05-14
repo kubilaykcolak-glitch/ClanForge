@@ -59,6 +59,7 @@ export async function createClan(
     batch.set(
       adminDb.collection("clans").doc(clanId).collection("members").doc(uid),
       {
+        userId:      uid,
         role:        "leader",
         joinedAt:    now,
         displayName: profile.displayName,
@@ -134,6 +135,7 @@ export async function joinClan(
       const now = new Date();
 
       tx.set(memberRef, {
+        userId:      uid,
         role:        "member",
         joinedAt:    now,
         displayName: profile.displayName,

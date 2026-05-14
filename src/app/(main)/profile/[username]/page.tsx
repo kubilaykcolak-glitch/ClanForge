@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/Badge";
 
 interface ClanInfo {
   id:          string;
+  slug:        string;       // used for /clans/[slug] navigation
   name:        string;
   avatarUrl?:  string;
   memberCount: number;
@@ -96,6 +97,7 @@ async function getPageData(username: string) {
 
       clanInfo = {
         id:          clanSnap.id,
+        slug:        clanData.slug,
         name:        clanData.name,
         avatarUrl:   clanData.avatarUrl,
         memberCount: clanData.memberCount,
@@ -109,11 +111,13 @@ async function getPageData(username: string) {
       clanSlug ??= clanData.slug;
     }
 
-  } else if (!("clanId" in profileData)) {
-    // ── Fallback: clanId key is absent — this is pre-migration profile data ──
-    // Query the members collectionGroup for this uid.
-    // Requires member docs to have a `userId` field; if absent this returns
-    // empty and we show no clan (acceptable during the migration window).
+  } else {
+    // ── Fallback: clanId is absent OR null on the profile, but the user
+    //    might still be a member if an earlier join didn't stamp the profile.
+    //    Query the members collectionGroup by userId (requires the field
+    //    to be set on the member doc — newer writes include it).
+    //    If we find a match, backfill the profile denorm fields so the fast
+    //    path works next time.
     try {
       const memberGroupSnap = await adminDb
         .collectionGroup("members")
@@ -133,17 +137,25 @@ async function getPageData(username: string) {
 
           clanInfo = {
             id:          clanSnap.id,
+            slug:        clanData.slug,
             name:        clanData.name,
             avatarUrl:   clanData.avatarUrl,
             memberCount: clanData.memberCount,
             role:        memberData.role ?? "member",
           };
 
-          // Populate hero fields from the live clan doc (display only — no
-          // write-back; the next profile save or clanTag update will sync them).
           clanTag  = clanData.clanTag  ?? null;
           clanName = clanData.name;
           clanSlug = clanData.slug;
+
+          // Backfill the profile so the fast path works next time. Fire-and-
+          // forget — not awaited because the page render shouldn't block on it.
+          adminDb.collection("profiles").doc(uid).update({
+            clanId,
+            clanTag:  clanData.clanTag  ?? null,
+            clanSlug: clanData.slug,
+            clanName: clanData.name,
+          }).catch(() => { /* best-effort — ignore failures */ });
         }
       }
     } catch {
@@ -279,7 +291,7 @@ export default async function ProfilePage({
           <StatCard label="Clan">
             {clanInfo ? (
               <Link
-                href={`/clans/${clanInfo.id}`}
+                href={`/clans/${clanInfo.slug}`}
                 className="text-base leading-tight line-clamp-1"
                 style={{ color: "var(--accent)" }}
               >
@@ -344,7 +356,7 @@ export default async function ProfilePage({
               </div>
 
               <Link
-                href={`/clans/${clanInfo.id}`}
+                href={`/clans/${clanInfo.slug}`}
                 className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 style={{ background: "var(--accent)", color: "#fff" }}
               >

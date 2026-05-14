@@ -51,14 +51,39 @@ export async function joinClan(
   avatarUrl: string | undefined,
   role: "member" | "pending" = "member",
 ): Promise<void> {
+  // 1. Member doc. The `userId` field exists for collection-group queries
+  //    (e.g. "find which clan does this uid belong to").
   await setDoc(doc(db, "clans", clanId, "members", uid), {
+    userId:      uid,
     role,
-    joinedAt: new Date(),
+    joinedAt:    new Date(),
     displayName,
-    avatarUrl: avatarUrl ?? null,
+    avatarUrl:   avatarUrl ?? null,
   });
+
+  // 2. Bump the clan's memberCount (only for confirmed members, not pending).
   if (role === "member") {
     await updateDoc(doc(db, "clans", clanId), { memberCount: increment(1) });
+  }
+
+  // 3. Mirror the four clan-denorm fields on the user's profile so the
+  //    profile page renders the clan without an extra read. Pending
+  //    requests still get stamped — leaving a clan clears them anyway.
+  const { getDoc } = await import("firebase/firestore");
+  const clanSnap = await getDoc(doc(db, "clans", clanId));
+  if (clanSnap.exists()) {
+    const clanData = clanSnap.data() as {
+      slug?:    string;
+      name?:    string;
+      clanTag?: string | null;
+    };
+    await updateDoc(doc(db, "profiles", uid), {
+      clanId,
+      clanTag:   clanData.clanTag  ?? null,
+      clanSlug:  clanData.slug     ?? null,
+      clanName:  clanData.name     ?? null,
+      updatedAt: new Date(),
+    });
   }
 }
 
