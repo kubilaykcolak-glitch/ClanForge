@@ -149,10 +149,16 @@ export async function getPlayerLeaderboard(
       })
       .filter(e => !e.isPrivate && e.username)
       .slice(0, limit)
-      .map((e, i) => {
-        const { isPrivate: _isPrivate, ...rest } = e as typeof e & { isPrivate: boolean };
-        return { ...rest, rank: i + 1 };
-      });
+      .map((e, i) => ({
+        rank:        i + 1,
+        uid:         e.uid,
+        username:    e.username,
+        displayName: e.displayName,
+        avatarUrl:   e.avatarUrl,
+        clanBorder:  e.clanBorder,
+        xp:          e.xp,
+        level:       e.level,
+      }));
 
     return { success: true, data: entries };
   } catch (err) {
