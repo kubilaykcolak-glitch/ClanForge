@@ -2,6 +2,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import type { Clan, ClanRole, Profile } from "@/types";
+import { getClanLevel, getClanBorderSlug } from "@/lib/clan-levels";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -143,13 +144,17 @@ export async function joinClan(
       });
       tx.update(clanRef, { memberCount: FieldValue.increment(1) });
 
-      // Stamp all four clan-denorm fields — clan doc is already in-flight so
-      // clan.slug / clan.name / clan.clanTag are available with no extra read.
+      // Stamp clan-denorm fields + border perk based on current clan level.
+      const clanXp     = (clan.xp as number) ?? 0;
+      const clanLevel  = getClanLevel(clanXp).level;
+      const clanBorder = getClanBorderSlug(clanLevel);
+
       tx.update(profileRef, {
         clanId,
-        clanTag:  (clan.clanTag  as string | null) ?? null,
-        clanSlug: clan.slug  as string,
-        clanName: clan.name  as string,
+        clanTag:    (clan.clanTag as string | null) ?? null,
+        clanSlug:   clan.slug as string,
+        clanName:   clan.name as string,
+        clanBorder: clanBorder ?? null,
       });
     });
 
@@ -196,7 +201,7 @@ export async function leaveClan(
         clanTag:          null,
         clanSlug:         null,
         clanName:         null,
-        // Stamp the leave time so joinClan can enforce the cooldown.
+        clanBorder:       null,
         lastClanLeaveAt:  new Date(),
       });
     });
@@ -317,10 +322,11 @@ export async function removeMember(
       tx.delete(targetRef);
       tx.update(clanRef, { memberCount: FieldValue.increment(-1) });
       tx.update(targetProfile, {
-        clanId:   null,
-        clanTag:  null,
-        clanSlug: null,
-        clanName: null,
+        clanId:     null,
+        clanTag:    null,
+        clanSlug:   null,
+        clanName:   null,
+        clanBorder: null,
       });
     });
 

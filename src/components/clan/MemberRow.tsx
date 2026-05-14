@@ -1,6 +1,7 @@
 import { Crown } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { getInitials, formatDate } from "@/lib/utils";
+import { getClanBorderStyle } from "@/lib/clan-levels";
 import type { ClanRole } from "@/types";
 
 interface MemberRowProps {
@@ -9,9 +10,10 @@ interface MemberRowProps {
   avatarUrl?: string;
   role: ClanRole;
   joinedAt: Date;
+  clanBorder?: string | null;
 }
 
-export function MemberRow({ displayName, avatarUrl, role, joinedAt }: MemberRowProps) {
+export function MemberRow({ displayName, avatarUrl, role, joinedAt, clanBorder }: MemberRowProps) {
   const roleBadge = role === "leader"
     ? "danger"
     : role === "officer"
@@ -25,7 +27,7 @@ export function MemberRow({ displayName, avatarUrl, role, joinedAt }: MemberRowP
       {/* Avatar */}
       <div
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 overflow-hidden"
-        style={{ background: "var(--accent)" }}
+        style={{ background: "var(--accent)", ...getClanBorderStyle(clanBorder) }}
       >
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element

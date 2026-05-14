@@ -113,6 +113,7 @@ export interface PlayerLeaderboardEntry {
   username:    string;
   displayName: string;
   avatarUrl:   string | null;
+  clanBorder:  string | null;
   xp:          number;
   level:       number;
 }
@@ -140,6 +141,7 @@ export async function getPlayerLeaderboard(
           username:    (data.username    as string) ?? "",
           displayName: (data.displayName as string) ?? "",
           avatarUrl:   (data.avatarUrl   as string | null) ?? null,
+          clanBorder:  (data.clanBorder  as string | null) ?? null,
           xp,
           level:       Math.floor(xp / 1000) + 1,
           isPrivate:   (data.isPrivate   as boolean) ?? false,

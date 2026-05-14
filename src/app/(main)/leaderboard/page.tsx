@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Trophy, Users, Star, Zap } from "lucide-react";
 import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
+import { getClanBorderStyle } from "@/lib/clan-levels";
 import { getClanLeaderboard, getPlayerLeaderboard } from "@/lib/actions/leaderboard.actions";
 import { getActiveSeason } from "@/lib/actions/season.actions";
 import type { LeaderboardEntry, LeaderboardPeriod, PlayerLeaderboardEntry } from "@/lib/actions/leaderboard.actions";
@@ -207,7 +208,7 @@ function PlayerTable({ entries }: { entries: PlayerLeaderboardEntry[] }) {
           <div className="flex items-center gap-3 min-w-0">
             <div
               className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white font-bold text-sm overflow-hidden"
-              style={{ background: "var(--accent)" }}
+              style={{ background: "var(--accent)", ...getClanBorderStyle(entry.clanBorder) }}
             >
               {entry.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element

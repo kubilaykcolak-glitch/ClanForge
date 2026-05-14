@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getInitials, clamp } from "@/lib/utils";
+import { getClanBorderStyle } from "@/lib/clan-levels";
 import type { Profile } from "@/types";
 
 interface SidebarProps {
@@ -109,7 +110,7 @@ function SidebarBody({
           <div className="flex items-center gap-3 mb-3">
             <div
               className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-semibold text-white overflow-hidden shrink-0"
-              style={{ background: "var(--accent)" }}
+              style={{ background: "var(--accent)", ...getClanBorderStyle(profile.clanBorder) }}
             >
               {profile.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element

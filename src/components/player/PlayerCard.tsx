@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Shield, Lock, ArrowRight } from "lucide-react";
 import type { Profile } from "@/types";
 import { getInitials } from "@/lib/utils";
+import { getClanBorderStyle } from "@/lib/clan-levels";
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -32,10 +33,12 @@ function Avatar({
   username,
   avatarUrl,
   displayName,
+  clanBorder,
 }: {
   username:    string;
   avatarUrl?:  string;
   displayName?: string;
+  clanBorder?: string | null;
 }) {
   return (
     <div
@@ -45,6 +48,7 @@ function Avatar({
         height:     44,
         background: avatarGradient(username),
         fontSize:   15,
+        ...getClanBorderStyle(clanBorder),
       }}
     >
       {avatarUrl ? (
@@ -104,6 +108,7 @@ export default function PlayerCard({ profile }: { profile: Profile }) {
           username={profile.username}
           avatarUrl={profile.avatarUrl}
           displayName={profile.displayName}
+          clanBorder={profile.clanBorder}
         />
 
         <div className="flex-1 min-w-0">

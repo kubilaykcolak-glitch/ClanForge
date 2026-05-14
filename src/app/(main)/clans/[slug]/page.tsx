@@ -12,6 +12,7 @@ import { ClanXpBar } from "@/components/clan/ClanXpBar";
 import { ClanXpFeed } from "@/components/clan/ClanXpFeed";
 import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
 import { formatDate } from "@/lib/utils";
+import { getClanLevel, getClanBorderSlug } from "@/lib/clan-levels";
 
 // ── Role sort order ───────────────────────────────────────────────────────────
 
@@ -154,6 +155,9 @@ export default async function ClanPage({
   const isMember = currentRole !== null && currentRole !== "pending";
   const isPrivateClan = !clan.isPublic;
   const showGate = isPrivateClan && currentRole === null;
+
+  // Border slug derived from the clan's current level — same for all members
+  const clanBorder = getClanBorderSlug(getClanLevel(clan.xp ?? 0).level);
 
   // Members shown in panel (exclude pending)
   const visibleMembers = members.filter(m => m.role !== "pending");
@@ -386,6 +390,7 @@ export default async function ClanPage({
                 avatarUrl={member.avatarUrl}
                 role={member.role}
                 joinedAt={member.joinedAt}
+                clanBorder={clanBorder}
               />
             ))}
 

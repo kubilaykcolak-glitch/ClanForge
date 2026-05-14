@@ -190,6 +190,30 @@ export interface ClanLevelProgress {
   percentDone: number;
 }
 
+/** Returns which border slug a clan at the given level unlocks for its members. */
+export function getClanBorderSlug(level: number): string | null {
+  if (level >= 9) return "profile_border_diamond";
+  if (level >= 4) return "profile_border_silver";
+  return null;
+}
+
+/**
+ * Returns inline style additions for a clan member's avatar border ring.
+ * Pass the result to a `style` spread — it only sets `boxShadow`.
+ * Returns null when no border applies.
+ */
+export function getClanBorderStyle(
+  clanBorder: string | null | undefined,
+): { boxShadow: string } | null {
+  if (clanBorder === "profile_border_diamond") {
+    return { boxShadow: "0 0 0 2.5px #38bdf8, 0 0 10px rgba(56,189,248,0.45)" };
+  }
+  if (clanBorder === "profile_border_silver") {
+    return { boxShadow: "0 0 0 2.5px #a0aab4, 0 0 8px rgba(160,170,180,0.35)" };
+  }
+  return null;
+}
+
 export function getClanLevelProgress(xp: number): ClanLevelProgress {
   const current  = getClanLevel(xp);
   const nextIdx  = CLAN_LEVELS.findIndex(d => d.level === current.level + 1);

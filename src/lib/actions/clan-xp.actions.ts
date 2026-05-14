@@ -7,7 +7,7 @@
 // getClanXpFeed    — returns recent XP events for the activity feed
 
 import { FieldValue } from "firebase-admin/firestore";
-import { getClanLevel, CLAN_LEVELS } from "@/lib/clan-levels";
+import { getClanLevel, getClanBorderSlug, CLAN_LEVELS } from "@/lib/clan-levels";
 
 // ── XP rule definitions ───────────────────────────────────────────────────────
 
@@ -195,6 +195,13 @@ export async function awardClanXp(
           .catch(() => {});
       }
 
+      // If the new level crosses a border threshold, update all members' profiles
+      const oldBorder = getClanBorderSlug(oldLevel);
+      const newBorder = getClanBorderSlug(newLevel);
+      if (newBorder !== oldBorder) {
+        _applyBorderToAllMembers(adminDb, clanId, newBorder).catch(() => {});
+      }
+
       await _sendLevelUpNotifications(clanId, newLevel).catch(() => {});
     }
 
@@ -276,6 +283,33 @@ export async function getClanXpFeed(
     console.error("[getClanXpFeed]", err);
     return { success: false, error: err instanceof Error ? err.message : "Failed to load XP feed" };
   }
+}
+
+// ── Border batch-update helper ────────────────────────────────────────────────
+// Fired when a clan crosses a border threshold (Level 4 or Level 9).
+// Writes the new border slug (or null) to every active member's profile doc.
+
+async function _applyBorderToAllMembers(
+  adminDb: FirebaseFirestore.Firestore,
+  clanId:  string,
+  border:  string | null,
+): Promise<void> {
+  const membersSnap = await adminDb
+    .collection("clans").doc(clanId)
+    .collection("members")
+    .where("role", "in", ["leader", "officer", "member"])
+    .get();
+
+  if (membersSnap.empty) return;
+
+  // Firestore batch limit is 500 writes — clans top out at 100 members so one
+  // batch is always sufficient here.
+  const batch = adminDb.batch();
+  for (const m of membersSnap.docs) {
+    const profileRef = adminDb.collection("profiles").doc(m.id);
+    batch.update(profileRef, { clanBorder: border ?? null });
+  }
+  await batch.commit();
 }
 
 // ── Level-up notification helper ──────────────────────────────────────────────

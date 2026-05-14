@@ -55,6 +55,10 @@ export interface Profile {
   badges?: string[];
   /** Display title, e.g. "Season 1 Champion". */
   title?: string | null;
+  /** Clan-level cosmetic border slug, e.g. "profile_border_silver".
+   *  Denormalised from the member's clan level — set/cleared by clan join/leave
+   *  and batch-updated when the clan levels up to a border-granting threshold. */
+  clanBorder?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

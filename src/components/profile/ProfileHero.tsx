@@ -67,6 +67,13 @@ function PlatformLinks({ profile }: { profile: Profile }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+function buildAvatarShadow(accent: string, clanBorder?: string | null): string {
+  const base = `0 0 0 2px ${accent}`;
+  if (clanBorder === "profile_border_diamond") return `${base}, 0 0 0 5px #38bdf8, 0 0 14px rgba(56,189,248,0.5)`;
+  if (clanBorder === "profile_border_silver")  return `${base}, 0 0 0 5px #a0aab4, 0 0 12px rgba(160,170,180,0.4)`;
+  return base;
+}
+
 export default function ProfileHero({
   profile,
   clanTag,
@@ -98,7 +105,7 @@ export default function ProfileHero({
               height:    88,
               background: accent,
               border:    "3px solid var(--bg-base)",
-              boxShadow: `0 0 0 2px ${accent}`,
+              boxShadow: buildAvatarShadow(accent, profile.clanBorder),
             }}
           >
             {profile.avatarUrl ? (
