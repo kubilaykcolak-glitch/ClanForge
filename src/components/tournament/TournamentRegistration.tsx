@@ -17,6 +17,7 @@ import { CountdownTimer } from "./CountdownTimer";
 import type { TournamentStatus } from "@/types";
 import { formatPence } from "@/lib/prize-splits";
 import { createCheckoutSession, withdrawPaidEntry } from "@/lib/actions/tournament-payment.actions";
+import { awardXp } from "@/lib/actions/xp.actions";
 
 interface TournamentRegistrationProps {
   tournamentId:        string;
@@ -114,6 +115,13 @@ export function TournamentRegistration({
           participantCount: increment(1),
         });
         toast.success("You're registered! 🏆");
+
+        // Small XP reward for registering. daily_cap of 4.
+        const xp = await awardXp(currentUid, "tournament_register", tournamentId);
+        if (xp.success && xp.data && xp.data.awarded > 0) {
+          toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+        }
+
         router.refresh();
         return;
       }

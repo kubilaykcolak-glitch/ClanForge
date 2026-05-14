@@ -101,9 +101,10 @@ export async function joinClan(
       const memberRef  = adminDb.collection("clans").doc(clanId).collection("members").doc(uid);
       const profileRef = adminDb.collection("profiles").doc(uid);
 
-      const [clanSnap, memberSnap] = await Promise.all([
+      const [clanSnap, memberSnap, profileSnap] = await Promise.all([
         tx.get(clanRef),
         tx.get(memberRef),
+        tx.get(profileRef),
       ]);
 
       if (!clanSnap.exists) throw new Error("Clan not found");
@@ -115,6 +116,20 @@ export async function joinClan(
         throw new Error("Clan is full");
       }
       if (memberSnap.exists) throw new Error("You are already a member of this clan");
+
+      // ── 10-hour join cooldown (anti-grind) ─────────────────────────────────
+      // If the user left a clan recently they can't join another one yet.
+      const { CLAN_JOIN_COOLDOWN_MS, CLAN_JOIN_COOLDOWN_HOURS } = await import("@/lib/xp");
+      const lastLeaveAt = profileSnap.data()?.lastClanLeaveAt?.toDate?.() ?? null;
+      if (lastLeaveAt && Date.now() - lastLeaveAt.getTime() < CLAN_JOIN_COOLDOWN_MS) {
+        const hoursLeft = Math.ceil(
+          (CLAN_JOIN_COOLDOWN_MS - (Date.now() - lastLeaveAt.getTime())) / (60 * 60 * 1000),
+        );
+        throw new Error(
+          `You recently left a clan — you can join another in about ${hoursLeft}h. ` +
+          `This ${CLAN_JOIN_COOLDOWN_HOURS}h cooldown helps keep clan membership meaningful.`,
+        );
+      }
 
       const now = new Date();
 
@@ -170,10 +185,12 @@ export async function leaveClan(
       tx.delete(memberRef);
       tx.update(clanRef, { memberCount: FieldValue.increment(-1) });
       tx.update(profileRef, {
-        clanId:   null,
-        clanTag:  null,
-        clanSlug: null,
-        clanName: null,
+        clanId:           null,
+        clanTag:          null,
+        clanSlug:         null,
+        clanName:         null,
+        // Stamp the leave time so joinClan can enforce the cooldown.
+        lastClanLeaveAt:  new Date(),
       });
     });
 

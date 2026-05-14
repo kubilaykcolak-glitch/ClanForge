@@ -18,6 +18,7 @@ import {
   prizePoolDeltaForEntry,
 } from "@/lib/prize-splits";
 import { canCreateTournament } from "@/lib/actions/tournament-limits.actions";
+import { awardXp } from "@/lib/actions/xp.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -983,6 +984,14 @@ export default function CreateTournamentPage() {
       });
 
       toast.success("Tournament created! 🏆");
+
+      // XP for the tournament creator. daily_cap of 2 — third+ creation
+      // today won't award again until tomorrow.
+      const xp = await awardXp(uid, "tournament_create", docRef.id);
+      if (xp.success && xp.data && xp.data.awarded > 0) {
+        toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+      }
+
       router.push(`/tournaments/${docRef.id}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create tournament";

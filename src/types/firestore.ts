@@ -38,6 +38,10 @@ export interface Profile {
   clanSlug?: string | null;
   /** Denormalised from /clans/{clanId}.name — display name of the clan. */
   clanName?: string | null;
+  /** Timestamp of the most recent clan departure. Drives the join cooldown
+   * (CLAN_JOIN_COOLDOWN_HOURS in src/lib/xp.ts) so users can't farm join XP
+   * by repeatedly joining and leaving. */
+  lastClanLeaveAt?: Date | null;
   /** URL of the user's custom profile banner image. */
   bannerUrl?: string | null;
   /** ID matching one of the ANIMATED_BACKGROUNDS entries in lib/profile-backgrounds.ts. */

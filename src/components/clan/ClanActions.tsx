@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { joinClan, leaveClan } from "@/lib/clan-actions";
+import { awardXp, checkClanJoinAllowed } from "@/lib/actions/xp.actions";
+import { CLAN_JOIN_COOLDOWN_HOURS } from "@/lib/xp";
 import type { ClanRole } from "@/types";
 
 interface ClanActionsProps {
@@ -115,7 +117,11 @@ export function ClanActions({
   // ── Already a member (officer / member) — show Leave ──
   if (currentRole) {
     const handleLeave = async () => {
-      if (!confirm("Leave this clan? You'll need to re-apply to rejoin.")) return;
+      const confirmMsg =
+        `Leave this clan?\n\n` +
+        `You'll need to re-apply to rejoin, and a ${CLAN_JOIN_COOLDOWN_HOURS}-hour cooldown ` +
+        `will start before you can join another clan. This keeps clan membership meaningful.`;
+      if (!confirm(confirmMsg)) return;
       setBusy(true);
       try {
         await leaveClan(clanId, currentUid);
@@ -153,6 +159,15 @@ export function ClanActions({
     const handleRequest = async () => {
       setBusy(true);
       try {
+        // Cooldown precheck — pending requests still create a member doc, so
+        // we treat them the same as a full join for cooldown purposes.
+        const check = await checkClanJoinAllowed(currentUid);
+        if (check.success && check.data && !check.data.allowed) {
+          toast.error(check.data.message ?? "You're still on a join cooldown.");
+          setBusy(false);
+          return;
+        }
+
         await joinClan(clanId, currentUid, displayName, avatarUrl, "pending");
         toast.success("Request sent! Waiting for approval.");
         router.refresh();
@@ -182,8 +197,22 @@ export function ClanActions({
   const handleJoin = async () => {
     setBusy(true);
     try {
+      const check = await checkClanJoinAllowed(currentUid);
+      if (check.success && check.data && !check.data.allowed) {
+        toast.error(check.data.message ?? "You're still on a join cooldown.");
+        setBusy(false);
+        return;
+      }
+
       await joinClan(clanId, currentUid, displayName, avatarUrl, "member");
       toast.success("Welcome to the clan! 🛡️");
+
+      // Award XP for the join. Capped to once per clan by the awardXp rules.
+      const xp = await awardXp(currentUid, "clan_join", clanId);
+      if (xp.success && xp.data && xp.data.awarded > 0) {
+        toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+      }
+
       router.refresh();
     } catch {
       toast.error("Failed to join clan — please try again.");

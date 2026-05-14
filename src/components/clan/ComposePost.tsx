@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { createPost } from "@/lib/clan-actions";
 import { getInitials } from "@/lib/utils";
 import { validateImageFile } from "@/lib/uploads";
+import { awardXp } from "@/lib/actions/xp.actions";
 
 interface ComposePostProps {
   clanId:            string;
@@ -120,6 +121,13 @@ export function ComposePost({
       setContent("");
       clearImage();
       toast.success("Post published!");
+
+      // Daily-capped XP (1/day) for posting — only the first post each
+      // 24h actually awards XP; later ones still post but skip XP.
+      const xp = await awardXp(authorId, "post_create");
+      if (xp.success && xp.data && xp.data.awarded > 0) {
+        toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to post";
       setPostError(msg);

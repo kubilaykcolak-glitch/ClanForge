@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { joinClan } from "@/lib/clan-actions";
+import { awardXp, checkClanJoinAllowed } from "@/lib/actions/xp.actions";
 
 interface ClanCardJoinButtonProps {
   clanId:             string;
@@ -104,8 +105,23 @@ export function ClanCardJoinButton({
     e.preventDefault();
     setBusy(true);
     try {
+      const check = await checkClanJoinAllowed(currentUid);
+      if (check.success && check.data && !check.data.allowed) {
+        toast.error(check.data.message ?? "You're still on a join cooldown.");
+        setBusy(false);
+        return;
+      }
+
       await joinClan(clanId, currentUid, currentDisplayName, currentAvatarUrl, role);
       toast.success(isRecruiting ? "Welcome to the clan! 🛡️" : "Request sent! Waiting for approval.");
+
+      if (isRecruiting) {
+        const xp = await awardXp(currentUid, "clan_join", clanId);
+        if (xp.success && xp.data && xp.data.awarded > 0) {
+          toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+        }
+      }
+
       router.push(`/clans/${clanSlug}`);
     } catch {
       toast.error("Failed to join — please try again.");

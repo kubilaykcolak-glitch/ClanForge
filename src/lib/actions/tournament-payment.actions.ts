@@ -155,14 +155,14 @@ export async function confirmPaidParticipant(
     const tournamentRef  = adminDb.collection("tournaments").doc(tournamentId);
     const participantRef = tournamentRef.collection("participants").doc(uid);
 
-    return await adminDb.runTransaction(async tx => {
+    const result = await adminDb.runTransaction(async tx => {
       const [tSnap, pSnap] = await Promise.all([tx.get(tournamentRef), tx.get(participantRef)]);
 
       if (!tSnap.exists) {
-        return { success: false, error: "Tournament not found" };
+        return { success: false, error: "Tournament not found" } as ActionResult<{ alreadyPaid: boolean }>;
       }
       if (!pSnap.exists) {
-        return { success: false, error: "Participant draft not found" };
+        return { success: false, error: "Participant draft not found" } as ActionResult<{ alreadyPaid: boolean }>;
       }
 
       const tournament = tSnap.data()!;
@@ -170,7 +170,7 @@ export async function confirmPaidParticipant(
 
       // Idempotency: webhook may retry; skip if already promoted.
       if (participant.paymentStatus === "paid") {
-        return { success: true, data: { alreadyPaid: true } };
+        return { success: true, data: { alreadyPaid: true } } as ActionResult<{ alreadyPaid: boolean }>;
       }
 
       // Late arrival: tournament filled up between Checkout and webhook.
@@ -182,7 +182,7 @@ export async function confirmPaidParticipant(
         return {
           success: false,
           error:   isFull ? "Tournament filled up before payment confirmed" : "Tournament no longer open",
-        };
+        } as ActionResult<{ alreadyPaid: boolean }>;
       }
 
       const feePct = (tournament.platformFeePct as number) ?? DEFAULT_PLATFORM_FEE_PCT;
@@ -201,8 +201,18 @@ export async function confirmPaidParticipant(
         prizePool:        FieldValue.increment(prizeDelta),
       });
 
-      return { success: true, data: { alreadyPaid: false } };
+      return { success: true, data: { alreadyPaid: false } } as ActionResult<{ alreadyPaid: boolean }>;
     });
+
+    // Award XP for registration. Outside the transaction because awardXp
+    // runs its own writes; the previous transaction already committed.
+    // Daily cap of 4 enforced by the rule itself.
+    if (result.success && result.data?.alreadyPaid === false) {
+      const { awardXp } = await import("@/lib/actions/xp.actions");
+      await awardXp(uid, "tournament_register", tournamentId);
+    }
+
+    return result;
   } catch (err) {
     console.error("[confirmPaidParticipant]", err);
     const message = err instanceof Error ? err.message : "Failed to confirm payment";
@@ -487,6 +497,28 @@ export async function finalizeTournament(
 
     batch.update(tournamentRef, { status: "complete" });
     await batch.commit();
+
+    // Award placement XP after the batch lands. Each rule is once_per_target
+    // (target = tournamentId) so re-running is a no-op. Done sequentially —
+    // typically only 1–5 calls, never a hot path.
+    const { awardXp } = await import("@/lib/actions/xp.actions");
+    for (let i = 0; i < winnerUserIds.length; i++) {
+      const winnerUid = winnerUserIds[i];
+      if (!winnerUid) continue;
+      const position = i + 1;
+      let reason:
+        | "tournament_place_1"
+        | "tournament_place_2"
+        | "tournament_place_3"
+        | "tournament_place_4_5"
+        | null = null;
+      if (position === 1) reason = "tournament_place_1";
+      else if (position === 2) reason = "tournament_place_2";
+      else if (position === 3) reason = "tournament_place_3";
+      else if (position === 4 || position === 5) reason = "tournament_place_4_5";
+      if (!reason) continue;
+      await awardXp(winnerUid, reason, tournamentId);
+    }
 
     return { success: true, data: { prizesCreated } };
   } catch (err) {

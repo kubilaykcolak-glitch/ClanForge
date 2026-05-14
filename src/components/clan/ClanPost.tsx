@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import type { ClanPost as ClanPostType } from "@/types";
 import { timeAgo, getInitials } from "@/lib/utils";
 import { likePost, unlikePost, deletePost } from "@/lib/clan-actions";
+import { awardXp } from "@/lib/actions/xp.actions";
 
 interface ClanPostProps {
   post: ClanPostType;
@@ -35,6 +36,14 @@ export function ClanPost({ post, clanId, currentUserId }: ClanPostProps) {
         await unlikePost(clanId, post.id, currentUserId);
       } else {
         await likePost(clanId, post.id, currentUserId);
+
+        // Reward the AUTHOR (not the liker) for receiving a like, except
+        // when the liker is the author (no self-rewards). Daily-capped to
+        // 20 per author; further likes still register on the post — they
+        // just don't earn the author more XP that day.
+        if (post.authorId && post.authorId !== currentUserId) {
+          await awardXp(post.authorId, "post_receive_like", post.id);
+        }
       }
     } catch {
       // Revert on error

@@ -10,6 +10,7 @@ import { auth, db } from "@/lib/firebase/client";
 import { slugify } from "@/lib/utils";
 import Toggle from "@/components/ui/Toggle";
 import { validateImageFile } from "@/lib/uploads";
+import { awardXp } from "@/lib/actions/xp.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -319,6 +320,14 @@ export default function CreateClanPage() {
       await batch.commit();
 
       toast.success("Clan created! 🛡️");
+
+      // Welcome bonus for the user's first clan creation. once_global —
+      // creating a second clan doesn't re-award.
+      const xp = await awardXp(uid, "clan_create");
+      if (xp.success && xp.data && xp.data.awarded > 0) {
+        toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+      }
+
       router.push(`/clans/${slug}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create clan";

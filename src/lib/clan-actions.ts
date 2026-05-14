@@ -65,6 +65,18 @@ export async function joinClan(
 export async function leaveClan(clanId: string, uid: string): Promise<void> {
   await deleteDoc(doc(db, "clans", clanId, "members", uid));
   await updateDoc(doc(db, "clans", clanId), { memberCount: increment(-1) });
+  // Stamp the leave time on the user's profile so the join cooldown
+  // (CLAN_JOIN_COOLDOWN_HOURS in src/lib/xp.ts) can be enforced server-side
+  // the next time they try to join another clan. Also clear the denormalised
+  // clan fields for parity with the server-side leaveClan action.
+  await updateDoc(doc(db, "profiles", uid), {
+    clanId:          null,
+    clanTag:         null,
+    clanSlug:        null,
+    clanName:        null,
+    lastClanLeaveAt: new Date(),
+    updatedAt:       new Date(),
+  });
 }
 
 // ─── Posts ────────────────────────────────────────────────────────────────────

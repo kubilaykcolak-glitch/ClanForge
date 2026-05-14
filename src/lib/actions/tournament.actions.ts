@@ -203,6 +203,11 @@ export async function reportMatchResult(
       completedAt: new Date(),
     });
 
+    // Award match-win XP to whoever won. Once-per-target (matchId) so a
+    // late re-report can't double-award.
+    const { awardXp } = await import("@/lib/actions/xp.actions");
+    await awardXp(winnerId, "tournament_match_win", matchId);
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to report match result";

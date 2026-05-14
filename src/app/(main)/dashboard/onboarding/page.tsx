@@ -19,6 +19,7 @@ import { AlertCircle, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
 import { validateImageFile } from "@/lib/uploads";
+import { awardXp } from "@/lib/actions/xp.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -600,6 +601,13 @@ function UsernameSetup({
       });
       batch.set(doc(db, "usernames", username), { uid });
       await batch.commit();
+
+      // Welcome XP. once_global — runs only the first time this fires.
+      const xp = await awardXp(uid, "onboarding_complete");
+      if (xp.success && xp.data && xp.data.awarded > 0) {
+        toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+      }
+
       onDone(displayName.trim() || username);
     } catch {
       toast.error("Failed to create profile");
