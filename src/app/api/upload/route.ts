@@ -4,7 +4,7 @@
 // Firebase Admin SDK, and returns a permanent Firebase Storage download URL.
 
 import { NextRequest, NextResponse } from "next/server";
-import { adminStorage } from "@/lib/firebase/admin";
+import { adminStorage, adminAuth } from "@/lib/firebase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,27 @@ const ALLOWED_PREFIXES = [
   "profile-backgrounds/",
 ];
 
+// Paths where the second segment must equal the authenticated user's UID
+const USER_OWNED_PREFIXES = ["avatars/", "profile-banners/", "profile-backgrounds/"];
+
 export async function POST(req: NextRequest) {
+  // ── Authentication ──────────────────────────────────────────────────────────
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const sessionMatch = cookieHeader.match(/(?:^|;\s*)session=([^;]+)/);
+  const sessionToken = sessionMatch?.[1];
+
+  if (!sessionToken) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let uid: string;
+  try {
+    const decoded = await adminAuth.verifySessionCookie(sessionToken, true);
+    uid = decoded.uid;
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -53,6 +73,16 @@ export async function POST(req: NextRequest) {
         { error: "File exceeds the 5 MB limit" },
         { status: 400 }
       );
+    }
+
+    // ── Ownership check for user-scoped paths ───────────────────────────────
+    // Paths like avatars/{uid}/filename must belong to the authenticated user.
+    const isUserOwned = USER_OWNED_PREFIXES.some(p => path.startsWith(p));
+    if (isUserOwned) {
+      const pathUid = path.split("/")[1];
+      if (pathUid !== uid) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     // ── Upload via Admin SDK ────────────────────────────────────────────────

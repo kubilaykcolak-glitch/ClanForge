@@ -14,30 +14,25 @@ import { NextRequest, NextResponse } from "next/server";
 
 const SESSION_COOKIE_NAME = "session";
 
-// Routes that require an authenticated session
-const PROTECTED_PREFIXES = [
-  "/dashboard",
-  "/admin",
-];
-const PROTECTED_EXACT = [
-  "/profile/edit",
-  "/clans/create",
-  "/tournaments/create",
-  "/settings",
+// Paths always accessible without a session
+const PUBLIC_EXACT = new Set(["/", "/terms", "/privacy"]);
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/register",
+  "/api/",
+  "/_next/",
+  "/favicon.ico",
+  "/fonts/",
 ];
 
-// Routes that should redirect to /dashboard when already authenticated
-const AUTH_ROUTES = ["/login", "/register"];
+// Auth pages: redirect authenticated users away to /dashboard
+const AUTH_PREFIXES = ["/login", "/register"];
 
-function isProtected(pathname: string): boolean {
+function isPublic(pathname: string): boolean {
   return (
-    PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
-    PROTECTED_EXACT.includes(pathname)
+    PUBLIC_EXACT.has(pathname) ||
+    PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
   );
-}
-
-function isAuthRoute(pathname: string): boolean {
-  return AUTH_ROUTES.some((route) => pathname.startsWith(route));
 }
 
 export function middleware(request: NextRequest) {
@@ -45,38 +40,31 @@ export function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const hasSession = Boolean(sessionCookie);
 
-  // ── Protected routes: redirect to /login if no session cookie ─────────────
-  if (isProtected(pathname)) {
-    if (!hasSession) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("from", pathname); // preserve intended destination
-      return NextResponse.redirect(loginUrl);
-    }
-
-    // Pass the raw cookie value downstream via a header so Server Components
-    // and API routes can run verifySessionCookie() without re-reading cookies.
-    const response = NextResponse.next();
-    response.headers.set("x-session-cookie", sessionCookie!);
-    return response;
-  }
-
-  // ── Auth routes: redirect to /dashboard if a session already exists ────────
-  if (isAuthRoute(pathname) && hasSession) {
+  // Auth routes: redirect authenticated users to dashboard
+  if (AUTH_PREFIXES.some(p => pathname.startsWith(p)) && hasSession) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return NextResponse.next();
+  // Public paths: always accessible
+  if (isPublic(pathname)) {
+    return NextResponse.next();
+  }
+
+  // Everything else requires a session
+  if (!hasSession) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("from", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Authenticated: pass session cookie downstream so Server Components
+  // and API routes can run verifySessionCookie() without re-reading cookies.
+  const response = NextResponse.next();
+  response.headers.set("x-session-cookie", sessionCookie!);
+  return response;
 }
 
 export const config = {
-  matcher: [
-    "/dashboard/:path*",
-    "/admin/:path*",
-    "/profile/edit",
-    "/clans/create",
-    "/tournaments/create",
-    "/settings",
-    "/login",
-    "/register",
-  ],
+  // Match every path except Next.js internals and static assets
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts).*)"],
 };

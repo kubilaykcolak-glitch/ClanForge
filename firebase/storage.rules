@@ -17,40 +17,62 @@ service firebase.storage {
       return request.resource.size <= 5 * 1024 * 1024;
     }
 
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
     // ─── avatars/{userId}/ ────────────────────────────────────────────────────
-    // Only that user can write (max 5 MB); any authenticated user can read.
+    // Only that user can write; any authenticated user can read.
 
     match /avatars/{userId}/{fileName} {
-      allow read: if isSignedIn();
-      allow write: if isOwner(userId) && isUnder5MB();
+      allow read:   if isSignedIn();
+      allow write:  if isOwner(userId) && isUnder5MB() && isImage();
+      allow delete: if isOwner(userId);
+    }
+
+    // ─── profile-banners/{userId}/ ────────────────────────────────────────────
+    // Only that user can write; any authenticated user can read.
+
+    match /profile-banners/{userId}/{fileName} {
+      allow read:   if isSignedIn();
+      allow write:  if isOwner(userId) && isUnder5MB() && isImage();
+      allow delete: if isOwner(userId);
+    }
+
+    // ─── profile-backgrounds/{userId}/ ───────────────────────────────────────
+    // Only that user can write; any authenticated user can read.
+
+    match /profile-backgrounds/{userId}/{fileName} {
+      allow read:   if isSignedIn();
+      allow write:  if isOwner(userId) && isUnder5MB() && isImage();
       allow delete: if isOwner(userId);
     }
 
     // ─── clan-assets/{clanId}/ ────────────────────────────────────────────────
-    // Authenticated users can write (max 5 MB); authenticated users can read.
-    // Note: tighten to clan members only in Phase 2.
+    // Any authenticated user can read; writes go through /api/upload (Admin SDK)
+    // so this rule is a defence-in-depth fallback only.
 
     match /clan-assets/{clanId}/{fileName} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isUnder5MB();
+      allow read:   if isSignedIn();
+      allow write:  if isSignedIn() && isUnder5MB() && isImage();
       allow delete: if isSignedIn();
     }
 
     // ─── clan-posts/{clanId}/ ────────────────────────────────────────────────
-    // Authenticated users can write (max 5 MB) and read.
+    // Any authenticated user can read; same Admin SDK proxy note as above.
 
     match /clan-posts/{clanId}/{fileName} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isUnder5MB();
+      allow read:   if isSignedIn();
+      allow write:  if isSignedIn() && isUnder5MB() && isImage();
       allow delete: if isSignedIn();
     }
 
     // ─── tournament-banners/{tournamentId}/ ──────────────────────────────────
-    // Authenticated users can write (max 5 MB) and read.
+    // Any authenticated user can read; same Admin SDK proxy note as above.
 
     match /tournament-banners/{tournamentId}/{fileName} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isUnder5MB();
+      allow read:   if isSignedIn();
+      allow write:  if isSignedIn() && isUnder5MB() && isImage();
       allow delete: if isSignedIn();
     }
   }
