@@ -150,7 +150,7 @@ export async function getPlayerLeaderboard(
       .filter(e => !e.isPrivate && e.username)
       .slice(0, limit)
       .map((e, i) => {
-        const { isPrivate: _, ...rest } = e as typeof e & { isPrivate: boolean };
+        const { isPrivate: _isPrivate, ...rest } = e as typeof e & { isPrivate: boolean };
         return { ...rest, rank: i + 1 };
       });
 
