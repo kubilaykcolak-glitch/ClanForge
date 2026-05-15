@@ -9,6 +9,7 @@ import { ClanActions } from "@/components/clan/ClanActions";
 import { ClanFeed } from "@/components/clan/ClanFeed";
 import { ClanChallengesWidget } from "@/components/challenges/ClanChallengesWidget";
 import { ClanMissionsWidget } from "@/components/clan/ClanMissionsWidget";
+import { MonoPill } from "@/components/ui/MonoPill";
 import { ClanXpBar } from "@/components/clan/ClanXpBar";
 import { ClanXpFeed } from "@/components/clan/ClanXpFeed";
 import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
@@ -183,7 +184,7 @@ export default async function ClanPage({
       {/* ── Hero banner ── */}
       <div className="relative mb-14">
         <div
-          className="w-full rounded-2xl overflow-hidden"
+          className="w-full rounded-2xl overflow-hidden arena-gradient-border arena-glow-card relative"
           style={{ height: 200 }}
         >
           {clan.bannerUrl ? (
@@ -194,9 +195,18 @@ export default async function ClanPage({
               className="w-full h-full object-cover"
             />
           ) : (
+            /* Aurora-tinted default banner — composes the same indigo→magenta→
+               cyan radials used on the dashboard hero, so clans without a
+               custom banner still feel like part of the Arena visual system. */
             <div
               className="w-full h-full"
-              style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #0a0a0f 100%)" }}
+              style={{
+                background:
+                  "radial-gradient(ellipse 60% 80% at 80% 20%, rgba(232,121,249,0.30) 0%, transparent 60%), " +
+                  "radial-gradient(ellipse 70% 90% at 10% 80%, rgba(99,102,241,0.35) 0%, transparent 65%), " +
+                  "radial-gradient(ellipse 40% 60% at 60% 90%, rgba(34,211,238,0.18) 0%, transparent 70%), " +
+                  "linear-gradient(135deg, #1e1b4b 0%, #0a0a0f 100%)",
+              }}
             />
           )}
         </div>
@@ -238,30 +248,23 @@ export default async function ClanPage({
             </h1>
             <ClanLevelBadge xp={clan.xp ?? 0} size="md" showName />
             {clan.clanTag && (
-              <span
-                style={{
-                  fontFamily:    "'Rajdhani', sans-serif",
-                  fontSize:      13,
-                  fontWeight:    700,
-                  letterSpacing: "0.06em",
-                  padding:       "3px 10px",
-                  borderRadius:  999,
-                  background:    "rgba(139,92,246,0.15)",
-                  color:         "#8b5cf6",
-                  border:        "1px solid rgba(139,92,246,0.3)",
-                  whiteSpace:    "nowrap",
-                }}
+              <MonoPill
+                color="var(--violet)"
+                bg="rgba(139,92,246,0.15)"
+                style={{ border: "1px solid rgba(139,92,246,0.3)", fontWeight: 700 }}
               >
                 #{clan.clanTag}
-              </span>
+              </MonoPill>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            <Badge variant="tournament">{clan.gameFocus}</Badge>
+            <MonoPill color="var(--cyan)" bg="rgba(34,211,238,0.10)">
+              {clan.gameFocus}
+            </MonoPill>
             {clan.isRecruiting && (
               <Badge variant="success">
-                <span className="mr-1 inline-block w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                <span className="mr-1 inline-block w-1.5 h-1.5 rounded-full bg-success cf-pulse-dot" />
                 Recruiting
               </Badge>
             )}

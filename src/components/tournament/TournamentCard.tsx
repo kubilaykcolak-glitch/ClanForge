@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Users } from "lucide-react";
+import { Users, Trophy } from "lucide-react";
 import type { Tournament } from "@/types";
 import { Badge } from "@/components/ui/Badge";
+import { MonoPill } from "@/components/ui/MonoPill";
 import { formatDate } from "@/lib/utils";
 import { formatPence } from "@/lib/prize-splits";
 
@@ -63,7 +64,7 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
   return (
     <Link
       href={`/tournaments/${id}`}
-      className="group block rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-glow"
+      className="group block rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-glow hover:-translate-y-0.5"
       style={{
         background: "var(--bg-surface)",
         border: "1px solid var(--border-default)",
@@ -93,18 +94,23 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
           </Badge>
         </span>
 
-        {/* Prize — top left */}
+        {/* Prize — top left. Uses amber tier colour + Trophy icon for clearer
+            visual hierarchy ("this is what you can win"). */}
         {hasPrize && (
-          <span
-            className="absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full"
+          <MonoPill
+            color="var(--amber)"
+            bg="rgba(251,191,36,0.15)"
+            icon={<Trophy size={11} />}
             style={{
-              background: "rgba(245,158,11,0.15)",
-              border: "1px solid rgba(245,158,11,0.3)",
-              color: "var(--warning)",
+              position: "absolute",
+              top: 8,
+              left: 8,
+              border: "1px solid rgba(251,191,36,0.3)",
+              fontWeight: 700,
             }}
           >
-            {formatPence(tournament.prizePool)} Prize
-          </span>
+            {formatPence(tournament.prizePool)}
+          </MonoPill>
         )}
       </div>
 
@@ -118,12 +124,15 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
           {tournament.name}
         </h3>
 
-        {/* Badges row */}
+        {/* Tag row — MonoPill for category tags (game + format).
+            Cleaner than two semantic-coloured Badges side-by-side. */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
-          <Badge variant="tournament">{tournament.game}</Badge>
-          <Badge variant="info">
+          <MonoPill color="var(--cyan)" bg="rgba(34,211,238,0.10)">
+            {tournament.game}
+          </MonoPill>
+          <MonoPill>
             {FORMAT_LABELS[tournament.format] ?? tournament.format}
-          </Badge>
+          </MonoPill>
         </div>
 
         {/* Stats row */}
@@ -132,7 +141,10 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
             <Users size={12} />
             {tournament.participantCount} / {tournament.maxParticipants}
           </span>
-          <span style={{ color: isFree ? "var(--success)" : "var(--warning)" }}>
+          <span
+            className="font-mono-tech"
+            style={{ color: isFree ? "var(--success)" : "var(--warning)", fontSize: 10 }}
+          >
             {isFree ? "Free Entry" : `${formatPence(tournament.entryFee)} Entry`}
           </span>
         </div>
@@ -142,16 +154,18 @@ export function TournamentCard({ tournament }: TournamentCardProps) {
           Starts {formatDate(tournament.startsAt)}
         </p>
 
-        {/* CTA */}
+        {/* CTA — subtle ghost button. Promotes on hover via group-hover. */}
         <div
-          className="w-full text-center py-2 rounded-lg text-sm font-medium"
+          className="w-full text-center py-2 rounded-lg text-sm font-medium transition-colors"
           style={{
             background: "var(--bg-elevated)",
             border: "1px solid var(--border-default)",
             color: "var(--text-secondary)",
           }}
         >
-          View Tournament →
+          <span className="group-hover:text-white transition-colors">
+            View Tournament →
+          </span>
         </div>
       </div>
     </Link>

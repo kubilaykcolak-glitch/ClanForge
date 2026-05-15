@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Users } from "lucide-react";
 import type { Clan } from "@/types";
 import { Badge } from "@/components/ui/Badge";
+import { MonoPill } from "@/components/ui/MonoPill";
 import { getInitials } from "@/lib/utils";
 import { ClanCardJoinButton } from "./ClanCardJoinButton";
 import { ClanLevelBadge } from "./ClanLevelBadge";
@@ -28,7 +29,7 @@ export function ClanCard({
 
   return (
     <div
-      className="group rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-glow flex flex-col"
+      className="group rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-glow hover:-translate-y-0.5 flex flex-col"
       style={{
         background: "var(--bg-surface)",
         border:     "1px solid var(--border-default)",
@@ -92,7 +93,9 @@ export function ClanCard({
           </div>
 
           <div className="flex items-center gap-2 mb-3">
-            <Badge variant="tournament">{clan.gameFocus}</Badge>
+            <MonoPill color="var(--cyan)" bg="rgba(34,211,238,0.10)">
+              {clan.gameFocus}
+            </MonoPill>
             <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
               <Users size={12} />
               {clan.memberCount}/{clan.memberLimit}

@@ -87,12 +87,24 @@ export default function ProfileHero({
     <>
       {/* ── Banner + avatar ──────────────────────────────────────────────── */}
       <div className="relative mb-14">
-        <div className="w-full rounded-xl overflow-hidden" style={{ height: 160 }}>
+        <div
+          className="w-full rounded-xl overflow-hidden arena-gradient-border arena-glow-card relative"
+          style={{ height: 160 }}
+        >
           <div
             className="w-full h-full"
             style={bannerUrl
               ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
-              : { background: "linear-gradient(135deg, #1e1b4b 0%, #0a0a0f 100%)" }}
+              : {
+                  /* Aurora-tinted default banner — same composition as the
+                     clan-hub default banner so identity surfaces feel
+                     consistent across the Arena visual system. */
+                  background:
+                    "radial-gradient(ellipse 60% 80% at 80% 20%, rgba(232,121,249,0.30) 0%, transparent 60%), " +
+                    "radial-gradient(ellipse 70% 90% at 10% 80%, rgba(99,102,241,0.35) 0%, transparent 65%), " +
+                    "radial-gradient(ellipse 40% 60% at 60% 90%, rgba(34,211,238,0.18) 0%, transparent 70%), " +
+                    "linear-gradient(135deg, #1e1b4b 0%, #0a0a0f 100%)",
+                }}
           />
         </div>
 
