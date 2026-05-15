@@ -18,11 +18,16 @@ const TYPE_ICONS: Record<string, string> = {
 };
 
 interface Props {
-  uid:                string;
-  initialUnreadCount: number;
+  uid:                 string;
+  /**
+   * Server-rendered unread count to drive the badge before the listener
+   * activates. Optional — if omitted, the badge shows 0 until the panel
+   * is first opened and the live listener takes over.
+   */
+  initialUnreadCount?: number;
 }
 
-export function NotificationBell({ uid, initialUnreadCount }: Props) {
+export function NotificationBell({ uid, initialUnreadCount = 0 }: Props) {
   const [open, setOpen]         = useState(false);
   const [everOpened, setEverOpened] = useState(false);
   const [marking, setMarking]   = useState(false);

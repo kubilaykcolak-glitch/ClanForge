@@ -55,6 +55,17 @@ export function ClanChallengesWidget({ clanId }: Props) {
     });
   }, [clanId]);
 
+  // Memoised so it doesn't recompute on every parent render.
+  // MUST be declared before any early return — React requires hook order to be
+  // identical across renders. Reads from data[active] safely (may be undefined).
+  const timeLeft = useMemo(
+    () => {
+      const endAt = data[active]?.challenge.endAt;
+      return endAt ? timeRemaining(endAt) : "";
+    },
+    [data, active],
+  );
+
   if (loading) {
     return (
       <div
@@ -82,10 +93,6 @@ export function ClanChallengesWidget({ clanId }: Props) {
 
   const { challenge, entry, topEntries } = current;
   const progress = entry?.progress ?? 0;
-
-  // Memoised so it doesn't recompute on every parent render
-  // (only recomputes when the active challenge's endAt changes)
-  const timeLeft = useMemo(() => timeRemaining(challenge.endAt), [challenge.endAt]);
 
   return (
     <div
