@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { inWebhookContext } from "@/lib/webhook-context";
 
 /**
  * Extracts and verifies the session cookie, returning the authenticated UID.
@@ -11,6 +12,24 @@ export async function getSessionUid(): Promise<string> {
   if (!sessionCookie) throw new Error("Unauthenticated");
   const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
   return decoded.uid;
+}
+
+/**
+ * Soft "auth-exists" gate for helpers that don't need the caller's UID — they
+ * just need to confirm the call is reachable (either via a signed-in user
+ * session OR via a verified webhook context). Used by awardXp, awardClanXp,
+ * trackMissionProgress, trackClanMissionProgress: each is called server-to-
+ * server from trusted contexts where a session cookie may not be present
+ * (e.g. inside the Stripe webhook handler). Returns silently if a webhook
+ * context is set; otherwise behaves like getSessionUid.
+ *
+ * NEVER use this where you actually need the caller's UID — call getSessionUid
+ * directly and compare against the parameter. The webhook context bypass is
+ * deliberately narrow.
+ */
+export async function requireAuthContext(): Promise<void> {
+  if (inWebhookContext()) return;
+  await getSessionUid();
 }
 
 /**

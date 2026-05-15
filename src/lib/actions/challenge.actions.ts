@@ -301,13 +301,17 @@ export async function trackChallengeProgress(
 
     // After both checks pass: the event is legitimate. Chain personal mission
     // tracking for the same user. Using sessionUid (not contributorUid) is
-    // belt-and-braces — they're already proven equal above. Fire-and-forget;
-    // mission tracking failures must not affect clan-challenge tracking.
+    // belt-and-braces — they're already proven equal above. Awaited (not
+    // fire-and-forget) so the request's session context is alive when
+    // trackMissionProgress performs its own session check inside.
     const missionAction = CHALLENGE_TO_MISSION_ACTION[type];
     if (missionAction) {
-      import("./missions.actions")
-        .then(m => m.trackMissionProgress(sessionUid, missionAction))
-        .catch(err => console.error("[trackChallengeProgress→missions]", err));
+      try {
+        const { trackMissionProgress } = await import("./missions.actions");
+        await trackMissionProgress(sessionUid, missionAction);
+      } catch (err) {
+        console.error("[trackChallengeProgress→missions]", err);
+      }
     }
 
     // Always use 1 — the only legitimate unit for client-triggered events.

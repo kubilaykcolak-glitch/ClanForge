@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import type { Stripe } from "@/lib/stripe";
+import { runInWebhookContext } from "@/lib/webhook-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,33 +30,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  try {
-    switch (event.type) {
-      case "checkout.session.completed":
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
-        break;
+  // Run all event handling inside the webhook AsyncLocalStorage context so
+  // downstream helpers (awardXp, awardClanXp, trackMissionProgress,
+  // trackClanMissionProgress) can skip their user-session checks — there's no
+  // session cookie on a Stripe-signed request. The flag is only set here
+  // (after signature verification), so clients can't fake it. See
+  // src/lib/webhook-context.ts.
+  return runInWebhookContext(async () => {
+    try {
+      switch (event.type) {
+        case "checkout.session.completed":
+          await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+          break;
 
-      case "checkout.session.expired":
-        await handleCheckoutExpired(event.data.object as Stripe.Checkout.Session);
-        break;
+        case "checkout.session.expired":
+          await handleCheckoutExpired(event.data.object as Stripe.Checkout.Session);
+          break;
 
-      case "charge.refunded":
-        // Defensive logging only — refunds we issue ourselves already update
-        // the participant doc inline. This event is mainly a paper trail.
-        console.log("[stripe webhook] charge.refunded", (event.data.object as Stripe.Charge).id);
-        break;
+        case "charge.refunded":
+          // Defensive logging only — refunds we issue ourselves already update
+          // the participant doc inline. This event is mainly a paper trail.
+          console.log("[stripe webhook] charge.refunded", (event.data.object as Stripe.Charge).id);
+          break;
 
-      default:
-        // Unhandled event types are fine — Stripe sends many we don't care about.
-        break;
+        default:
+          // Unhandled event types are fine — Stripe sends many we don't care about.
+          break;
+      }
+
+      return NextResponse.json({ received: true });
+    } catch (err) {
+      console.error(`[stripe webhook] handler for ${event.type} failed:`, err);
+      // Return 500 so Stripe retries with backoff.
+      return NextResponse.json({ error: "Handler failed" }, { status: 500 });
     }
-
-    return NextResponse.json({ received: true });
-  } catch (err) {
-    console.error(`[stripe webhook] handler for ${event.type} failed:`, err);
-    // Return 500 so Stripe retries with backoff.
-    return NextResponse.json({ error: "Handler failed" }, { status: 500 });
-  }
+  });
 }
 
 // ─── checkout.session.completed ───────────────────────────────────────────────

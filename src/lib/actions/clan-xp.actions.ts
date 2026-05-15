@@ -8,7 +8,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { getClanLevel, getClanBorderSlug, CLAN_LEVELS } from "@/lib/clan-levels";
-import { getSessionUid } from "./server-auth";
+import { requireAuthContext } from "./server-auth";
 
 // ── XP rule definitions ───────────────────────────────────────────────────────
 
@@ -99,11 +99,11 @@ export async function awardClanXp(
   }
 
   try {
-    // Session-exists gate: caller must be authenticated.
-    // NOTE: we do NOT enforce sessionUid === contributorUid because this function
-    // is also called from server actions that award clan XP on behalf of another
-    // user (e.g. reportMatchResult awards the winner's clan XP).
-    await getSessionUid();
+    // Auth-exists gate: signed-in user OR verified webhook context. Same
+    // reasoning as awardXp — cross-user awards happen from server actions
+    // that do have a session; the webhook bypass is for confirmPaidParticipant
+    // firing from Stripe's signed payload where no session cookie exists.
+    await requireAuthContext();
 
     const { adminDb } = await import("@/lib/firebase/admin");
     const rule = CLAN_XP_RULES[reason];
@@ -336,8 +336,8 @@ export async function awardClanXpForMember(
 ): Promise<void> {
   if (!uid) return;
   try {
-    // Session-exists gate: caller must be authenticated.
-    await getSessionUid();
+    // Auth-exists gate: signed-in user OR verified webhook context.
+    await requireAuthContext();
 
     const { adminDb } = await import("@/lib/firebase/admin");
     const profileSnap = await adminDb.collection("profiles").doc(uid).get();

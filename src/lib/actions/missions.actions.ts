@@ -38,7 +38,7 @@ import {
   type MissionCadence,
   type MissionTemplate,
 } from "@/lib/missions";
-import { getSessionUid } from "./server-auth";
+import { getSessionUid, requireAuthContext } from "./server-auth";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -104,6 +104,56 @@ function templateToStoredMission(t: MissionTemplate): StoredMission {
   };
 }
 
+// ─── Lazy-generation helpers ──────────────────────────────────────────────────
+// Both getDashboardMissions and trackMissionProgress need the doc to exist
+// before they can do their work. If a user wins a match or registers for a
+// tournament BEFORE opening the dashboard today, the daily doc wouldn't have
+// been generated yet — and the increment would silently no-op. These helpers
+// generate the doc if missing using the same race-safe transaction pattern,
+// so any fire point can advance missions regardless of order.
+
+async function _ensureDailyDoc(
+  adminDb: FirebaseFirestore.Firestore,
+  uid:     string,
+  dateKey: string,
+  now:     Date,
+): Promise<{ missions: StoredMission[]; generated: boolean }> {
+  const dailyRef = adminDb.collection("profiles").doc(uid).collection("missions_daily").doc(dateKey);
+  const snap = await dailyRef.get();
+  if (snap.exists) {
+    return { missions: (snap.data()!.missions as StoredMission[]) ?? [], generated: false };
+  }
+  const picked = selectDailyTemplates(uid, dateKey).map(templateToStoredMission);
+  return adminDb.runTransaction(async tx => {
+    const fresh = await tx.get(dailyRef);
+    if (fresh.exists) {
+      return { missions: (fresh.data()!.missions as StoredMission[]) ?? [], generated: false };
+    }
+    tx.set(dailyRef, { dateKey, generatedAt: now, missions: picked });
+    return { missions: picked, generated: true };
+  });
+}
+
+async function _ensureWeeklyDoc(
+  adminDb: FirebaseFirestore.Firestore,
+  uid:     string,
+  weekKey: string,
+  now:     Date,
+): Promise<StoredMission | null> {
+  const weeklyRef = adminDb.collection("profiles").doc(uid).collection("missions_weekly").doc(weekKey);
+  const snap = await weeklyRef.get();
+  if (snap.exists) {
+    return (snap.data()!.mission as StoredMission | undefined) ?? null;
+  }
+  const picked = templateToStoredMission(selectWeeklyTemplate(uid, weekKey));
+  return adminDb.runTransaction(async tx => {
+    const fresh = await tx.get(weeklyRef);
+    if (fresh.exists) return (fresh.data()!.mission as StoredMission) ?? null;
+    tx.set(weeklyRef, { weekKey, generatedAt: now, mission: picked });
+    return picked;
+  });
+}
+
 function storedToRow(m: StoredMission): MissionRow {
   const claimed = m.claimedAt
     ? ((m.claimedAt as { toDate?: () => Date }).toDate?.() ?? (m.claimedAt as Date))
@@ -140,70 +190,42 @@ export async function getDashboardMissions(
     const dateKey  = dailyKey(now);
     const weekKey  = weeklyKey(now);
 
-    const dailyRef  = adminDb.collection("profiles").doc(uid).collection("missions_daily").doc(dateKey);
-    const weeklyRef = adminDb.collection("profiles").doc(uid).collection("missions_weekly").doc(weekKey);
+    // Parallel ensure-exists for both docs. UI guidelines §2.1.
+    let [dailyResult, weeklyMission] = await Promise.all([
+      _ensureDailyDoc(adminDb, uid, dateKey, now),
+      _ensureWeeklyDoc(adminDb, uid, weekKey, now),
+    ]);
 
-    // Parallel read (existing daily + weekly). UI guidelines §2.1.
-    const [dailySnap, weeklySnap] = await Promise.all([dailyRef.get(), weeklyRef.get()]);
-
-    // Lazy generation: create today's daily doc if missing.
-    // We also track whether THIS call was the one that generated it — if so,
-    // it's the user's first dashboard open today and we fire the daily_login
-    // mission action exactly once. The transaction's existence check guarantees
-    // only one caller per day wins the generation race.
-    let dailyMissions: StoredMission[];
-    let dailyGeneratedThisCall = false;
-    if (dailySnap.exists) {
-      dailyMissions = (dailySnap.data()!.missions as StoredMission[]) ?? [];
-    } else {
-      const picked = selectDailyTemplates(uid, dateKey).map(templateToStoredMission);
-      const txnResult = await adminDb.runTransaction(async tx => {
-        const fresh = await tx.get(dailyRef);
-        if (fresh.exists) {
-          return { missions: (fresh.data()!.missions as StoredMission[]) ?? [], generated: false };
-        }
-        tx.set(dailyRef, {
-          dateKey,
-          generatedAt: now,
-          missions:    picked,
-        });
-        return { missions: picked, generated: true };
-      });
-      dailyMissions          = txnResult.missions;
-      dailyGeneratedThisCall = txnResult.generated;
+    // ── daily_login firing (profile-based dedup) ─────────────────────────────
+    // The daily_login mission must fire exactly once per UTC day per user, and
+    // ONLY when the user actually opens the dashboard (not when their tournament
+    // register/match-win fires lazy-generates the doc from a different code
+    // path). We track this via `lastDailyLoginDate` on the profile rather than
+    // by inspecting doc generation state — robust to lazy-gen ordering.
+    // Awaited (not fire-and-forget) so the session context is still alive when
+    // trackMissionProgress runs its own session check.
+    const profileRef = adminDb.collection("profiles").doc(uid);
+    const shouldFireLogin = await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(profileRef);
+      const last = (snap.data()?.lastDailyLoginDate as string | undefined) ?? null;
+      if (last === dateKey) return false;
+      tx.update(profileRef, { lastDailyLoginDate: dateKey });
+      return true;
+    });
+    if (shouldFireLogin) {
+      try {
+        await trackMissionProgress(uid, "daily_login");
+        // Re-read both docs so the response reflects the advance immediately
+        // — otherwise the widget would show progress=0 until the next refresh.
+        [dailyResult, weeklyMission] = await Promise.all([
+          _ensureDailyDoc(adminDb, uid, dateKey, now),
+          _ensureWeeklyDoc(adminDb, uid, weekKey, now),
+        ]);
+      } catch (err) {
+        console.error("[getDashboardMissions→daily_login]", err);
+      }
     }
-
-    // Same for the weekly doc.
-    let weeklyMission: StoredMission | null;
-    if (weeklySnap.exists) {
-      weeklyMission = (weeklySnap.data()!.mission as StoredMission | undefined) ?? null;
-    } else {
-      const picked = templateToStoredMission(selectWeeklyTemplate(uid, weekKey));
-      weeklyMission = await adminDb.runTransaction(async tx => {
-        const fresh = await tx.get(weeklyRef);
-        if (fresh.exists) return (fresh.data()!.mission as StoredMission) ?? null;
-        tx.set(weeklyRef, {
-          weekKey,
-          generatedAt: now,
-          mission:     picked,
-        });
-        return picked;
-      });
-    }
-
-    // Fire the daily_login action exactly once per day, gated by whether the
-    // daily doc was generated in THIS call. The trackMissionProgress call will
-    // increment any matching daily mission (target=1, completes) and the weekly
-    // streak mission (target=5, accumulates one day at a time). It's a separate
-    // server-action call so its writes don't block the response — fire-and-
-    // forget. We intentionally read freshly-generated state on the next render
-    // rather than fold the increment into this response.
-    if (dailyGeneratedThisCall) {
-      // Schedule, don't await. A failure here must not break the dashboard.
-      trackMissionProgress(uid, "daily_login").catch(err =>
-        console.error("[getDashboardMissions→daily_login]", err),
-      );
-    }
+    const dailyMissions = dailyResult.missions;
 
     return {
       success: true,
@@ -243,11 +265,14 @@ export async function trackMissionProgress(
   if (!uid) return;
 
   try {
-    // Session-exists gate only — same pattern as awardXp (§1.6).
+    // Auth-exists gate (§1.6): signed-in user OR verified webhook context.
     // Server actions like reportMatchResult call this on the WINNER's uid,
-    // not the caller's. The MissionAction enum is the allowlist for what
-    // can be tracked at all, so a stray call can only fire a known action.
-    await getSessionUid();
+    // not the caller's, in a user session. The webhook context is for
+    // confirmPaidParticipant firing from the Stripe handler — without this
+    // bypass, paid tournament registration would never advance the
+    // tournament_register mission. The MissionAction enum is the allowlist
+    // for what can be tracked, so a stray call can only fire a known action.
+    await requireAuthContext();
 
     if (!isMissionAction(action)) return;
 
@@ -260,10 +285,16 @@ export async function trackMissionProgress(
     const dailyRef  = adminDb.collection("profiles").doc(uid).collection("missions_daily").doc(dateKey);
     const weeklyRef = adminDb.collection("profiles").doc(uid).collection("missions_weekly").doc(weekKey);
 
-    // Parallel read — missions may not exist if the user never opened the
-    // dashboard today. That's fine; the action that finally generates them
-    // will start at progress=0. We only increment EXISTING docs to keep this
-    // fire-and-forget call cheap.
+    // Lazy-generate both docs in parallel if they don't exist yet.
+    // Critical fix: previously this function only acted on existing docs, so
+    // any event (register, match win, etc.) firing BEFORE the user opened
+    // the dashboard that day would be silently dropped. Now we always ensure
+    // the doc exists before incrementing.
+    await Promise.all([
+      _ensureDailyDoc(adminDb, uid, dateKey, now),
+      _ensureWeeklyDoc(adminDb, uid, weekKey, now),
+    ]);
+
     const [dailySnap, weeklySnap] = await Promise.all([dailyRef.get(), weeklyRef.get()]);
 
     // ── Daily ────────────────────────────────────────────────────────────────

@@ -42,7 +42,7 @@ import {
   type ClanMissionCadence,
   type ClanMissionTemplate,
 } from "@/lib/clan-missions";
-import { getSessionUid } from "./server-auth";
+import { getSessionUid, requireAuthContext } from "./server-auth";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -140,6 +140,51 @@ async function _assertMember(adminDb: FirebaseFirestore.Firestore, clanId: strin
   return memberSnap.exists;
 }
 
+// ─── Lazy-generation helpers (race-safe via transaction) ──────────────────────
+// trackClanMissionProgress must NEVER silently no-op because a mission doc
+// doesn't exist yet. If a clan member wins a match before any member has
+// opened the clan page today, the daily doc wouldn't exist — and the action
+// would have been lost. These helpers ensure the doc exists, generating from
+// the deterministic seeded shuffle if needed.
+
+async function _ensureClanDailyDoc(
+  adminDb: FirebaseFirestore.Firestore,
+  clanId:  string,
+  dateKey: string,
+  now:     Date,
+): Promise<StoredClanMission[]> {
+  const dailyRef = adminDb.collection("clans").doc(clanId).collection("clan_missions_daily").doc(dateKey);
+  const snap = await dailyRef.get();
+  if (snap.exists) return (snap.data()!.missions as StoredClanMission[]) ?? [];
+
+  const picked = selectDailyTemplates(clanId, dateKey).map(templateToStored);
+  return adminDb.runTransaction(async tx => {
+    const fresh = await tx.get(dailyRef);
+    if (fresh.exists) return (fresh.data()!.missions as StoredClanMission[]) ?? [];
+    tx.set(dailyRef, { dateKey, generatedAt: now, missions: picked });
+    return picked;
+  });
+}
+
+async function _ensureClanWeeklyDoc(
+  adminDb: FirebaseFirestore.Firestore,
+  clanId:  string,
+  weekKey: string,
+  now:     Date,
+): Promise<StoredClanMission | null> {
+  const weeklyRef = adminDb.collection("clans").doc(clanId).collection("clan_missions_weekly").doc(weekKey);
+  const snap = await weeklyRef.get();
+  if (snap.exists) return (snap.data()!.mission as StoredClanMission | undefined) ?? null;
+
+  const picked = templateToStored(selectWeeklyTemplate(clanId, weekKey));
+  return adminDb.runTransaction(async tx => {
+    const fresh = await tx.get(weeklyRef);
+    if (fresh.exists) return (fresh.data()!.mission as StoredClanMission) ?? null;
+    tx.set(weeklyRef, { weekKey, generatedAt: now, mission: picked });
+    return picked;
+  });
+}
+
 // ─── Public: fetch (and lazily generate) the clan's daily + weekly missions ───
 
 export async function getClanMissions(
@@ -161,53 +206,17 @@ export async function getClanMissions(
     const dateKey  = dailyKey(now);
     const weekKey  = weeklyKey(now);
 
-    const dailyRef  = adminDb.collection("clans").doc(clanId).collection("clan_missions_daily").doc(dateKey);
-    const weeklyRef = adminDb.collection("clans").doc(clanId).collection("clan_missions_weekly").doc(weekKey);
-
-    const [dailySnap, weeklySnap] = await Promise.all([dailyRef.get(), weeklyRef.get()]);
-
-    // ── Daily: lazy-generate today's set ─────────────────────────────────────
-    let dailyMissions: StoredClanMission[];
-    if (dailySnap.exists) {
-      dailyMissions = (dailySnap.data()!.missions as StoredClanMission[]) ?? [];
-    } else {
-      const picked = selectDailyTemplates(clanId, dateKey).map(templateToStored);
-      dailyMissions = await adminDb.runTransaction(async tx => {
-        const fresh = await tx.get(dailyRef);
-        if (fresh.exists) return (fresh.data()!.missions as StoredClanMission[]) ?? [];
-        tx.set(dailyRef, {
-          dateKey,
-          generatedAt: now,
-          missions:    picked,
-        });
-        return picked;
-      });
-    }
-
-    // ── Weekly: lazy-generate this week's mission ────────────────────────────
-    let weeklyMission: StoredClanMission | null;
-    if (weeklySnap.exists) {
-      weeklyMission = (weeklySnap.data()!.mission as StoredClanMission | undefined) ?? null;
-    } else {
-      const picked = templateToStored(selectWeeklyTemplate(clanId, weekKey));
-      weeklyMission = await adminDb.runTransaction(async tx => {
-        const fresh = await tx.get(weeklyRef);
-        if (fresh.exists) return (fresh.data()!.mission as StoredClanMission) ?? null;
-        tx.set(weeklyRef, {
-          weekKey,
-          generatedAt: now,
-          mission:     picked,
-        });
-        return picked;
-      });
-    }
+    // Parallel ensure-exists. UI guidelines §2.1.
+    let [dailyMissions, weeklyMission] = await Promise.all([
+      _ensureClanDailyDoc(adminDb, clanId, dateKey, now),
+      _ensureClanWeeklyDoc(adminDb, clanId, weekKey, now),
+    ]);
 
     // ── Member-active-day fire point ─────────────────────────────────────────
     // Dedup per (uid, dateKey) via a `lastClanActiveDate` field on the profile.
-    // We update the profile and fire the mission action only when the date has
-    // changed since the last visit. This is the only abuse-resistant way to
-    // count "unique members active today" — each member can advance at most
-    // once per day regardless of how many times they refresh the page.
+    // Each member can advance at most once per day regardless of how many times
+    // they refresh the page. Awaited (not fire-and-forget) so the session
+    // context is alive when trackClanMissionProgress runs its own session check.
     const profileRef = adminDb.collection("profiles").doc(uid);
     const shouldFireActive = await adminDb.runTransaction(async tx => {
       const snap = await tx.get(profileRef);
@@ -217,10 +226,16 @@ export async function getClanMissions(
       return true;
     });
     if (shouldFireActive) {
-      // Fire-and-forget — never block the dashboard response.
-      trackClanMissionProgress("member_active_day", uid, clanId).catch(err =>
-        console.error("[getClanMissions→member_active_day]", err),
-      );
+      try {
+        await trackClanMissionProgress("member_active_day", uid, clanId);
+        // Re-read so the response reflects the increment immediately.
+        [dailyMissions, weeklyMission] = await Promise.all([
+          _ensureClanDailyDoc(adminDb, clanId, dateKey, now),
+          _ensureClanWeeklyDoc(adminDb, clanId, weekKey, now),
+        ]);
+      } catch (err) {
+        console.error("[getClanMissions→member_active_day]", err);
+      }
     }
 
     return {
@@ -263,7 +278,9 @@ export async function trackClanMissionProgress(
   if (!contributorUid) return;
 
   try {
-    await getSessionUid();
+    // Auth-exists gate (§1.6): signed-in user OR webhook context. See
+    // trackMissionProgress for the same reasoning.
+    await requireAuthContext();
     if (!isClanMissionAction(action)) return;
 
     const { adminDb } = await import("@/lib/firebase/admin");
@@ -287,6 +304,15 @@ export async function trackClanMissionProgress(
 
     const dailyRef  = adminDb.collection("clans").doc(resolvedClanId).collection("clan_missions_daily").doc(dateKey);
     const weeklyRef = adminDb.collection("clans").doc(resolvedClanId).collection("clan_missions_weekly").doc(weekKey);
+
+    // Lazy-generate both docs if missing. Critical: previously this function
+    // only acted on existing docs, so any event (match win, top place, etc.)
+    // firing BEFORE any clan member opened the clan page that day would be
+    // silently dropped. We now always ensure the doc exists before incrementing.
+    await Promise.all([
+      _ensureClanDailyDoc(adminDb, resolvedClanId, dateKey, now),
+      _ensureClanWeeklyDoc(adminDb, resolvedClanId, weekKey, now),
+    ]);
 
     const [dailySnap, weeklySnap] = await Promise.all([dailyRef.get(), weeklyRef.get()]);
 

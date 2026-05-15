@@ -112,9 +112,14 @@ export async function registerForTournament(
     // Personal-mission progress for free tournament registration. The paid
     // path is tracked separately from confirmPaidParticipant (webhook).
     // sessionUid === uid is already enforced at the top of this action.
-    import("@/lib/actions/missions.actions")
-      .then(m => m.trackMissionProgress(uid, "tournament_register"))
-      .catch(() => {});
+    // Awaited (not fire-and-forget) so the request's session context is still
+    // alive when trackMissionProgress performs its own session check inside.
+    try {
+      const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
+      await trackMissionProgress(uid, "tournament_register");
+    } catch (err) {
+      console.error("[registerForTournament→missions]", err);
+    }
 
     return { success: true };
   } catch (err) {
@@ -228,19 +233,26 @@ export async function reportMatchResult(
     const { awardXp } = await import("@/lib/actions/xp.actions");
     await awardXp(winnerId, "tournament_match_win", matchId);
 
-    // Award clan XP for the win (fire-and-forget)
-    import("@/lib/actions/clan-xp.actions")
-      .then(m => m.awardClanXpForMember(winnerId, "tournament_win", matchId))
-      .catch(() => {});
+    // Award clan XP for the win. Awaited so we maintain session context for
+    // the inner awardClanXp call's auth check.
+    try {
+      const { awardClanXpForMember } = await import("@/lib/actions/clan-xp.actions");
+      await awardClanXpForMember(winnerId, "tournament_win", matchId);
+    } catch (err) {
+      console.error("[reportMatchResult→awardClanXpForMember]", err);
+    }
 
     // Personal-mission progress for the winner (cross-user §1.6 — same pattern
     // as the awardXp call above: the caller is one of the participants, the
     // winnerId is validated against match.participantAId/BId, and the inner
     // function uses once_per_target dedup keyed by mission target so late
     // re-reports cannot double-credit.
-    import("@/lib/actions/missions.actions")
-      .then(m => m.trackMissionProgress(winnerId, "tournament_match_win"))
-      .catch(() => {});
+    try {
+      const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
+      await trackMissionProgress(winnerId, "tournament_match_win");
+    } catch (err) {
+      console.error("[reportMatchResult→trackMissionProgress]", err);
+    }
 
     // Clan-mission progress for the winner's clan. Two fires:
     //   1. tournament_match_win — every win, dedup'd via the contributors map.
@@ -249,30 +261,29 @@ export async function reportMatchResult(
     //      subcollection to count their wins (deterministic, no new state).
     //      Once-per-(tournament, uid) dedup is provided by the mission
     //      doc's `completed` flag plus the contributors map.
-    import("@/lib/actions/clan-missions.actions")
-      .then(async (cm) => {
-        try {
-          await cm.trackClanMissionProgress("tournament_match_win", winnerId);
-        } catch {}
-        // Solo-streak check: count this winner's wins in THIS tournament
-        // (including the one we just recorded). Fire only on the exact 3rd
-        // win to avoid spamming the action; subsequent wins won't progress
-        // the mission further because it's already at target=1.
-        try {
-          const winsSnap = await adminDb
-            .collection("tournaments").doc(tournamentId)
-            .collection("matches")
-            .where("winnerId", "==", winnerId)
-            .where("status",  "==", "complete")
-            .get();
-          if (winsSnap.size === 3) {
-            await cm.trackClanMissionProgress("tournament_solo_streak", winnerId);
-          }
-        } catch (err) {
-          console.error("[reportMatchResult→solo_streak]", err);
+    try {
+      const cm = await import("@/lib/actions/clan-missions.actions");
+      try {
+        await cm.trackClanMissionProgress("tournament_match_win", winnerId);
+      } catch (err) {
+        console.error("[reportMatchResult→clan match_win]", err);
+      }
+      try {
+        const winsSnap = await adminDb
+          .collection("tournaments").doc(tournamentId)
+          .collection("matches")
+          .where("winnerId", "==", winnerId)
+          .where("status",  "==", "complete")
+          .get();
+        if (winsSnap.size === 3) {
+          await cm.trackClanMissionProgress("tournament_solo_streak", winnerId);
         }
-      })
-      .catch(() => {});
+      } catch (err) {
+        console.error("[reportMatchResult→solo_streak]", err);
+      }
+    } catch (err) {
+      console.error("[reportMatchResult→clan-missions]", err);
+    }
 
     return { success: true };
   } catch (err) {

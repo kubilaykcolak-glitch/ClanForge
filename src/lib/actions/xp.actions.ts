@@ -16,7 +16,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { CLAN_JOIN_COOLDOWN_MS, XP_RULES, type XpReason } from "@/lib/xp";
-import { getSessionUid } from "./server-auth";
+import { getSessionUid, requireAuthContext } from "./server-auth";
 
 export interface AwardResult {
   awarded:        number;       // 0 if capped or dedupe'd
@@ -43,12 +43,15 @@ export async function awardXp(
   targetId?: string,
 ): Promise<ActionResult<AwardResult>> {
   try {
-    // Session-exists gate: caller must be authenticated.
-    // NOTE: we do NOT enforce sessionUid === uid because this function is also
-    // called from server actions that award XP to other users (e.g. reportMatchResult
-    // awarding XP to the match winner, finalizeTournament awarding placement XP).
-    // The XP rule caps/dedup provide the second layer of defense against abuse.
-    await getSessionUid();
+    // Auth-exists gate: caller must be a signed-in user OR running inside a
+    // verified webhook context (Stripe). The function is also called from
+    // server actions that award XP to other users (e.g. reportMatchResult
+    // awarding XP to the match winner, finalizeTournament awarding placement
+    // XP) — those flows do have a session. The webhook context bypass exists
+    // specifically for confirmPaidParticipant fired from the Stripe handler,
+    // where there is no session cookie. The XP rule caps/dedup provide the
+    // second layer of defence against abuse.
+    await requireAuthContext();
 
     const rule = XP_RULES[reason];
     if (!rule) return { success: false, error: `Unknown XP reason: ${reason}` };
