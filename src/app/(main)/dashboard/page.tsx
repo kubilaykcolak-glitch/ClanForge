@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Clan, ClanPost, Tournament } from "@/types";
 import { ClanCard } from "@/components/clan/ClanCard";
 import { DashboardChallengesWidget } from "@/components/challenges/DashboardChallengesWidget";
+import { DashboardMissionsWidget } from "@/components/missions/DashboardMissionsWidget";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate, timeAgo, getInitials, clamp } from "@/lib/utils";
 
@@ -685,6 +686,9 @@ export default async function DashboardPage() {
         won={tournamentsWon}
         gamesLogged={gamesLogged}
       />
+
+      {/* ── Personal daily/weekly missions (always shown) ── */}
+      <DashboardMissionsWidget uid={uid} />
 
       {/* ── Active challenges (shown only if user is in a clan) ── */}
       {clanId && <DashboardChallengesWidget clanId={clanId} />}

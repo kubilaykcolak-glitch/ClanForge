@@ -33,6 +33,12 @@ interface ActionResult<T = undefined> {
 
 export async function canCreateTournament(uid: string): Promise<ActionResult<CheckResult>> {
   try {
+    // Verify session — prevents an attacker from probing another user's rate-limit
+    // state or bypassing the account-age check by supplying a different uid.
+    const { getSessionUid } = await import("./server-auth");
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     // ── Account-age check ────────────────────────────────────────────────────

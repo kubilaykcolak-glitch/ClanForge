@@ -16,6 +16,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { CLAN_JOIN_COOLDOWN_MS, XP_RULES, type XpReason } from "@/lib/xp";
+import { getSessionUid } from "./server-auth";
 
 export interface AwardResult {
   awarded:        number;       // 0 if capped or dedupe'd
@@ -42,6 +43,13 @@ export async function awardXp(
   targetId?: string,
 ): Promise<ActionResult<AwardResult>> {
   try {
+    // Session-exists gate: caller must be authenticated.
+    // NOTE: we do NOT enforce sessionUid === uid because this function is also
+    // called from server actions that award XP to other users (e.g. reportMatchResult
+    // awarding XP to the match winner, finalizeTournament awarding placement XP).
+    // The XP rule caps/dedup provide the second layer of defense against abuse.
+    await getSessionUid();
+
     const rule = XP_RULES[reason];
     if (!rule) return { success: false, error: `Unknown XP reason: ${reason}` };
 
@@ -49,6 +57,45 @@ export async function awardXp(
 
     const profileRef = adminDb.collection("profiles").doc(uid);
     const eventsCol  = profileRef.collection("xp_events");
+
+    // ── Mission-reward derivation ────────────────────────────────────────────
+    // For mission completion reasons, the amount is NOT taken from rule.amount
+    // or any caller-supplied value. It's read from the user's server-only-
+    // written mission doc, using the targetId to identify which mission. This
+    // prevents an attacker from calling awardXp directly with a synthesized
+    // targetId and inflating their XP — they would need a real completed
+    // mission in their own doc, which only trackMissionProgress can produce.
+    // (See docs/security-guidelines.md §1.5 amount inflation.)
+    let missionDerivedAmount: number | null = null;
+    if (reason === "daily_mission_complete" || reason === "weekly_mission_complete") {
+      const parts = (targetId ?? "").split(":");
+      if (parts.length !== 4 || parts[0] !== "mission" || parts[1] !== uid) {
+        return { success: false, error: "Invalid mission targetId format" };
+      }
+      const key        = parts[2];
+      const templateId = parts[3];
+      const cadenceCol = reason === "daily_mission_complete" ? "missions_daily" : "missions_weekly";
+      const missionDoc = await adminDb
+        .collection("profiles").doc(uid)
+        .collection(cadenceCol).doc(key)
+        .get();
+      if (!missionDoc.exists) return { success: false, error: "Mission doc not found" };
+      const data = missionDoc.data()!;
+      type MinMission = { templateId: string; xpReward: number; completed: boolean };
+      let m: MinMission | undefined;
+      if (cadenceCol === "missions_daily") {
+        const list = (data.missions as MinMission[]) ?? [];
+        m = list.find(x => x.templateId === templateId);
+      } else {
+        const single = data.mission as MinMission | undefined;
+        if (single && single.templateId === templateId) m = single;
+      }
+      if (!m || !m.completed) {
+        return { success: false, error: "Mission not completed in user doc" };
+      }
+      // Hard cap defends against future template tuning errors.
+      missionDerivedAmount = Math.max(0, Math.min(Math.floor(m.xpReward), 1000));
+    }
 
     // ── Cap / dedupe check ───────────────────────────────────────────────────
     let capped: AwardResult["capped"] = false;
@@ -88,7 +135,11 @@ export async function awardXp(
     }
 
     // ── Write event + maybe increment xp ─────────────────────────────────────
-    let amount = capped ? 0 : rule.amount;
+    // For mission reasons the amount comes from the server-validated mission
+    // doc above; for all other reasons it comes from XP_RULES (no caller
+    // override). This keeps the public surface caller-amount-free.
+    const baseAmount = missionDerivedAmount !== null ? missionDerivedAmount : rule.amount;
+    let amount = capped ? 0 : baseAmount;
     const now  = new Date();
     // Deterministic doc ID for once_per_target so the dedup check can happen
     // inside the transaction — Firestore's optimistic locking means the second
@@ -167,6 +218,9 @@ export interface ClanJoinCheckResult {
 
 export async function checkClanJoinAllowed(uid: string): Promise<ActionResult<ClanJoinCheckResult>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const snap = await adminDb.collection("profiles").doc(uid).get();
     const lastLeaveAt = snap.data()?.lastClanLeaveAt?.toDate?.() ?? null;

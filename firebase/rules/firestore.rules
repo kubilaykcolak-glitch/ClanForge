@@ -63,6 +63,24 @@ service cloud.firestore {
       match /gameRecords/{recordId} {
         allow read, write, delete: if isOwner(userId);
       }
+
+      // ─── /profiles/{userId}/missions_daily/{dateKey} ───────────────────────
+      // Daily personal missions. Only the owner can read; ALL writes go through
+      // server actions (Admin SDK bypasses these rules). Clients must never
+      // write here directly — the snapshotted reward values are the only
+      // protection against retroactive tuning, and a client write could forge
+      // them.
+      match /missions_daily/{dateKey} {
+        allow read:                if isOwner(userId);
+        allow create, update, delete: if false;
+      }
+
+      // ─── /profiles/{userId}/missions_weekly/{weekKey} ──────────────────────
+      // Same contract as missions_daily — owner reads, server-only writes.
+      match /missions_weekly/{weekKey} {
+        allow read:                if isOwner(userId);
+        allow create, update, delete: if false;
+      }
     }
 
     // ─── /usernames/{username} ────────────────────────────────────────────────
@@ -143,7 +161,10 @@ service cloud.firestore {
 
     match /tournaments/{tournamentId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      // Enforce that the stored creatorId matches the authenticated user so a
+      // client cannot create a tournament on behalf of someone else.
+      allow create: if isSignedIn() &&
+        request.resource.data.creatorId == request.auth.uid;
       allow update: if isTournamentCreator(tournamentId);
       allow delete: if isTournamentCreator(tournamentId);
 

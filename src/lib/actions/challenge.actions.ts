@@ -11,6 +11,16 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import type { ChallengeType, ChallengeStatus, ClanChallenge, ClanChallengeEntry } from "@/types";
+import type { MissionAction } from "@/lib/missions";
+import { getAdminUid, getSessionUid } from "./server-auth";
+
+// Map clan-challenge event types to personal-mission action types.
+// Only events that have a direct personal-mission analogue appear here.
+const CHALLENGE_TO_MISSION_ACTION: Partial<Record<ChallengeType, MissionAction>> = {
+  post_create:            "post_create",
+  match_win:              "tournament_match_win",
+  tournament_participate: "tournament_register",
+};
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -116,6 +126,7 @@ export async function createChallenge(
   input: CreateChallengeInput,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    await getAdminUid();
     const { adminDb } = await import("@/lib/firebase/admin");
     const now = new Date();
     const status: ChallengeStatus =
@@ -143,6 +154,7 @@ export async function updateChallengeStatus(
   status:      ChallengeStatus,
 ): Promise<ActionResult> {
   try {
+    await getAdminUid();
     const { adminDb } = await import("@/lib/firebase/admin");
     await adminDb.collection("challenges").doc(challengeId).update({
       status,
@@ -156,6 +168,7 @@ export async function updateChallengeStatus(
 
 export async function getAllChallenges(): Promise<ActionResult<ChallengeRow[]>> {
   try {
+    await getAdminUid();
     const { adminDb } = await import("@/lib/firebase/admin");
     const snap = await adminDb
       .collection("challenges")
@@ -180,6 +193,7 @@ export async function getClanActiveChallenges(
   clanId: string,
 ): Promise<ActionResult<ClanChallengeWidgetData[]>> {
   try {
+    await getSessionUid(); // must be authenticated
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const challengesSnap = await adminDb
@@ -195,13 +209,22 @@ export async function getClanActiveChallenges(
       challengesSnap.docs.map(async (doc) => {
         const challenge = mapChallenge(doc);
 
-        // Fetch this clan's entry
-        const entrySnap = await adminDb
-          .collection("challenges")
-          .doc(doc.id)
-          .collection("entries")
-          .doc(clanId)
-          .get();
+        // Fetch this clan's entry and top 5 entries in parallel
+        const [entrySnap, topSnap] = await Promise.all([
+          adminDb
+            .collection("challenges")
+            .doc(doc.id)
+            .collection("entries")
+            .doc(clanId)
+            .get(),
+          adminDb
+            .collection("challenges")
+            .doc(doc.id)
+            .collection("entries")
+            .orderBy("progress", "desc")
+            .limit(5)
+            .get(),
+        ]);
 
         const entry: ChallengeEntryRow | null = entrySnap.exists
           ? {
@@ -217,15 +240,6 @@ export async function getClanActiveChallenges(
               pointsEarned:    (entrySnap.data()!.pointsEarned    as number) ?? 0,
             }
           : null;
-
-        // Fetch top 5 entries for the mini-leaderboard
-        const topSnap = await adminDb
-          .collection("challenges")
-          .doc(doc.id)
-          .collection("entries")
-          .orderBy("progress", "desc")
-          .limit(5)
-          .get();
 
         const topEntries: ChallengeEntryRow[] = topSnap.docs.map((e, i) => ({
           clanId:       (e.data().clanId       as string) ?? "",
@@ -261,12 +275,43 @@ export async function trackChallengeProgress(
   clanId:         string,
   type:           ChallengeType,
   contributorUid: string,
-  amount:         number = 1,
+  // amount is intentionally ignored — always increments by 1 to prevent
+  // callers from inflating progress via a direct server-action call.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _amount:        number = 1,
 ): Promise<void> {
   if (!clanId || !contributorUid) return;
 
   try {
+    // ── Security checks ──────────────────────────────────────────────────────
+    // 1. Verify the session cookie — the caller must be the contributor.
+    //    Prevents IDOR: an attacker cannot attribute progress to another user
+    //    or call this action from outside the authenticated UI.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== contributorUid) return;
+
     const { adminDb } = await import("@/lib/firebase/admin");
+
+    // 2. Verify the caller is an active member of the target clan.
+    //    Prevents cross-clan manipulation: a member of Clan A cannot credit Clan B.
+    const memberSnap = await adminDb
+      .collection("clans").doc(clanId)
+      .collection("members").doc(sessionUid).get();
+    if (!memberSnap.exists) return;
+
+    // After both checks pass: the event is legitimate. Chain personal mission
+    // tracking for the same user. Using sessionUid (not contributorUid) is
+    // belt-and-braces — they're already proven equal above. Fire-and-forget;
+    // mission tracking failures must not affect clan-challenge tracking.
+    const missionAction = CHALLENGE_TO_MISSION_ACTION[type];
+    if (missionAction) {
+      import("./missions.actions")
+        .then(m => m.trackMissionProgress(sessionUid, missionAction))
+        .catch(err => console.error("[trackChallengeProgress→missions]", err));
+    }
+
+    // Always use 1 — the only legitimate unit for client-triggered events.
+    const safeAmount = 1;
 
     // Fetch clan metadata (needed for entry denormalization)
     const [challengesSnap, clanSnap] = await Promise.all([
@@ -283,7 +328,7 @@ export async function trackChallengeProgress(
 
     const clanData = clanSnap.data()!;
 
-    for (const challengeDoc of challengesSnap.docs) {
+    await Promise.all(challengesSnap.docs.map(async (challengeDoc) => {
       const entryRef = adminDb
         .collection("challenges")
         .doc(challengeDoc.id)
@@ -302,20 +347,20 @@ export async function trackChallengeProgress(
             clanSlug:      clanData.slug        ?? "",
             clanAvatarUrl: clanData.avatarUrl   ?? null,
             clanTag:       clanData.clanTag     ?? null,
-            progress:      amount,
+            progress:      safeAmount,
             completed:     false,
             completedAt:   null,
             pointsEarned:  0,
-            contributors:  { [contributorUid]: amount },
+            contributors:  { [contributorUid]: safeAmount },
             updatedAt:     now,
           });
         } else {
           const current = entrySnap.data() as ClanChallengeEntry;
           if (current.completed) return; // already done, skip
 
-          const newProgress = current.progress + amount;
+          const newProgress = current.progress + safeAmount;
           const contribUpdate = {
-            [`contributors.${contributorUid}`]: FieldValue.increment(amount),
+            [`contributors.${contributorUid}`]: FieldValue.increment(safeAmount),
           };
 
           tx.update(entryRef, {
@@ -346,7 +391,7 @@ export async function trackChallengeProgress(
           contributorUid,
         );
       }
-    }
+    }));
   } catch (err) {
     console.error("[trackChallengeProgress]", err);
     // Non-fatal — don't surface to user

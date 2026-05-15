@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -64,7 +64,7 @@ export function ClansClient({
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Search ──
-  const handleSearchChange = (value: string) => {
+  const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
 
@@ -83,7 +83,7 @@ export function ClansClient({
         toast.error(result.error ?? "Search failed");
       }
     }, 350);
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -92,7 +92,7 @@ export function ClansClient({
   }, []);
 
   // ── Sort change ──
-  const handleSortChange = async (next: ClanSort) => {
+  const handleSortChange = useCallback(async (next: ClanSort) => {
     if (next === sort) return;
     setSort(next);
     setResetting(true);
@@ -104,10 +104,10 @@ export function ClansClient({
     }
     setItems(result.data.items);
     setCursor(result.data.nextCursor);
-  };
+  }, [sort]);
 
   // ── Load more ──
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (!cursor || loading) return;
     setLoading(true);
     const result = await getClanList(sort, cursor);
@@ -118,7 +118,7 @@ export function ClansClient({
     }
     setItems(prev => [...prev, ...result.data!.items]);
     setCursor(result.data.nextCursor);
-  };
+  }, [cursor, loading, sort]);
 
   const isSearchMode   = search.trim().length > 0;
   const displayItems   = isSearchMode ? (searchResults ?? []) : items;

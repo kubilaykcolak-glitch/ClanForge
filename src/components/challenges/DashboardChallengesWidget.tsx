@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Trophy, ChevronRight, Clock } from "lucide-react";
 import { getDashboardChallenges, type DashboardChallengeItem } from "@/lib/actions/challenge.actions";
@@ -40,6 +40,12 @@ export function DashboardChallengesWidget({ clanId }: Props) {
       setLoading(false);
     });
   }, [clanId]);
+
+  // Pre-compute time-remaining strings once per items change, not on every render
+  const timeLabels = useMemo(
+    () => Object.fromEntries(items.map(({ challenge }) => [challenge.id, timeRemaining(challenge.endAt)])),
+    [items],
+  );
 
   if (!clanId) return null;
 
@@ -120,7 +126,7 @@ export function DashboardChallengesWidget({ clanId }: Props) {
                   </span>
                   <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
                     <Clock size={10} />
-                    {timeRemaining(challenge.endAt)}
+                    {timeLabels[challenge.id]}
                   </span>
                 </div>
               </div>

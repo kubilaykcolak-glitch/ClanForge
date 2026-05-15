@@ -8,6 +8,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import type { Profile } from "@/types";
+import { getSessionUid } from "./server-auth";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -31,18 +32,28 @@ interface ActionResult<T = undefined> {
 export async function createCheckoutSession(
   uid:           string,
   tournamentId:  string,
+  // profile is accepted for UI-display fallback only; the server always reads
+  // the authoritative values from Firestore so a caller cannot spoof their name.
   profile:       Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult<{ checkoutUrl: string }>> {
   try {
+    // Verify the session cookie — the caller must be the user being registered.
+    // Prevents IDOR: no one can open a checkout on someone else's UID.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const { getStripe } = await import("@/lib/stripe");
 
     const tournamentRef  = adminDb.collection("tournaments").doc(tournamentId);
     const participantRef = tournamentRef.collection("participants").doc(uid);
 
-    const [tournamentSnap, existingSnap] = await Promise.all([
+    const [tournamentSnap, existingSnap, profileSnap] = await Promise.all([
       tournamentRef.get(),
       participantRef.get(),
+      // Always read profile from DB — never trust caller-supplied displayName/avatarUrl.
+      // Prevents name-spoofing (registering as another display name).
+      adminDb.collection("profiles").doc(uid).get(),
     ]);
 
     if (!tournamentSnap.exists) {
@@ -115,6 +126,11 @@ export async function createCheckoutSession(
       return { success: false, error: "Stripe failed to create a checkout session" };
     }
 
+    // Use server-read profile values, falling back to caller-supplied if the
+    // profile doc is somehow missing (e.g., new account with no profile yet).
+    const dbDisplayName = (profileSnap.data()?.displayName as string | undefined) ?? profile.displayName;
+    const dbAvatarUrl   = (profileSnap.data()?.avatarUrl   as string | undefined) ?? profile.avatarUrl ?? null;
+
     // Write the draft participant now that we have the session id.
     await participantRef.set({
       userId:                  uid,
@@ -123,8 +139,8 @@ export async function createCheckoutSession(
       paymentStatus:           "pending_payment",
       stripeCheckoutSessionId: session.id,
       registeredAt:            new Date(),
-      displayName:             profile.displayName,
-      avatarUrl:               profile.avatarUrl ?? null,
+      displayName:             dbDisplayName,
+      avatarUrl:               dbAvatarUrl,
     });
 
     return { success: true, data: { checkoutUrl: session.url } };
@@ -206,10 +222,28 @@ export async function confirmPaidParticipant(
 
     // Award XP for registration. Outside the transaction because awardXp
     // runs its own writes; the previous transaction already committed.
-    // Daily cap of 4 enforced by the rule itself.
+    // Daily cap enforced by the rule itself.
+    // Wrapped in try/catch: this is called from the Stripe webhook (no session
+    // cookie) so getSessionUid() inside awardXp would throw. XP award is
+    // best-effort — the payment confirmation must not fail because of it.
     if (result.success && result.data?.alreadyPaid === false) {
-      const { awardXp } = await import("@/lib/actions/xp.actions");
-      await awardXp(uid, "tournament_register", tournamentId);
+      try {
+        const { awardXp } = await import("@/lib/actions/xp.actions");
+        await awardXp(uid, "tournament_register", tournamentId);
+      } catch {
+        // Non-fatal: XP award skipped when called from webhook context.
+      }
+
+      // Personal-mission progress for the paid registration path. Same webhook
+      // safety pattern (§1.7) — trackMissionProgress requires a session and the
+      // Stripe webhook has none, so a stray throw here must not cause Stripe
+      // to retry the entire confirmation indefinitely.
+      try {
+        const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
+        await trackMissionProgress(uid, "tournament_register");
+      } catch {
+        // Non-fatal.
+      }
     }
 
     return result;
@@ -266,6 +300,11 @@ export async function withdrawPaidEntry(
   tournamentId:  string,
 ): Promise<ActionResult> {
   try {
+    // Verify session — only the participant themselves can withdraw.
+    // Prevents IDOR: an attacker cannot force-refund and evict other users.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const { getStripe } = await import("@/lib/stripe");
     const { prizePoolDeltaForEntry, DEFAULT_PLATFORM_FEE_PCT } = await import("@/lib/prize-splits");
@@ -335,6 +374,12 @@ export async function cancelTournament(
   tournamentId: string,
 ): Promise<ActionResult<{ refundedCount: number }>> {
   try {
+    // Verify session — the caller must actually be the uid they claim.
+    // The creator check below is only meaningful if uid comes from the verified
+    // session, not from an attacker who already knows the creator's UID.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const { getStripe } = await import("@/lib/stripe");
 
@@ -409,15 +454,22 @@ export async function finalizeTournament(
   winnerUserIds:  string[],
 ): Promise<ActionResult<{ prizesCreated: number }>> {
   try {
+    // Verify session — the caller must actually be the uid they claim.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const { computePayouts, getPresetPositionsCount } = await import("@/lib/prize-splits");
 
     const tournamentRef = adminDb.collection("tournaments").doc(tournamentId);
     const prizesCol     = tournamentRef.collection("prizes");
 
-    const [tSnap, profileSnap] = await Promise.all([
+    const [tSnap, profileSnap, participantsSnap] = await Promise.all([
       tournamentRef.get(),
       adminDb.collection("profiles").doc(uid).get(),
+      // Fetch participants to validate that every declared winner actually
+      // entered the tournament. Prevents prize assignment to arbitrary UIDs.
+      tournamentRef.collection("participants").get(),
     ]);
 
     if (!tSnap.exists) return { success: false, error: "Tournament not found" };
@@ -433,6 +485,25 @@ export async function finalizeTournament(
     }
     if (tournament.status === "cancelled") {
       return { success: false, error: "Cancelled tournaments cannot be finalized" };
+    }
+
+    // Validate that every declared winner is a legitimately registered participant
+    // (paymentStatus === "paid" or "free"). Prevents the creator or admin from
+    // awarding prizes to people who never entered or whose payment is still pending.
+    const validParticipantUids = new Set(
+      participantsSnap.docs
+        .filter(d => {
+          const ps = d.data().paymentStatus as string;
+          return ps === "paid" || ps === "free";
+        })
+        .map(d => d.id),
+    );
+    const invalidWinners = winnerUserIds.filter(w => w && !validParticipantUids.has(w));
+    if (invalidWinners.length > 0) {
+      return {
+        success: false,
+        error:   "One or more declared winners are not registered participants of this tournament",
+      };
     }
 
     const prizePool  = (tournament.prizePool as number) ?? 0;
@@ -539,6 +610,11 @@ export async function initiatePrizeClaim(
   prizeId:       string,
 ): Promise<ActionResult<{ claimReference: string }>> {
   try {
+    // Verify session — only the winner themselves can initiate a claim.
+    // Prevents an attacker from triggering a claim on another user's prize.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const prizeRef = adminDb
@@ -579,6 +655,11 @@ export async function markPrizePaid(
   prizeId:       string,
 ): Promise<ActionResult> {
   try {
+    // Verify session first — the caller must be the adminUid they claim.
+    // Then re-verify isAdmin from the database so neither check can be bypassed.
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== adminUid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const profileSnap = await adminDb.collection("profiles").doc(adminUid).get();

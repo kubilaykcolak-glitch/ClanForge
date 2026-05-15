@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -112,7 +112,7 @@ export function TournamentsClient({
   // Debounce search input
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSearchChange = (value: string) => {
+  const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
 
@@ -131,7 +131,7 @@ export function TournamentsClient({
         toast.error(result.error ?? "Search failed");
       }
     }, 350);
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -140,7 +140,7 @@ export function TournamentsClient({
   }, []);
 
   // ── Sort change — refetch all tabs ──
-  const handleSortChange = async (next: TournamentSort) => {
+  const handleSortChange = useCallback(async (next: TournamentSort) => {
     if (next === sort) return;
     setSort(next);
     setResetting(true);
@@ -164,10 +164,10 @@ export function TournamentsClient({
     if (!openRes.success || !liveRes.success || !upcomingRes.success || !completedRes.success) {
       toast.error("Some tabs couldn't reload — try again");
     }
-  };
+  }, [sort]);
 
   // ── Load More for a specific tab ──
-  const handleLoadMore = async (tab: TabKey) => {
+  const handleLoadMore = useCallback(async (tab: TabKey) => {
     const cursor = tabs[tab].cursor;
     if (!cursor || tabs[tab].loading) return;
 
@@ -190,7 +190,7 @@ export function TournamentsClient({
     if (!result.success) {
       toast.error(result.error ?? "Couldn't load more tournaments");
     }
-  };
+  }, [sort, tabs]);
 
   // ── Render helpers ────────────────────────────────────────────────────────
 

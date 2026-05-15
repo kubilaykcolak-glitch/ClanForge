@@ -17,7 +17,9 @@ export type XpReason =
   | "post_create"
   | "post_receive_like"
   | "challenge_complete"
-  | "member_recruit";
+  | "member_recruit"
+  | "daily_mission_complete"
+  | "weekly_mission_complete";
 
 /** How the dedupe/limit check is applied for each rule. */
 export type RuleType =
@@ -51,6 +53,13 @@ export const XP_RULES: Record<XpReason, XpRule> = {
   post_receive_like:    { reason: "post_receive_like",    amount:   2, type: "daily_cap",       dailyCap: 20, label: "Someone liked your post" },
   challenge_complete:   { reason: "challenge_complete",   amount:  75, type: "once_per_target",               label: "Clan challenge completed" },
   member_recruit:       { reason: "member_recruit",       amount:  30, type: "once_per_target",               label: "Recruited a new member" },
+
+  // Daily / weekly personal missions. Amount is overridden at award time by the
+  // snapshotted reward on the per-user mission doc — see awardXp call sites.
+  // targetId is `mission:<uid>:<dateKey>:<templateId>` for daily, `mission:<uid>:<weekKey>:<templateId>` for weekly,
+  // so each completed mission can only award XP once.
+  daily_mission_complete:  { reason: "daily_mission_complete",  amount: 10,  type: "once_per_target", label: "Daily mission complete"  },
+  weekly_mission_complete: { reason: "weekly_mission_complete", amount: 100, type: "once_per_target", label: "Weekly mission complete" },
 };
 
 // ─── Clan join cooldown (anti-grind) ──────────────────────────────────────────

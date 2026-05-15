@@ -8,6 +8,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { getClanLevel, getClanBorderSlug, CLAN_LEVELS } from "@/lib/clan-levels";
+import { getSessionUid } from "./server-auth";
 
 // ── XP rule definitions ───────────────────────────────────────────────────────
 
@@ -17,7 +18,8 @@ export type ClanXpReason =
   | "tournament_participate"
   | "tournament_win"
   | "challenge_complete"
-  | "member_recruited";
+  | "member_recruited"
+  | "mission_contribute";
 
 export type ClanXpRuleType =
   | "per_event"       // always fires, no dedup
@@ -39,6 +41,11 @@ const CLAN_XP_RULES: Record<ClanXpReason, ClanXpRule> = {
   tournament_win:         { reason: "tournament_win",          amount: 500,  type: "once_per_target", label: "Tournament victory"            },
   challenge_complete:     { reason: "challenge_complete",      amount:   0,  type: "once_per_target", label: "Challenge completed"           },
   member_recruited:       { reason: "member_recruited",        amount:  75,  type: "once_per_target", label: "Member recruited"              },
+  // Amount=0 here — actual amount is always passed via overrideAmount from the
+  // snapshotted clanXpReward on the per-user mission doc. once_per_target keyed
+  // by `<uid>:<dateKey or weekKey>:<templateId>` so a single mission can only
+  // contribute clan XP once even if trackMissionProgress fires multiple times.
+  mission_contribute:     { reason: "mission_contribute",      amount:   0,  type: "once_per_target", label: "Mission contribution"           },
 };
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -86,11 +93,60 @@ export async function awardClanXp(
   }
 
   try {
+    // Session-exists gate: caller must be authenticated.
+    // NOTE: we do NOT enforce sessionUid === contributorUid because this function
+    // is also called from server actions that award clan XP on behalf of another
+    // user (e.g. reportMatchResult awards the winner's clan XP).
+    await getSessionUid();
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const rule = CLAN_XP_RULES[reason];
     if (!rule) return { success: false, error: `Unknown ClanXpReason: ${reason}` };
 
-    const amount = overrideAmount ?? rule.amount;
+    // ── Mission-reward derivation ──────────────────────────────────────────
+    // For mission_contribute the amount comes from the server-only-written
+    // per-user mission doc, NOT the caller. Mirrors the same protection added
+    // to awardXp for daily_/weekly_mission_complete reasons. The caller may
+    // not supply an arbitrary overrideAmount for this reason — even though
+    // the rule is once_per_target, an attacker could grind unique synthesized
+    // targetIds to inflate clan XP. (See docs/security-guidelines.md §1.5.)
+    let missionDerivedAmount: number | null = null;
+    if (reason === "mission_contribute") {
+      const parts = (targetId ?? "").split(":");
+      if (parts.length !== 4 || parts[0] !== "mission" || parts[1] !== contributorUid) {
+        return { success: false, error: "Invalid mission targetId format" };
+      }
+      const key        = parts[2];
+      const templateId = parts[3];
+      // Cadence is inferred from the key shape: daily keys are YYYY-MM-DD
+      // (contains two '-'), weekly keys are YYYY-W## (contains 'W').
+      const isWeekly   = key.includes("W");
+      const cadenceCol = isWeekly ? "missions_weekly" : "missions_daily";
+      const missionDoc = await adminDb
+        .collection("profiles").doc(contributorUid)
+        .collection(cadenceCol).doc(key)
+        .get();
+      if (!missionDoc.exists) return { success: false, error: "Mission doc not found" };
+      const data = missionDoc.data()!;
+      type MinMission = { templateId: string; clanXpReward: number; completed: boolean };
+      let m: MinMission | undefined;
+      if (cadenceCol === "missions_daily") {
+        const list = (data.missions as MinMission[]) ?? [];
+        m = list.find(x => x.templateId === templateId);
+      } else {
+        const single = data.mission as MinMission | undefined;
+        if (single && single.templateId === templateId) m = single;
+      }
+      if (!m || !m.completed) {
+        return { success: false, error: "Mission not completed in user doc" };
+      }
+      // Hard cap defends against future template tuning errors.
+      missionDerivedAmount = Math.max(0, Math.min(Math.floor(m.clanXpReward), 500));
+    }
+
+    const amount   = missionDerivedAmount !== null
+      ? missionDerivedAmount
+      : (overrideAmount ?? rule.amount);
     const clanRef   = adminDb.collection("clans").doc(clanId);
     const eventsCol = clanRef.collection("xp_events");
     const now       = new Date();
@@ -235,6 +291,9 @@ export async function awardClanXpForMember(
 ): Promise<void> {
   if (!uid) return;
   try {
+    // Session-exists gate: caller must be authenticated.
+    await getSessionUid();
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const profileSnap = await adminDb.collection("profiles").doc(uid).get();
     const clanId = profileSnap.data()?.clanId as string | null | undefined;

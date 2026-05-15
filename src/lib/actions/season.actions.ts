@@ -2,6 +2,8 @@
 
 // ─── Season server actions ─────────────────────────────────────────────────────
 
+import { getAdminUid } from "./server-auth";
+
 interface ActionResult<T = undefined> {
   success: boolean;
   data?:   T;
@@ -41,6 +43,8 @@ export async function createSeason(input: {
   endAt:        Date;
 }): Promise<ActionResult<{ id: string }>> {
   try {
+    await getAdminUid();
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const now = new Date();
     const status = input.startAt > now ? "upcoming" : input.endAt < now ? "completed" : "active";
@@ -96,6 +100,8 @@ export async function updateSeasonStatus(
   status:   "upcoming" | "active" | "completed",
 ): Promise<ActionResult> {
   try {
+    await getAdminUid();
+
     const { adminDb } = await import("@/lib/firebase/admin");
     await adminDb.collection("seasons").doc(seasonId).update({ status });
     return { success: true };

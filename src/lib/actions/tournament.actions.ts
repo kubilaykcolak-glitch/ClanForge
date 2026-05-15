@@ -2,6 +2,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import type { Tournament } from "@/types";
+import { getSessionUid } from "./server-auth";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -32,6 +33,9 @@ export async function createTournament(
   >,
 ): Promise<ActionResult<{ tournamentId: string }>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const ref = await adminDb.collection("tournaments").add({
@@ -61,6 +65,9 @@ export async function registerForTournament(
   avatarUrl?: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     await adminDb.runTransaction(async tx => {
@@ -102,6 +109,13 @@ export async function registerForTournament(
       tx.update(tournRef, { participantCount: FieldValue.increment(1) });
     });
 
+    // Personal-mission progress for free tournament registration. The paid
+    // path is tracked separately from confirmPaidParticipant (webhook).
+    // sessionUid === uid is already enforced at the top of this action.
+    import("@/lib/actions/missions.actions")
+      .then(m => m.trackMissionProgress(uid, "tournament_register"))
+      .catch(() => {});
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to register";
@@ -118,6 +132,9 @@ export async function withdrawFromTournament(
   tournamentId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     await adminDb.runTransaction(async tx => {
@@ -166,6 +183,9 @@ export async function reportMatchResult(
   winnerId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const matchRef = adminDb
@@ -213,6 +233,15 @@ export async function reportMatchResult(
       .then(m => m.awardClanXpForMember(winnerId, "tournament_win", matchId))
       .catch(() => {});
 
+    // Personal-mission progress for the winner (cross-user §1.6 — same pattern
+    // as the awardXp call above: the caller is one of the participants, the
+    // winnerId is validated against match.participantAId/BId, and the inner
+    // function uses once_per_target dedup keyed by mission target so late
+    // re-reports cannot double-credit.
+    import("@/lib/actions/missions.actions")
+      .then(m => m.trackMissionProgress(winnerId, "tournament_match_win"))
+      .catch(() => {});
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to report match result";
@@ -231,6 +260,9 @@ export async function disputeMatch(
   reason: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     if (!reason.trim()) {
       return { success: false, error: "Dispute reason is required" };
     }
@@ -279,6 +311,9 @@ export async function generateBracket(
   tournamentId: string,
 ): Promise<ActionResult<{ matchesCreated: number }>> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const tournRef = adminDb.collection("tournaments").doc(tournamentId);
@@ -374,6 +409,9 @@ export async function lockTournament(
   tournamentId: string,
 ): Promise<ActionResult> {
   try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const tournSnap = await adminDb.collection("tournaments").doc(tournamentId).get();

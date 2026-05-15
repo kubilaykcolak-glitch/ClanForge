@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Trophy, Clock, ChevronRight, Zap } from "lucide-react";
 import { getClanActiveChallenges, type ClanChallengeWidgetData } from "@/lib/actions/challenge.actions";
@@ -82,6 +82,10 @@ export function ClanChallengesWidget({ clanId }: Props) {
 
   const { challenge, entry, topEntries } = current;
   const progress = entry?.progress ?? 0;
+
+  // Memoised so it doesn't recompute on every parent render
+  // (only recomputes when the active challenge's endAt changes)
+  const timeLeft = useMemo(() => timeRemaining(challenge.endAt), [challenge.endAt]);
 
   return (
     <div
@@ -176,7 +180,7 @@ export function ClanChallengesWidget({ clanId }: Props) {
         <div className="flex items-center justify-between text-xs mb-4">
           <div className="flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
             <Clock size={11} />
-            <span>{timeRemaining(challenge.endAt)}</span>
+            <span>{timeLeft}</span>
           </div>
           {challenge.badgeReward && (
             <span
