@@ -90,19 +90,23 @@ export default async function LeaderboardPage({ searchParams }: Props) {
         </p>
       </div>
 
-      {/* ── Season banner (clans only) ── */}
+      {/* ── Season banner (clans only) — Arena treatment ─────────────────── */}
       {!isPlayersTab && season && (
         <div
-          className="rounded-xl px-5 py-4 mb-6 flex items-center gap-3"
+          className="arena-gradient-border rounded-xl px-5 py-4 mb-6 flex items-center gap-3 relative overflow-hidden"
           style={{
-            background: "linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.08) 100%)",
-            border:     "1px solid rgba(99,102,241,0.25)",
+            background:
+              "linear-gradient(135deg, rgba(99,102,241,0.14) 0%, rgba(232,121,249,0.08) 50%, rgba(34,211,238,0.06) 100%), var(--bg-surface)",
+            border: "1px solid transparent",
           }}
         >
-          <Star size={18} style={{ color: "var(--accent)", flexShrink: 0 }} />
-          <div>
+          <Star size={18} style={{ color: "var(--magenta)", flexShrink: 0 }} />
+          <div className="min-w-0">
             <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              {season.name} is active
+              {season.name}{" "}
+              <span className="font-mono-tech text-xs" style={{ color: "var(--magenta)" }}>
+                Active
+              </span>
             </p>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {season.description || "Complete challenges to earn season points and exclusive rewards."}

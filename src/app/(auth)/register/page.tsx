@@ -439,8 +439,8 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold text-white transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{ background: "var(--accent)" }}
+              className="arena-cta w-full"
+              style={{ padding: "12px 16px", fontSize: 13 }}
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}
               {isSubmitting ? "Creating account…" : "Create Account"}

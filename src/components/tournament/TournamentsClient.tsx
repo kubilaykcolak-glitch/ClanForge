@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { Plus, Search } from "lucide-react";
 import {
   getTournamentTab,
   searchTournaments,
@@ -232,7 +233,7 @@ export function TournamentsClient({
     <div className="max-w-6xl mx-auto">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex items-start justify-between gap-4 mb-8 flex-wrap">
         <div>
           <h1
             className="font-display font-bold text-4xl"
@@ -244,41 +245,25 @@ export function TournamentsClient({
             Compete, climb the bracket, claim the prize.
           </p>
         </div>
-        <Link
-          href="/tournaments/create"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white shrink-0 transition-all"
-          style={{ background: "var(--accent)" }}
-        >
-          + Create Tournament
+        <Link href="/tournaments/create" className="arena-cta shrink-0">
+          <Plus size={14} />
+          Create Tournament
         </Link>
       </div>
 
       {/* ── Controls row ── */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         {/* Search */}
-        <div className="flex-1">
+        <div className="arena-input-wrap flex-1">
+          <span className="arena-input-icon">
+            <Search size={16} />
+          </span>
           <input
             type="text"
             value={search}
             onChange={e => handleSearchChange(e.target.value)}
             placeholder="Search tournaments by name…"
-            style={{
-              width:        "100%",
-              background:   "var(--bg-surface)",
-              border:       "1px solid var(--border-default)",
-              borderRadius: 10,
-              padding:      "10px 16px",
-              fontSize:     14,
-              color:        "var(--text-primary)",
-              outline:      "none",
-              transition:   "border-color 0.15s ease",
-            }}
-            onFocus={e => {
-              (e.currentTarget as HTMLInputElement).style.borderColor = "var(--accent)";
-            }}
-            onBlur={e => {
-              (e.currentTarget as HTMLInputElement).style.borderColor = "var(--border-default)";
-            }}
+            className="arena-input arena-input--with-icon"
           />
         </div>
 

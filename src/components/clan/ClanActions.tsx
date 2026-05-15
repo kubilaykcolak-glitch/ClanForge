@@ -52,11 +52,7 @@ export function ClanActions({
   // ── Not logged in ──
   if (!currentUid) {
     return (
-      <a
-        href="/login"
-        className="inline-flex items-center px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all"
-        style={{ background: "var(--accent)" }}
-      >
+      <a href="/login" className="arena-cta">
         Log In to Join
       </a>
     );
@@ -225,8 +221,7 @@ export function ClanActions({
       <button
         onClick={handleJoin}
         disabled={busy}
-        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50"
-        style={{ background: "var(--accent)" }}
+        className="arena-cta"
       >
         {busy && <Loader2 size={14} className="animate-spin" />}
         {busy ? "Joining…" : "Join Clan"}

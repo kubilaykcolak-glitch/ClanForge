@@ -222,8 +222,8 @@ export default function NotFound() {
         {/* CTA */}
         <Link
           href="/"
-          className="inline-flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-88"
-          style={{ background: "var(--accent)" }}
+          className="arena-cta"
+          style={{ padding: "12px 22px", fontSize: 13 }}
         >
           ← Back to Home
         </Link>

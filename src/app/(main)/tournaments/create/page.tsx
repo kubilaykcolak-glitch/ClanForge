@@ -1133,8 +1133,8 @@ export default function CreateTournamentPage() {
           <button
             type="button"
             onClick={handleNext}
-            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
-            style={{ background: "var(--accent)", boxShadow: "0 0 20px var(--accent-glow)" }}
+            className="arena-cta"
+            style={{ padding: "10px 18px", borderRadius: 12 }}
           >
             Next
             <ChevronRight size={15} />
@@ -1145,8 +1145,8 @@ export default function CreateTournamentPage() {
               type="button"
               onClick={handleSubmit}
               disabled={submitting}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50"
-              style={{ background: "var(--accent)", boxShadow: "0 0 24px var(--accent-glow)" }}
+              className="arena-cta"
+              style={{ padding: "10px 22px", borderRadius: 12 }}
             >
               {submitting && <Loader2 size={15} className="animate-spin" />}
               {submitting ? (submitStep ?? "Creating…") : "Create Tournament 🏆"}

@@ -184,8 +184,8 @@ export function TournamentFinalize({
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "var(--accent)" }}
+            className="arena-cta w-full"
+            style={{ padding: "11px 16px", fontSize: 13 }}
           >
             {busy && <Loader2 size={14} className="animate-spin" />}
             {busy ? "Finalizing…" : "Confirm Standings"}

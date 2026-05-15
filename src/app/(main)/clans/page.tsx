@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { Plus } from "lucide-react";
 import type { Clan } from "@/types";
 import { getClanList, type ClanRow } from "@/lib/actions/clan-list.actions";
 import { ClansClient } from "@/components/clan/ClansClient";
+import { MonoPill } from "@/components/ui/MonoPill";
 
 // ── Data fetch ────────────────────────────────────────────────────────────────
 
@@ -103,7 +105,7 @@ export default async function ClansPage() {
     <div className="max-w-6xl mx-auto">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex items-start justify-between gap-4 mb-8 flex-wrap">
         <div>
           <h1
             className="font-display font-bold text-4xl"
@@ -115,12 +117,9 @@ export default async function ClansPage() {
             Join a community, compete together, dominate.
           </p>
         </div>
-        <Link
-          href="/clans/create"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all shrink-0"
-          style={{ background: "var(--accent)" }}
-        >
-          + Create Clan
+        <Link href="/clans/create" className="arena-cta shrink-0">
+          <Plus size={14} />
+          Create Clan
         </Link>
       </div>
 
@@ -159,21 +158,13 @@ export default async function ClansPage() {
                 >
                   {ownClan.name}
                 </span>
-                <span
-                  style={{
-                    fontSize:      10,
-                    fontWeight:    700,
-                    letterSpacing: "0.05em",
-                    padding:       "2px 7px",
-                    borderRadius:  999,
-                    background:    "rgba(239,68,68,0.12)",
-                    color:         "var(--danger)",
-                    border:        "1px solid rgba(239,68,68,0.25)",
-                    whiteSpace:    "nowrap",
-                  }}
+                <MonoPill
+                  color="var(--danger)"
+                  bg="rgba(239,68,68,0.12)"
+                  style={{ border: "1px solid rgba(239,68,68,0.25)", fontWeight: 700 }}
                 >
-                  PRIVATE
-                </span>
+                  Private
+                </MonoPill>
               </div>
               <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
                 Private clan · hidden from browse
@@ -181,15 +172,7 @@ export default async function ClansPage() {
             </div>
           </div>
 
-          <Link
-            href={`/clans/${ownClan.slug}`}
-            className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-            style={{
-              background: "var(--bg-elevated)",
-              border:     "1px solid var(--border-default)",
-              color:      "var(--text-secondary)",
-            }}
-          >
+          <Link href={`/clans/${ownClan.slug}`} className="arena-cta-ghost shrink-0">
             View Clan
           </Link>
         </div>

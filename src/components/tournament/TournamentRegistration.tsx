@@ -258,8 +258,8 @@ export function TournamentRegistration({
       {status === "open" && !currentUid && (
         <a
           href="/login"
-          className="block w-full py-2.5 rounded-lg text-sm font-semibold text-center text-white transition-all"
-          style={{ background: "var(--accent)" }}
+          className="arena-cta w-full"
+          style={{ padding: "11px 16px", fontSize: 13 }}
         >
           Log In to Register
         </a>
@@ -271,11 +271,8 @@ export function TournamentRegistration({
           <button
             onClick={handleRegister}
             disabled={busy}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50"
-            style={{
-              background: "var(--accent)",
-              boxShadow: "0 0 20px var(--accent-glow)",
-            }}
+            className="arena-cta w-full"
+            style={{ padding: "11px 16px", fontSize: 13 }}
           >
             {busy && <Loader2 size={14} className="animate-spin" />}
             {busy

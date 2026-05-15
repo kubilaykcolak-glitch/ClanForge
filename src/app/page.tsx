@@ -231,11 +231,7 @@ export default function LandingPage() {
             >
               Log In
             </Link>
-            <Link
-              href="/register"
-              className="lp-solid-btn px-5 py-2 rounded-lg text-sm font-semibold text-white"
-              style={{ background: "var(--accent)", transition: "opacity 0.15s" }}
-            >
+            <Link href="/register" className="arena-cta">
               Sign Up
             </Link>
           </div>
@@ -304,8 +300,8 @@ export default function LandingPage() {
               <div className="flex flex-wrap gap-4 mb-8">
                 <Link
                   href="/register"
-                  className="lp-solid-btn inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-white"
-                  style={{ fontSize: 16, background: "var(--accent)", transition: "opacity 0.15s" }}
+                  className="arena-cta"
+                  style={{ padding: "14px 26px", fontSize: 14 }}
                 >
                   Create Profile <ArrowRight size={17} />
                 </Link>
@@ -645,12 +641,8 @@ export default function LandingPage() {
 
             <Link
               href="/register"
-              className="lp-solid-btn inline-flex items-center gap-2.5 px-10 py-4 rounded-xl font-semibold text-white"
-              style={{
-                fontSize:   17,
-                background: "var(--accent)",
-                transition: "opacity 0.15s",
-              }}
+              className="arena-cta"
+              style={{ padding: "16px 36px", fontSize: 15 }}
             >
               Create Your Profile <ArrowRight size={18} />
             </Link>

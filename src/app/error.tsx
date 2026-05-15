@@ -71,29 +71,10 @@ export default function Error({ error, reset }: ErrorPageProps) {
 
         {/* Actions */}
         <div className="flex items-center justify-center gap-3 flex-wrap">
-          <button
-            onClick={reset}
-            className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-88"
-            style={{ background: "var(--accent)" }}
-          >
+          <button onClick={reset} className="arena-cta">
             Try Again
           </button>
-          <a
-            href="/"
-            className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all"
-            style={{
-              border: "1px solid var(--border-default)",
-              color:  "var(--text-secondary)",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.borderColor = "rgba(99,102,241,0.4)";
-              e.currentTarget.style.color = "var(--text-primary)";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.borderColor = "var(--border-default)";
-              e.currentTarget.style.color = "var(--text-secondary)";
-            }}
-          >
+          <a href="/" className="arena-cta-ghost">
             Go Home
           </a>
         </div>

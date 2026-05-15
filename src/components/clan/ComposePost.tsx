@@ -274,8 +274,8 @@ export function ComposePost({
           <button
             onClick={handlePost}
             disabled={!canPost}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "var(--accent)" }}
+            className="arena-cta"
+            style={{ padding: "7px 16px", fontSize: 11 }}
           >
             {isBusy && <Loader2 size={13} className="animate-spin" />}
             {posting && !uploadProgress ? "Posting…" : uploadProgress !== null ? "Uploading…" : "Post"}

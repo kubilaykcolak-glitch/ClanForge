@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { Plus, Search } from "lucide-react";
 import {
   getClanList,
   searchClans,
@@ -129,29 +130,16 @@ export function ClansClient({
       {/* ── Controls row ── */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         {/* Search */}
-        <div className="flex-1">
+        <div className="arena-input-wrap flex-1">
+          <span className="arena-input-icon">
+            <Search size={16} />
+          </span>
           <input
             type="text"
             value={search}
             onChange={e => handleSearchChange(e.target.value)}
             placeholder="Search clans by name…"
-            style={{
-              width:        "100%",
-              background:   "var(--bg-surface)",
-              border:       "1px solid var(--border-default)",
-              borderRadius: 10,
-              padding:      "10px 16px",
-              fontSize:     14,
-              color:        "var(--text-primary)",
-              outline:      "none",
-              transition:   "border-color 0.15s ease",
-            }}
-            onFocus={e => {
-              (e.currentTarget as HTMLInputElement).style.borderColor = "var(--accent)";
-            }}
-            onBlur={e => {
-              (e.currentTarget as HTMLInputElement).style.borderColor = "var(--border-default)";
-            }}
+            className="arena-input arena-input--with-icon"
           />
         </div>
 
@@ -214,12 +202,9 @@ export function ClansClient({
                   : "Be the first to create a clan and start recruiting."}
               </p>
               {!isSearchMode && (
-                <Link
-                  href="/clans/create"
-                  className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
-                  style={{ background: "var(--accent)" }}
-                >
-                  + Create Clan
+                <Link href="/clans/create" className="arena-cta">
+                  <Plus size={14} />
+                  Create Clan
                 </Link>
               )}
             </div>

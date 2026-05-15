@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { toast } from "sonner";
 import type { Profile } from "@/types";
 import { setProfilePrivacy } from "@/lib/actions/profile.actions";
@@ -182,29 +183,16 @@ export default function PlayersClient({
       </div>
 
       {/* ── Search bar ─────────────────────────────────────────────────────── */}
-      <div className="mb-4">
+      <div className="arena-input-wrap mb-4">
+        <span className="arena-input-icon">
+          <Search size={16} />
+        </span>
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search by username or clan tag..."
-          style={{
-            width:        "100%",
-            background:   "var(--bg-surface)",
-            border:       "1px solid var(--border-default)",
-            borderRadius: 10,
-            padding:      "11px 16px",
-            fontSize:     14,
-            color:        "var(--text-primary)",
-            outline:      "none",
-            transition:   "border-color 0.15s ease",
-          }}
-          onFocus={e => {
-            (e.currentTarget as HTMLInputElement).style.borderColor = "var(--accent)";
-          }}
-          onBlur={e => {
-            (e.currentTarget as HTMLInputElement).style.borderColor = "var(--border-default)";
-          }}
+          placeholder="Search by username or clan tag…"
+          className="arena-input arena-input--with-icon"
         />
         {(search || activeOnly) && (
           <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>

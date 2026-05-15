@@ -169,8 +169,7 @@ export default function AboutPage() {
           href={DISCORD_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white shrink-0 transition-colors"
-          style={{ background: "var(--accent)" }}
+          className="arena-cta shrink-0"
         >
           <MessagesSquare size={15} />
           Join the Discord

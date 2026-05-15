@@ -40,8 +40,8 @@ export function ClanCardJoinButton({
     return (
       <a
         href="/login"
-        className="w-full flex items-center justify-center py-2 rounded-lg text-sm font-semibold text-white transition-all"
-        style={{ background: "var(--accent)" }}
+        className="arena-cta w-full"
+        style={{ padding: "10px 16px", fontSize: 12 }}
         onClick={e => e.stopPropagation()}
       >
         Log in to Join

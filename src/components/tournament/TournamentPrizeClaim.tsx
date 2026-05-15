@@ -113,8 +113,8 @@ export function TournamentPrizeClaim({
           type="button"
           onClick={handleClaim}
           disabled={busy}
-          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50"
-          style={{ background: "var(--accent)" }}
+          className="arena-cta w-full"
+          style={{ padding: "11px 16px", fontSize: 13 }}
         >
           {busy && <Loader2 size={14} className="animate-spin" />}
           {busy ? "Starting claim…" : `Claim ${formatPence(amountPence)}`}
@@ -148,8 +148,8 @@ export function TournamentPrizeClaim({
             href={DISCORD_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-all"
-            style={{ background: "var(--accent)" }}
+            className="arena-cta w-full"
+            style={{ padding: "11px 16px", fontSize: 13 }}
           >
             <ExternalLink size={14} />
             Open Discord

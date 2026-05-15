@@ -245,10 +245,7 @@ function SidebarBody({
             <Link
               href="/register"
               onClick={onNavigate}
-              className="flex items-center justify-center gap-2 mx-3 py-2.5 rounded-lg text-sm font-semibold text-white transition-all duration-150"
-              style={{ background: "var(--accent)" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "var(--accent-hover)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "var(--accent)"; }}
+              className="arena-cta mx-3"
             >
               <UserPlus size={16} />
               Sign Up

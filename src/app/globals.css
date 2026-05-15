@@ -553,3 +553,84 @@ h1, h2, h3, h4, h5, h6 {
   animation: cf-shimmer 2.5s linear infinite;
   pointer-events: none;
 }
+
+/* Unified input / search-input treatment. Apply to <input> or <textarea>
+   for a consistent dark-surface field with proper focus state — no JS
+   onFocus/onBlur handlers needed. Place a leading icon by wrapping the
+   input in <div class="arena-input-wrap"> and absolute-positioning the
+   icon. */
+.arena-input {
+  width:         100%;
+  background:    var(--bg-surface);
+  border:        1px solid var(--border-default);
+  border-radius: 10px;
+  padding:       10px 14px;
+  font-size:     14px;
+  color:         var(--text-primary);
+  font-family:   'DM Sans', sans-serif;
+  outline:       none;
+  transition:    border-color 150ms ease, box-shadow 150ms ease;
+}
+.arena-input::placeholder {
+  color: var(--text-muted);
+}
+.arena-input:focus,
+.arena-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow:   0 0 0 3px var(--accent-glow);
+}
+.arena-input:disabled {
+  opacity: 0.55;
+  cursor:  not-allowed;
+}
+
+/* Search-input wrapper: lets you put an icon inside the input via absolute
+   positioning. Pair with .arena-input + extra left padding for the icon. */
+.arena-input-wrap {
+  position: relative;
+  width:    100%;
+}
+.arena-input-wrap > .arena-input-icon {
+  position: absolute;
+  left:     12px;
+  top:      50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color:    var(--text-muted);
+  display:  inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.arena-input-wrap > .arena-input--with-icon {
+  padding-left: 38px;
+}
+
+/* Ghost-style secondary CTA. Use for "View all", "Cancel", "Edit Profile"
+   — anything that should sit next to an arena-cta primary without
+   competing for attention. */
+.arena-cta-ghost {
+  background:    transparent;
+  color:         var(--text-secondary);
+  font-family:   'DM Sans', sans-serif;
+  font-weight:   500;
+  font-size:     14px;
+  padding:       9px 15px;
+  border-radius: 8px;
+  border:        1px solid var(--border-default);
+  cursor:        pointer;
+  display:       inline-flex;
+  align-items:   center;
+  justify-content: center;
+  gap:           8px;
+  transition:    color 150ms ease, border-color 150ms ease, background 150ms ease;
+  white-space:   nowrap;
+}
+.arena-cta-ghost:hover {
+  color:        var(--text-primary);
+  border-color: var(--border-strong);
+  background:   var(--bg-elevated);
+}
+.arena-cta-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
