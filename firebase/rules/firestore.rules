@@ -123,6 +123,24 @@ service cloud.firestore {
         allow delete: if isOwner(userId) || isClanLeaderOrOfficer(clanId);
       }
 
+      // ─── /clans/{clanId}/clan_missions_daily/{dateKey} ─────────────────────
+      // Lightweight clan-collaborative missions. Members can read; ALL writes
+      // go through server actions (Admin SDK bypasses these rules). Clients
+      // must never write here — the snapshotted reward values and contributor
+      // counts are the only protections against retroactive tuning / abuse,
+      // and a client write could forge them.
+      match /clan_missions_daily/{dateKey} {
+        allow read:                if isClanMember(clanId);
+        allow create, update, delete: if false;
+      }
+
+      // ─── /clans/{clanId}/clan_missions_weekly/{weekKey} ────────────────────
+      // Same contract as clan_missions_daily — member-read, server-only-write.
+      match /clan_missions_weekly/{weekKey} {
+        allow read:                if isClanMember(clanId);
+        allow create, update, delete: if false;
+      }
+
       // ─── /clans/{clanId}/posts/{postId} ──────────────────────────────────
       // Members can read and create; only the author can update or delete.
 

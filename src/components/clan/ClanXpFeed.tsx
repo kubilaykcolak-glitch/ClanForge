@@ -12,6 +12,7 @@ const REASON_ICONS: Record<ClanXpReason, string> = {
   challenge_complete:     "⚡",
   member_recruited:       "🤝",
   mission_contribute:     "🎯",
+  clan_mission_complete:  "🛡️",
 };
 
 interface Props {

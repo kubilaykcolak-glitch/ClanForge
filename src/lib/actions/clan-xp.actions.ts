@@ -19,7 +19,8 @@ export type ClanXpReason =
   | "tournament_win"
   | "challenge_complete"
   | "member_recruited"
-  | "mission_contribute";
+  | "mission_contribute"
+  | "clan_mission_complete";
 
 export type ClanXpRuleType =
   | "per_event"       // always fires, no dedup
@@ -46,6 +47,11 @@ const CLAN_XP_RULES: Record<ClanXpReason, ClanXpRule> = {
   // by `<uid>:<dateKey or weekKey>:<templateId>` so a single mission can only
   // contribute clan XP once even if trackMissionProgress fires multiple times.
   mission_contribute:     { reason: "mission_contribute",      amount:   0,  type: "once_per_target", label: "Mission contribution"           },
+  // Amount=0 — actual amount derived from the snapshotted clanXpReward on the
+  // per-clan mission doc inside awardClanXp's validation block below. once_per_target
+  // keyed by `clan_mission:<clanId>:<dateKey|weekKey>:<templateId>` so a completed
+  // mission can only award clan XP once.
+  clan_mission_complete:  { reason: "clan_mission_complete",   amount:   0,  type: "once_per_target", label: "Clan mission completed"        },
 };
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -142,6 +148,45 @@ export async function awardClanXp(
       }
       // Hard cap defends against future template tuning errors.
       missionDerivedAmount = Math.max(0, Math.min(Math.floor(m.clanXpReward), 500));
+    }
+
+    // ── Clan-mission completion derivation ─────────────────────────────────
+    // For `clan_mission_complete` the amount comes from the snapshotted
+    // clanXpReward on the per-CLAN mission doc. The targetId encodes
+    // (clanId, key, templateId). We verify:
+    //   1. The clanId in the targetId matches the recipient `clanId` param.
+    //   2. The clan mission doc exists with this templateId.
+    //   3. The mission is completed.
+    // The caller cannot fire this on a fake mission — only trackClanMissionProgress
+    // sets `completed: true` after a transactional progress check.
+    if (reason === "clan_mission_complete") {
+      const parts = (targetId ?? "").split(":");
+      if (parts.length !== 4 || parts[0] !== "clan_mission" || parts[1] !== clanId) {
+        return { success: false, error: "Invalid clan mission targetId format" };
+      }
+      const key        = parts[2];
+      const templateId = parts[3];
+      const isWeekly   = key.includes("W");
+      const cadenceCol = isWeekly ? "clan_missions_weekly" : "clan_missions_daily";
+      const missionDoc = await adminDb
+        .collection("clans").doc(clanId)
+        .collection(cadenceCol).doc(key)
+        .get();
+      if (!missionDoc.exists) return { success: false, error: "Clan mission doc not found" };
+      const data = missionDoc.data()!;
+      type MinClanMission = { templateId: string; clanXpReward: number; completed: boolean };
+      let m: MinClanMission | undefined;
+      if (cadenceCol === "clan_missions_daily") {
+        const list = (data.missions as MinClanMission[]) ?? [];
+        m = list.find(x => x.templateId === templateId);
+      } else {
+        const single = data.mission as MinClanMission | undefined;
+        if (single && single.templateId === templateId) m = single;
+      }
+      if (!m || !m.completed) {
+        return { success: false, error: "Clan mission not completed" };
+      }
+      missionDerivedAmount = Math.max(0, Math.min(Math.floor(m.clanXpReward), 1000));
     }
 
     const amount   = missionDerivedAmount !== null

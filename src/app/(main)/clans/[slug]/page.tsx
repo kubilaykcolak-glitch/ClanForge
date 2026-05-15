@@ -8,6 +8,7 @@ import { MemberRow } from "@/components/clan/MemberRow";
 import { ClanActions } from "@/components/clan/ClanActions";
 import { ClanFeed } from "@/components/clan/ClanFeed";
 import { ClanChallengesWidget } from "@/components/challenges/ClanChallengesWidget";
+import { ClanMissionsWidget } from "@/components/clan/ClanMissionsWidget";
 import { ClanXpBar } from "@/components/clan/ClanXpBar";
 import { ClanXpFeed } from "@/components/clan/ClanXpFeed";
 import { ClanLevelBadge } from "@/components/clan/ClanLevelBadge";
@@ -341,6 +342,13 @@ export default async function ClanPage({
 
       {/* ── Active challenges widget ── */}
       {!showGate && <ClanChallengesWidget clanId={clanId} />}
+
+      {/* ── Lightweight clan missions (members only) ── */}
+      {!showGate && currentUid && (
+        <div className="mt-4">
+          <ClanMissionsWidget clanId={clanId} uid={currentUid} />
+        </div>
+      )}
 
       {/* ── Two-column layout (members only) ── */}
       {!showGate && <div className="flex gap-6">

@@ -97,6 +97,56 @@ export async function awardXp(
       missionDerivedAmount = Math.max(0, Math.min(Math.floor(m.xpReward), 1000));
     }
 
+    // ── Clan-mission contributor bonus derivation ────────────────────────────
+    // For `clan_mission_contribute`, the amount comes from the snapshotted
+    // memberXpReward on the per-CLAN mission doc, not from any caller value.
+    // The targetId encodes (clanId, key, templateId, uid). We:
+    //   1. Verify the uid in the targetId matches the recipient `uid` param.
+    //   2. Read the clan mission doc.
+    //   3. Verify the mission exists, is completed, and the recipient is in
+    //      its `contributors` map (proves they actually participated).
+    //   4. Derive amount from the snapshot.
+    // Same protection class as the personal-mission validation above.
+    if (reason === "clan_mission_contribute") {
+      const parts = (targetId ?? "").split(":");
+      if (parts.length !== 5 || parts[0] !== "clan_mission" || parts[4] !== uid) {
+        return { success: false, error: "Invalid clan mission targetId format" };
+      }
+      const clanId     = parts[1];
+      const key        = parts[2];
+      const templateId = parts[3];
+      const isWeekly   = key.includes("W");
+      const cadenceCol = isWeekly ? "clan_missions_weekly" : "clan_missions_daily";
+      const missionDoc = await adminDb
+        .collection("clans").doc(clanId)
+        .collection(cadenceCol).doc(key)
+        .get();
+      if (!missionDoc.exists) return { success: false, error: "Clan mission doc not found" };
+      const data = missionDoc.data()!;
+      type MinClanMission = {
+        templateId:    string;
+        memberXpReward: number;
+        completed:     boolean;
+        contributors?: Record<string, number>;
+      };
+      let m: MinClanMission | undefined;
+      if (cadenceCol === "clan_missions_daily") {
+        const list = (data.missions as MinClanMission[]) ?? [];
+        m = list.find(x => x.templateId === templateId);
+      } else {
+        const single = data.mission as MinClanMission | undefined;
+        if (single && single.templateId === templateId) m = single;
+      }
+      if (!m || !m.completed) {
+        return { success: false, error: "Clan mission not completed" };
+      }
+      // The recipient must actually be a contributor — proves participation.
+      if (!m.contributors || !(uid in m.contributors)) {
+        return { success: false, error: "User not a contributor to this mission" };
+      }
+      missionDerivedAmount = Math.max(0, Math.min(Math.floor(m.memberXpReward), 500));
+    }
+
     // ── Cap / dedupe check ───────────────────────────────────────────────────
     let capped: AwardResult["capped"] = false;
     let capReason: AwardResult["capReason"];

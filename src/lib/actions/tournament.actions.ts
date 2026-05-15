@@ -242,6 +242,38 @@ export async function reportMatchResult(
       .then(m => m.trackMissionProgress(winnerId, "tournament_match_win"))
       .catch(() => {});
 
+    // Clan-mission progress for the winner's clan. Two fires:
+    //   1. tournament_match_win — every win, dedup'd via the contributors map.
+    //   2. tournament_solo_streak — fires ONCE when the winner's match-win
+    //      count in THIS tournament reaches 3. We re-query the matches
+    //      subcollection to count their wins (deterministic, no new state).
+    //      Once-per-(tournament, uid) dedup is provided by the mission
+    //      doc's `completed` flag plus the contributors map.
+    import("@/lib/actions/clan-missions.actions")
+      .then(async (cm) => {
+        try {
+          await cm.trackClanMissionProgress("tournament_match_win", winnerId);
+        } catch {}
+        // Solo-streak check: count this winner's wins in THIS tournament
+        // (including the one we just recorded). Fire only on the exact 3rd
+        // win to avoid spamming the action; subsequent wins won't progress
+        // the mission further because it's already at target=1.
+        try {
+          const winsSnap = await adminDb
+            .collection("tournaments").doc(tournamentId)
+            .collection("matches")
+            .where("winnerId", "==", winnerId)
+            .where("status",  "==", "complete")
+            .get();
+          if (winsSnap.size === 3) {
+            await cm.trackClanMissionProgress("tournament_solo_streak", winnerId);
+          }
+        } catch (err) {
+          console.error("[reportMatchResult→solo_streak]", err);
+        }
+      })
+      .catch(() => {});
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to report match result";

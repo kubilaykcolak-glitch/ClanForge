@@ -19,7 +19,8 @@ export type XpReason =
   | "challenge_complete"
   | "member_recruit"
   | "daily_mission_complete"
-  | "weekly_mission_complete";
+  | "weekly_mission_complete"
+  | "clan_mission_contribute";
 
 /** How the dedupe/limit check is applied for each rule. */
 export type RuleType =
@@ -60,6 +61,13 @@ export const XP_RULES: Record<XpReason, XpRule> = {
   // so each completed mission can only award XP once.
   daily_mission_complete:  { reason: "daily_mission_complete",  amount: 10,  type: "once_per_target", label: "Daily mission complete"  },
   weekly_mission_complete: { reason: "weekly_mission_complete", amount: 100, type: "once_per_target", label: "Weekly mission complete" },
+
+  // Clan-mission contributor bonus. Amount is overridden at award time by the
+  // snapshotted memberXpReward on the per-clan mission doc — see awardXp
+  // validation block. targetId format:
+  //   `clan_mission:<clanId>:<dateKey|weekKey>:<templateId>:<uid>`
+  // so each (mission × contributor) tuple can only award once.
+  clan_mission_contribute: { reason: "clan_mission_contribute", amount:  20, type: "once_per_target", label: "Clan mission contribution" },
 };
 
 // ─── Clan join cooldown (anti-grind) ──────────────────────────────────────────

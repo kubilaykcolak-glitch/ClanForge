@@ -591,6 +591,88 @@ export async function finalizeTournament(
       await awardXp(winnerUid, reason, tournamentId);
     }
 
+    // ── Clan-mission fire points ─────────────────────────────────────────────
+    // All three fires are guarded individually so one failure doesn't cascade.
+    // The action enum + once_per_target + member check inside trackClanMission
+    // Progress mean no caller-supplied uid can abuse these.
+    try {
+      const { trackClanMissionProgress } = await import("@/lib/actions/clan-missions.actions");
+
+      // 1. tournament_top_place — for top-3 winners who belong to a clan.
+      // Fires once per (tournamentId, winnerUid) via the contributors map
+      // dedup inside the mission doc.
+      const top3 = winnerUserIds.slice(0, 3).filter(Boolean);
+      for (const winnerUid of top3) {
+        try {
+          await trackClanMissionProgress("tournament_top_place", winnerUid);
+        } catch (err) {
+          console.error("[finalizeTournament→top_place]", err);
+        }
+      }
+
+      // 2. tournament_clan_squad — for every clan that has 3+ paid/free
+      // participants in this tournament. We re-fetch participants only if
+      // the existing snap didn't include the full list (it does for paid
+      // tournaments). For each qualifying clan we fire ONCE using an
+      // arbitrary member as the contributor (the mission's contributors map
+      // accumulates them all naturally; member XP on completion goes to
+      // everyone in the map).
+      const allParticipantsSnap = participantsSnap; // already fetched at top of function
+      // Group participants by clanId. We need each participant's clanId,
+      // which lives on their profile — batch fetch.
+      const participantUids = allParticipantsSnap.docs
+        .filter(d => ["paid", "free"].includes((d.data().paymentStatus as string) ?? ""))
+        .map(d => d.id);
+      if (participantUids.length >= 3) {
+        // Batch-fetch profiles using getAll (Admin SDK supports unlimited refs
+        // in a single call, served via streaming reads). Cheaper than N
+        // sequential .get() calls.
+        const profileRefs = participantUids.map(u => adminDb.collection("profiles").doc(u));
+        const profileSnaps = await adminDb.getAll(...profileRefs);
+        const profilesById = new Map<string, string | null>();
+        for (const p of profileSnaps) {
+          profilesById.set(p.id, (p.data()?.clanId as string | null) ?? null);
+        }
+        // Group by clanId.
+        const byClan = new Map<string, string[]>();
+        for (const uid of participantUids) {
+          const c = profilesById.get(uid) ?? null;
+          if (!c) continue;
+          const list = byClan.get(c) ?? [];
+          list.push(uid);
+          byClan.set(c, list);
+        }
+        for (const entry of Array.from(byClan.entries())) {
+          const [squadClanId, members] = entry;
+          if (members.length < 3) continue;
+          // Fire once per qualifying clan. We pick the first member as the
+          // triggering contributor; the contributors map naturally records
+          // them as the +1 source. Member XP on completion is awarded to
+          // EVERYONE in the contributors map for that mission, so coverage
+          // is correct even if we only fire once here.
+          try {
+            await trackClanMissionProgress("tournament_clan_squad", members[0], squadClanId);
+          } catch (err) {
+            console.error("[finalizeTournament→clan_squad]", err);
+          }
+        }
+      }
+
+      // 3. tournament_run_complete — if the tournament's creator is in a clan,
+      // credit their clan. The creatorId on tournament docs is server-validated
+      // at create time (see firestore.rules) so it's trustworthy.
+      const creatorId = tournament.creatorId as string | undefined;
+      if (creatorId) {
+        try {
+          await trackClanMissionProgress("tournament_run_complete", creatorId);
+        } catch (err) {
+          console.error("[finalizeTournament→run_complete]", err);
+        }
+      }
+    } catch (err) {
+      console.error("[finalizeTournament→clan-missions]", err);
+    }
+
     return { success: true, data: { prizesCreated } };
   } catch (err) {
     console.error("[finalizeTournament]", err);
