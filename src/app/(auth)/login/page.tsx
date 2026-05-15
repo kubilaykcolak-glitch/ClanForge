@@ -74,13 +74,13 @@ export default function LoginPage() {
   return (
     <div className="flex w-full min-h-screen">
 
-      {/* ── Left atmospheric panel ────────────────────────────────────────── */}
+      {/* ── Left atmospheric panel (Arena aurora) ─────────────────────────── */}
       <div
-        className="hidden md:flex flex-col items-center justify-center w-1/2 relative overflow-hidden"
-        style={{ background: "var(--bg-elevated)" }}
+        className="hidden md:flex flex-col items-center justify-center w-1/2 relative overflow-hidden arena-bg-aurora"
       >
         {/* Subtle indigo grid */}
         <div
+          aria-hidden
           className="absolute inset-0"
           style={{
             backgroundImage: `
@@ -91,20 +91,21 @@ export default function LoginPage() {
             opacity: 0.04,
           }}
         />
-        {/* Vignette */}
+        {/* Soft vignette to keep the centre text readable */}
         <div
+          aria-hidden
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(ellipse at center, transparent 20%, var(--bg-elevated) 75%)",
+              "radial-gradient(ellipse at center, transparent 25%, rgba(10,10,15,0.65) 80%)",
           }}
         />
         <div className="relative z-10 text-center px-12 select-none">
           <div
             className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-8 font-display"
             style={{
-              background: "var(--accent)",
-              boxShadow: "0 0 60px var(--accent-glow)",
+              background: "linear-gradient(135deg, var(--accent) 0%, var(--magenta) 100%)",
+              boxShadow:  "0 0 60px var(--accent-glow), 0 0 80px var(--magenta-glow)",
             }}
           >
             CF
@@ -162,12 +163,7 @@ export default function LoginPage() {
                 type="email"
                 autoComplete="email"
                 placeholder="you@example.com"
-                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
-                style={{
-                  background: "var(--bg-elevated)",
-                  border: `1px solid ${errors.email ? "var(--danger)" : "var(--border-default)"}`,
-                  color: "var(--text-primary)",
-                }}
+                className={`arena-input${errors.email ? " arena-input--error" : ""}`}
               />
               {errors.email && (
                 <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
@@ -184,7 +180,7 @@ export default function LoginPage() {
                 </label>
                 <Link
                   href="/forgot-password"
-                  className="text-xs transition-colors"
+                  className="text-xs transition-colors hover:text-[color:var(--text-secondary)]"
                   style={{ color: "var(--text-muted)" }}
                 >
                   Forgot password?
@@ -196,18 +192,15 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  className="w-full rounded-lg px-4 py-2.5 pr-11 text-sm outline-none transition-colors"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    border: `1px solid ${errors.password ? "var(--danger)" : "var(--border-default)"}`,
-                    color: "var(--text-primary)",
-                  }}
+                  className={`arena-input${errors.password ? " arena-input--error" : ""}`}
+                  style={{ paddingRight: 44 }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
                   style={{ color: "var(--text-muted)" }}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -223,8 +216,8 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold text-white transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{ background: "var(--accent)" }}
+              className="arena-cta w-full"
+              style={{ padding: "12px 16px", fontSize: 13 }}
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}
               {isSubmitting ? "Signing in…" : "Sign In"}
@@ -239,12 +232,8 @@ export default function LoginPage() {
             type="button"
             onClick={handleGoogle}
             disabled={googleLoading}
-            className="w-full flex items-center justify-center gap-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-primary)",
-            }}
+            className="arena-cta-ghost w-full"
+            style={{ padding: "11px 16px", fontSize: 13 }}
           >
             {googleLoading ? <Loader2 size={16} className="animate-spin" /> : <GoogleIcon />}
             Sign in with Google

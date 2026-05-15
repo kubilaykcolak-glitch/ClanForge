@@ -171,12 +171,12 @@ export default function RegisterPage() {
   return (
     <div className="flex w-full min-h-screen">
 
-      {/* ── Left atmospheric panel ────────────────────────────────────────── */}
+      {/* ── Left atmospheric panel (Arena aurora) ─────────────────────────── */}
       <div
-        className="hidden md:flex flex-col items-center justify-center w-1/2 relative overflow-hidden"
-        style={{ background: "var(--bg-elevated)" }}
+        className="hidden md:flex flex-col items-center justify-center w-1/2 relative overflow-hidden arena-bg-aurora"
       >
         <div
+          aria-hidden
           className="absolute inset-0"
           style={{
             backgroundImage: `
@@ -188,15 +188,19 @@ export default function RegisterPage() {
           }}
         />
         <div
+          aria-hidden
           className="absolute inset-0"
           style={{
-            background: "radial-gradient(ellipse at center, transparent 20%, var(--bg-elevated) 75%)",
+            background: "radial-gradient(ellipse at center, transparent 25%, rgba(10,10,15,0.65) 80%)",
           }}
         />
         <div className="relative z-10 text-center px-12 select-none">
           <div
             className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-8 font-display"
-            style={{ background: "var(--accent)", boxShadow: "0 0 60px var(--accent-glow)" }}
+            style={{
+              background: "linear-gradient(135deg, var(--accent) 0%, var(--magenta) 100%)",
+              boxShadow:  "0 0 60px var(--accent-glow), 0 0 80px var(--magenta-glow)",
+            }}
           >
             CF
           </div>
@@ -250,13 +254,8 @@ export default function RegisterPage() {
                 type="date"
                 max={new Date().toISOString().split("T")[0]}
                 min="1900-01-01"
-                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
-                style={{
-                  background:   "var(--bg-elevated)",
-                  border:       `1px solid ${errors.dateOfBirth ? "var(--danger)" : "var(--border-default)"}`,
-                  color:        "var(--text-primary)",
-                  colorScheme:  "dark",
-                }}
+                className={`arena-input${errors.dateOfBirth ? " arena-input--error" : ""}`}
+                style={{ colorScheme: "dark" }}
               />
               {errors.dateOfBirth ? (
                 <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
@@ -280,18 +279,14 @@ export default function RegisterPage() {
                   type="text"
                   autoComplete="username"
                   placeholder="coolplayer_99"
-                  className="w-full rounded-lg px-4 py-2.5 pr-10 text-sm outline-none transition-colors"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    border: `1px solid ${
-                      errors.username || usernameStatus === "taken"
-                        ? "var(--danger)"
-                        : usernameStatus === "available"
-                        ? "var(--success)"
-                        : "var(--border-default)"
-                    }`,
-                    color: "var(--text-primary)",
-                  }}
+                  className={`arena-input${
+                    errors.username || usernameStatus === "taken"
+                      ? " arena-input--error"
+                      : usernameStatus === "available"
+                      ? " arena-input--success"
+                      : ""
+                  }`}
+                  style={{ paddingRight: 40 }}
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2">
                   {usernameStatus === "checking" && <Loader2 size={15} className="animate-spin" style={{ color: "var(--text-muted)" }} />}
@@ -319,12 +314,7 @@ export default function RegisterPage() {
                 type="email"
                 autoComplete="email"
                 placeholder="you@example.com"
-                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
-                style={{
-                  background: "var(--bg-elevated)",
-                  border: `1px solid ${errors.email ? "var(--danger)" : "var(--border-default)"}`,
-                  color: "var(--text-primary)",
-                }}
+                className={`arena-input${errors.email ? " arena-input--error" : ""}`}
               />
               {errors.email && (
                 <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>{errors.email.message}</p>
@@ -342,18 +332,15 @@ export default function RegisterPage() {
                   type={showPassword ? "text" : "password"}
                   autoComplete="new-password"
                   placeholder="••••••••"
-                  className="w-full rounded-lg px-4 py-2.5 pr-11 text-sm outline-none transition-colors"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    border: `1px solid ${errors.password ? "var(--danger)" : "var(--border-default)"}`,
-                    color: "var(--text-primary)",
-                  }}
+                  className={`arena-input${errors.password ? " arena-input--error" : ""}`}
+                  style={{ paddingRight: 44 }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
                   style={{ color: "var(--text-muted)" }}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -393,18 +380,15 @@ export default function RegisterPage() {
                   type={showConfirm ? "text" : "password"}
                   autoComplete="new-password"
                   placeholder="••••••••"
-                  className="w-full rounded-lg px-4 py-2.5 pr-11 text-sm outline-none transition-colors"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    border: `1px solid ${errors.confirm ? "var(--danger)" : "var(--border-default)"}`,
-                    color: "var(--text-primary)",
-                  }}
+                  className={`arena-input${errors.confirm ? " arena-input--error" : ""}`}
+                  style={{ paddingRight: 44 }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirm(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
                   style={{ color: "var(--text-muted)" }}
+                  aria-label={showConfirm ? "Hide password" : "Show password"}
                 >
                   {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -459,12 +443,8 @@ export default function RegisterPage() {
             type="button"
             onClick={handleGoogle}
             disabled={googleLoading}
-            className="w-full flex items-center justify-center gap-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-primary)",
-            }}
+            className="arena-cta-ghost w-full"
+            style={{ padding: "11px 16px", fontSize: 13 }}
           >
             {googleLoading ? <Loader2 size={16} className="animate-spin" /> : <GoogleIcon />}
             Sign up with Google
