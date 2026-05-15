@@ -5,6 +5,9 @@ import type { Clan, ClanPost, Tournament } from "@/types";
 import { ClanCard } from "@/components/clan/ClanCard";
 import { DashboardChallengesWidget } from "@/components/challenges/DashboardChallengesWidget";
 import { DashboardMissionsWidget } from "@/components/missions/DashboardMissionsWidget";
+import { RankChevron, type RankTier } from "@/components/ui/RankChevron";
+import { StatBlock } from "@/components/ui/StatBlock";
+import { MonoPill } from "@/components/ui/MonoPill";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate, timeAgo, getInitials, clamp } from "@/lib/utils";
 
@@ -244,7 +247,26 @@ function SectionHeading({
   );
 }
 
-// ── Welcome banner ────────────────────────────────────────────────────────────
+// ── Welcome / Season banner (Arena visual treatment) ─────────────────────────
+// Premium hero card. Adopts the Arena gradient-border + glow-card pattern with
+// a RankChevron insignia and a shimmering XP bar. Stays fully responsive —
+// the chevron+name row stacks above the season-countdown on narrow screens
+// via Tailwind's flex-wrap, the XP bar fills the available width, and the
+// inner padding scales with the responsive `p-5 sm:p-6` utility.
+
+/**
+ * Map level → clan-tier insignia. Mirrors the bands in src/lib/clan-levels.ts
+ * but for the personal XP scale (1 level per 1000 XP), so:
+ *   1-2 → bronze, 3-4 → silver, 5-6 → gold, 7-8 → platinum, 9 → diamond, 10+ → legendary.
+ */
+function tierForLevel(level: number): RankTier {
+  if (level >= 10) return "legendary";
+  if (level >= 9)  return "diamond";
+  if (level >= 7)  return "platinum";
+  if (level >= 5)  return "gold";
+  if (level >= 3)  return "silver";
+  return "bronze";
+}
 
 function WelcomeBanner({
   displayName,
@@ -253,56 +275,94 @@ function WelcomeBanner({
   displayName: string;
   xp:          number;
 }) {
-  const level    = Math.floor(xp / 1000) + 1;
-  const progress = clamp((xp % 1000) / 10, 0, 100);
+  const level     = Math.floor(xp / 1000) + 1;
+  const progress  = clamp((xp % 1000) / 10, 0, 100);
   const xpInLevel = xp % 1000;
+  const tier      = tierForLevel(level);
 
   return (
     <div
-      className="rounded-2xl p-6 mb-6"
+      className="arena-gradient-border arena-glow-card rounded-2xl p-5 sm:p-6 mb-6 relative overflow-hidden"
       style={{
-        background:  "var(--bg-surface)",
-        borderLeft:  "4px solid var(--accent)",
-        border:      "1px solid var(--border-default)",
-        borderLeftColor: "var(--accent)",
+        background:
+          "linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(232,121,249,0.10) 50%, rgba(34,211,238,0.08) 100%), var(--bg-surface)",
+        border: "1px solid transparent",
       }}
     >
-      <p className="text-sm mb-1" style={{ color: "var(--text-muted)" }}>
-        Welcome back 👋
-      </p>
-      <h1
-        className="font-display font-bold mb-4"
-        style={{ fontSize: 32, color: "var(--text-primary)" }}
-      >
-        {displayName}
-      </h1>
+      {/* Soft magenta glow in the top-right corner. Pointer-events: none so it
+          never blocks clicks on anything underneath. */}
+      <div
+        aria-hidden
+        className="absolute pointer-events-none"
+        style={{
+          top: 0,
+          right: -30,
+          width: 240,
+          height: 240,
+          background: "radial-gradient(circle, rgba(232,121,249,0.22) 0%, transparent 65%)",
+        }}
+      />
 
-      <div className="flex items-center gap-3 mb-2">
-        <span
-          className="text-sm font-semibold"
-          style={{ color: "var(--accent)" }}
-        >
-          Level {level}
-        </span>
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          {xpInLevel} / 1000 XP
-        </span>
+      <div className="relative flex items-center gap-4 sm:gap-5 flex-wrap">
+        <RankChevron tier={tier} level={level} size={64} />
+
+        <div className="flex-1 min-w-0">
+          <MonoPill
+            color="var(--magenta)"
+            bg="rgba(232,121,249,0.12)"
+          >
+            Welcome back
+          </MonoPill>
+          <h1
+            className="font-display font-bold mt-1.5 leading-tight"
+            style={{ fontSize: "clamp(24px, 4vw, 32px)", color: "var(--text-primary)" }}
+          >
+            {displayName}
+          </h1>
+          <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+            Level{" "}
+            <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{level}</span>
+            {" · "}
+            <span className="capitalize" style={{ color: `var(--tier-${tier})` }}>
+              {tier}
+            </span>
+            {" tier"}
+          </p>
+        </div>
       </div>
 
-      <div
-        className="h-1.5 rounded-full overflow-hidden"
-        style={{ background: "var(--bg-overlay)", maxWidth: 320 }}
-      >
+      {/* XP bar */}
+      <div className="relative mt-4">
         <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${progress}%`, background: "var(--accent)" }}
-        />
+          className="font-mono-tech flex items-center justify-between mb-1.5"
+          style={{ fontSize: 10, color: "var(--text-muted)" }}
+        >
+          <span>{xpInLevel.toLocaleString()} / 1,000 XP</span>
+          <span>Next: Level {level + 1}</span>
+        </div>
+        <div
+          className="h-2 rounded-full overflow-hidden relative"
+          style={{ background: "var(--bg-overlay)" }}
+        >
+          <div
+            className="h-full rounded-full transition-all duration-700 relative overflow-hidden"
+            style={{
+              width:      `${progress}%`,
+              background: "linear-gradient(90deg, var(--accent), var(--magenta))",
+              boxShadow:  "0 0 12px var(--accent-glow)",
+            }}
+          >
+            <div className="arena-shimmer" />
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
 // ── Quick stats ───────────────────────────────────────────────────────────────
+// Arena StatBlock typography (mono uppercase label over Rajdhani value).
+// Keeps the existing responsive grid: 2 cols on mobile, 4 cols from sm up.
 
 function QuickStats({
   played,
@@ -316,11 +376,15 @@ function QuickStats({
   const winRate =
     played > 0 ? Math.round((won / played) * 100) : null;
 
-  const stats = [
-    { label: "Tournaments Entered", value: played },
-    { label: "Tournaments Won",     value: won },
-    { label: "Games Logged",        value: gamesLogged },
-    { label: "Win Rate",            value: winRate !== null ? `${winRate}%` : "N/A" },
+  const stats: Array<{
+    label: string;
+    value: string | number;
+    color?: string;
+  }> = [
+    { label: "Tournaments",  value: played },
+    { label: "Wins",         value: won,                                   color: "var(--success)" },
+    { label: "Games Logged", value: gamesLogged },
+    { label: "Win Rate",     value: winRate !== null ? `${winRate}%` : "N/A", color: winRate !== null && winRate >= 50 ? "var(--success)" : undefined },
   ];
 
   return (
@@ -328,21 +392,13 @@ function QuickStats({
       {stats.map(s => (
         <div
           key={s.label}
-          className="rounded-xl p-4 text-center"
+          className="rounded-xl p-4"
           style={{
             background: "var(--bg-surface)",
             border:     "1px solid var(--border-subtle)",
           }}
         >
-          <p
-            className="font-display font-bold text-2xl mb-1"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {s.value}
-          </p>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {s.label}
-          </p>
+          <StatBlock label={s.label} value={s.value} color={s.color} />
         </div>
       ))}
     </div>
@@ -383,11 +439,7 @@ function ClanFeedSection({
           <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
             Find your squad and compete together.
           </p>
-          <Link
-            href="/clans"
-            className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
-            style={{ background: "var(--accent)" }}
-          >
+          <Link href="/clans" className="arena-cta">
             Browse Clans
           </Link>
         </div>
@@ -554,11 +606,7 @@ function TournamentsSection({
           <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
             Register for an open tournament to compete.
           </p>
-          <Link
-            href="/tournaments"
-            className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
-            style={{ background: "var(--accent)" }}
-          >
+          <Link href="/tournaments" className="arena-cta">
             Browse Tournaments
           </Link>
         </div>

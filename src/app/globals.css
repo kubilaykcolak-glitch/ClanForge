@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -12,12 +12,31 @@
   --bg-surface:  #111118;
   --bg-elevated: #1a1a24;
   --bg-overlay:  #22222e;
+  --bg-deep:     #050508;
 
   /* Accent palette */
   --accent:      #6366f1;
   --accent-hover:#4f46e5;
-  --accent-glow: rgba(99, 102, 241, 0.15);
+  --accent-glow: rgba(99, 102, 241, 0.18);
   --violet:      #8b5cf6;
+
+  /* Arena extended palette — rank, season, status accents */
+  --cyan:         #22d3ee;
+  --cyan-glow:    rgba(34, 211, 238, 0.22);
+  --magenta:      #e879f9;
+  --magenta-glow: rgba(232, 121, 249, 0.22);
+  --lime:         #a3e635;
+  --lime-glow:    rgba(163, 230, 53, 0.22);
+  --amber:        #fbbf24;
+  --rose:         #fb7185;
+
+  /* Clan-tier palette (mirrors src/lib/clan-levels.ts) */
+  --tier-bronze:    #b4783c;
+  --tier-silver:    #a0aab4;
+  --tier-gold:      #eab308;
+  --tier-platinum:  #94a3b8;
+  --tier-diamond:   #38bdf8;
+  --tier-legendary: #a855f7;
 
   /* Semantic colours */
   --success: #22c55e;
@@ -63,7 +82,7 @@
 :root {
   --accent:        #6366f1;
   --accent-hover:  #4f46e5;
-  --accent-glow:   rgba(99, 102, 241, 0.15);
+  --accent-glow:   rgba(99, 102, 241, 0.18);
 }
 
 /* ─── Base styles ─────────────────────────────────────────────────────────── */
@@ -402,4 +421,135 @@ h1, h2, h3, h4, h5, h6 {
 }
 .hover-accent-border:hover {
   border-color: var(--accent) !important;
+}
+
+/* ─── Arena visual language ───────────────────────────────────────────────── */
+/*
+ * Utility classes adopted from the Arena design prototype. These layer on top
+ * of existing components without replacing them, so they can be applied to any
+ * page surface to upgrade visual treatment while preserving responsive layout.
+ *
+ * Source: docs from the design handoff bundle (Arena Prototype).
+ */
+
+/* Mono utility — JetBrains Mono with tracked uppercase for stat labels / pills */
+.font-mono-tech {
+  font-family: 'JetBrains Mono', ui-monospace, 'Geist Mono', monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Animations ─────────────────────────────────────────────────────────────── */
+@keyframes cf-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+@keyframes cf-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes cf-tickup {
+  from { transform: translateY(0.4em); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes cf-aurora-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.cf-pulse-dot {
+  animation: cf-pulse 1.6s ease-in-out infinite;
+}
+.cf-tickup {
+  animation: cf-tickup 0.5s ease-out;
+}
+
+/* Aurora page background — purple/magenta/cyan radials over base.
+   Page-level (not pseudo-element) so it composes cleanly with sidebars
+   and overlays without needing fixed positioning. */
+.arena-bg-aurora {
+  background:
+    radial-gradient(ellipse 50% 40% at 80%  0%,  rgba(232, 121, 249, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 0%   30%, rgba(99,  102, 241, 0.20) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(34,  211, 238, 0.10) 0%, transparent 60%),
+    var(--bg-base);
+}
+
+/* Gradient hairline border via padding-mask trick. Wrap an element and apply
+   `arena-gradient-border` to get an indigo→magenta→cyan 1px gradient outline.
+   The wrapper must have `position: relative` and `border-radius` already set. */
+.arena-gradient-border {
+  position: relative;
+}
+.arena-gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.55), rgba(232,121,249,0.40), rgba(34,211,238,0.45));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Featured-surface multi-layer glow. Combine with arena-gradient-border on
+   premium hero cards (Season banner, etc.). Cheap — pure box-shadow, no
+   filter or blur layer. */
+.arena-glow-card {
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.20),
+    0 0 24px rgba(99, 102, 241, 0.20),
+    0 0 60px rgba(232, 121, 249, 0.10);
+}
+
+/* Premium gradient CTA. Uppercase, Rajdhani, letter-spaced.
+   Use sparingly — one or two primary CTAs per page maximum, otherwise
+   the visual hierarchy gets lost. */
+.arena-cta {
+  background:    linear-gradient(135deg, var(--accent) 0%, var(--magenta) 100%);
+  color:         #fff;
+  font-family:   'Rajdhani', sans-serif;
+  font-weight:   600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size:     12px;
+  padding:       10px 16px;
+  border-radius: 8px;
+  border:        none;
+  cursor:        pointer;
+  display:       inline-flex;
+  align-items:   center;
+  justify-content: center;
+  gap:           8px;
+  transition:    transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+  box-shadow:    0 4px 16px rgba(99, 102, 241, 0.35);
+  white-space:   nowrap;
+}
+.arena-cta:hover {
+  transform:  translateY(-1px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+}
+.arena-cta:active {
+  transform: translateY(0);
+  filter: brightness(0.95);
+}
+.arena-cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Shimmer overlay for XP bars and similar progress surfaces. Add a child
+   div with this class inside a progress fill. Pure CSS, no JS handlers. */
+.arena-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.4) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: cf-shimmer 2.5s linear infinite;
+  pointer-events: none;
 }
