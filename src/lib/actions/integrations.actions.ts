@@ -107,7 +107,11 @@ export async function linkLeagueAccount(
   uid: string,
   riotId: string,
   region: string,
-): Promise<ActionResult<{ gameName: string; tagLine: string }>> {
+): Promise<ActionResult<{
+  gameName: string;
+  tagLine:  string;
+  snapshot: LeagueSnapshot;
+}>> {
   try {
     const sessionUid = await getSessionUid();
     if (sessionUid !== uid) return { success: false, error: "Forbidden" };
@@ -146,7 +150,10 @@ export async function linkLeagueAccount(
       .doc("league")
       .set(doc);
 
-    return { success: true, data: { gameName: account.gameName, tagLine: account.tagLine } };
+    return {
+      success: true,
+      data: { gameName: account.gameName, tagLine: account.tagLine, snapshot },
+    };
   } catch (err) {
     if (err instanceof RiotApiError) {
       if (err.status === 404) return { success: false, error: "Riot ID not found in that region" };
