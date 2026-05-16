@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { Pencil } from "lucide-react";
 import type { Clan, ClanMember, GameRecord, Profile } from "@/types";
+import type { LeagueIntegration } from "@/types/integrations";
 import ProfileHero from "@/components/profile/ProfileHero";
 import PrivateProfileScreen from "@/components/profile/PrivateProfileScreen";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
@@ -36,8 +37,8 @@ async function getPageData(username: string) {
 
   const uid = (usernameDoc.data() as { uid: string }).uid;
 
-  // 2. Parallel fetch: profile + game records
-  const [profileSnap, recordsSnap] = await Promise.all([
+  // 2. Parallel fetch: profile + game records + linked integrations
+  const [profileSnap, recordsSnap, integrationsSnap] = await Promise.all([
     adminDb.collection("profiles").doc(uid).get(),
     adminDb
       .collection("profiles")
@@ -45,6 +46,11 @@ async function getPageData(username: string) {
       .collection("gameRecords")
       .orderBy("isFeatured", "desc")
       .limit(6)
+      .get(),
+    adminDb
+      .collection("profiles")
+      .doc(uid)
+      .collection("integrations")
       .get(),
   ]);
 
@@ -64,6 +70,25 @@ async function getPageData(username: string) {
     ...(d.data() as Omit<GameRecord, "id" | "createdAt">),
     createdAt: (d.data()?.createdAt?.toDate?.() ?? new Date()) as Date,
   }));
+
+  // Linked-game integrations. Firestore Timestamps are serialised so the
+  // client component receives plain Date objects (matches existing pattern
+  // used for gameRecords above).
+  const integrations: LeagueIntegration[] = integrationsSnap.docs
+    .filter(d => d.id === "league" && d.exists)
+    .map(d => {
+      const data = d.data() as Record<string, unknown>;
+      const toDate = (v: unknown): Date =>
+        v instanceof Date ? v
+          : (v as { toDate?: () => Date } | undefined)?.toDate?.()
+          ?? new Date();
+      return {
+        ...(data as Omit<LeagueIntegration, "linkedAt" | "lastSyncAt" | "lastManualRefreshAt">),
+        linkedAt:            toDate(data.linkedAt),
+        lastSyncAt:          toDate(data.lastSyncAt),
+        lastManualRefreshAt: data.lastManualRefreshAt ? toDate(data.lastManualRefreshAt) : undefined,
+      } as LeagueIntegration;
+    });
 
   // ── Clan data ──────────────────────────────────────────────────────────────
   //
@@ -201,7 +226,7 @@ async function getPageData(username: string) {
     }
   }
 
-  return { profile, gameRecords, clanInfo, clanTag, clanName, clanSlug };
+  return { profile, gameRecords, integrations, clanInfo, clanTag, clanName, clanSlug };
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -241,7 +266,7 @@ export default async function ProfilePage({
 }: {
   params: { username: string };
 }) {
-  const { profile, gameRecords, clanInfo, clanTag, clanName, clanSlug } =
+  const { profile, gameRecords, integrations, clanInfo, clanTag, clanName, clanSlug } =
     await getPageData(params.username);
 
   // Resolve the logged-in user via the session cookie. Middleware does NOT
@@ -342,7 +367,12 @@ export default async function ProfilePage({
         </div>
 
         {/* ── Game Records + Achievements tabs ────────────────────────────── */}
-        <ProfileTabs gameRecords={gameRecords} />
+        <ProfileTabs
+          gameRecords={gameRecords}
+          integrations={integrations}
+          profileUid={profileUid}
+          isOwner={isOwner}
+        />
 
         {/* ── Clan section ────────────────────────────────────────────────── */}
         <section className="mb-10">

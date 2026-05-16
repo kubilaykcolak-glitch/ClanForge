@@ -38,9 +38,9 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import type { GameRecord } from "@/types";
-import ComingSoon from "@/components/ui/ComingSoon";
 import Toggle from "@/components/ui/Toggle";
 import CustomiseProfilePanel from "@/components/profile/CustomiseProfilePanel";
+import { LeagueLinkPanel } from "@/components/profile/LeagueLinkPanel";
 import { setProfilePrivacy } from "@/lib/actions/profile.actions";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -818,22 +818,16 @@ export default function ProfileEditPage() {
             </div>
           )}
 
-          {/* Phase 2 — stat sync */}
-          {/* SNIPPET A: ComingSoon wraps a full-width disabled button */}
-          <ComingSoon label="Phase 2" className="block mt-5">
-            <button
-              type="button"
-              disabled
-              className="w-full px-4 py-2.5 rounded-lg text-sm font-medium cursor-not-allowed text-left"
-              style={{
-                background: "var(--bg-elevated)",
-                border:     "1px solid var(--border-subtle)",
-                color:      "var(--text-muted)",
-              }}
+          {/* ── Linked game accounts (live stats via official APIs) ──────── */}
+          <div className="mt-5">
+            <p
+              className="text-xs uppercase tracking-wider mb-2"
+              style={{ color: "var(--text-muted)", letterSpacing: "0.08em" }}
             >
-              🔗 Sync Stats from Steam / Riot
-            </button>
-          </ComingSoon>
+              Linked Accounts
+            </p>
+            <LeagueLinkPanel uid={uid} />
+          </div>
         </Section>
 
         {/* ── SECTION 5: Privacy ───────────────────────────────────────── */}

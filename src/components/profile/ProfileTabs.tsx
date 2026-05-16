@@ -3,18 +3,24 @@
 import { Trophy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GameRecordCard } from "@/components/profile/GameRecordCard";
+import { LinkedGameCard } from "@/components/profile/LinkedGameCard";
 import type { GameRecord } from "@/types";
+import type { LeagueIntegration } from "@/types/integrations";
 
 // ── ProfileTabs ───────────────────────────────────────────────────────────────
 // Client component that renders the tabbed lower section of a profile page:
-//   • Tab 1 — Game Records (live data passed from the server component)
+//   • Tab 1 — Game Records (linked-game integrations first, then manual records)
 //   • Tab 2 — Achievements (Phase 2 placeholder)
 
 interface ProfileTabsProps {
-  gameRecords: GameRecord[];
+  gameRecords:  GameRecord[];
+  integrations: LeagueIntegration[];
+  profileUid:   string;
+  isOwner:      boolean;
 }
 
-export function ProfileTabs({ gameRecords }: ProfileTabsProps) {
+export function ProfileTabs({ gameRecords, integrations, profileUid, isOwner }: ProfileTabsProps) {
+  const hasAny = gameRecords.length > 0 || integrations.length > 0;
   return (
     <Tabs defaultValue="games" className="mb-10">
 
@@ -57,8 +63,17 @@ export function ProfileTabs({ gameRecords }: ProfileTabsProps) {
 
       {/* ── Game Records content ── */}
       <TabsContent value="games">
-        {gameRecords.length > 0 ? (
+        {hasAny ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Linked integrations first — they're live data and most authoritative. */}
+            {integrations.map(integration => (
+              <LinkedGameCard
+                key={`int-${integration.provider}`}
+                uid={profileUid}
+                isOwner={isOwner}
+                integration={integration}
+              />
+            ))}
             {gameRecords.map(record => (
               <GameRecordCard key={record.id as string} record={record} />
             ))}

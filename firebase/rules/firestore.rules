@@ -81,6 +81,17 @@ service cloud.firestore {
         allow read:                if isOwner(userId);
         allow create, update, delete: if false;
       }
+
+      // ─── /profiles/{userId}/integrations/{provider} ────────────────────────
+      // Linked third-party game accounts (Riot, etc). Any authenticated user
+      // can read so widgets render on public profiles. ALL writes go through
+      // server actions which fetch live data from the third-party API — clients
+      // must never write here directly because a forged write would let a user
+      // claim a rank they didn't earn.
+      match /integrations/{provider} {
+        allow read:                if isSignedIn();
+        allow create, update, delete: if false;
+      }
     }
 
     // ─── /usernames/{username} ────────────────────────────────────────────────
