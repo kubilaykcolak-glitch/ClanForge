@@ -79,10 +79,12 @@ export async function fetchSummonerByPuuid(
 }
 
 export async function fetchLeagueEntries(
-  summonerId: string,
+  puuid: string,
   region: LolPlatformRegion,
 ): Promise<RiotLeagueEntry[]> {
-  const url = `${platformHost(region)}/lol/league/v4/entries/by-summoner/${encodeURIComponent(summonerId)}`;
+  // Riot deprecated /entries/by-summoner/{summonerId} in favour of by-puuid
+  // as part of their broader PUUID migration. Always use by-puuid here.
+  const url = `${platformHost(region)}/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`;
   return riotFetch<RiotLeagueEntry[]>(url);
 }
 

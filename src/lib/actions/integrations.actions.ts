@@ -72,12 +72,10 @@ async function buildLeagueSnapshot(
   puuid: string,
   region: LolPlatformRegion,
 ): Promise<LeagueSnapshot> {
-  // Summoner first — its `id` is required by league-v4.
-  const summoner = await fetchSummonerByPuuid(puuid, region);
-
-  // league + mastery can run in parallel.
-  const [leagueEntries, masteries] = await Promise.all([
-    fetchLeagueEntries(summoner.id, region).catch(() => []),
+  // All three calls key off PUUID — fire them in parallel.
+  const [summoner, leagueEntries, masteries] = await Promise.all([
+    fetchSummonerByPuuid(puuid, region),
+    fetchLeagueEntries(puuid, region).catch(() => []),
     fetchTopMastery(puuid, region, 3).catch(() => []),
   ]);
 

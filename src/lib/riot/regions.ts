@@ -31,12 +31,17 @@ export const PLATFORM_LABELS: Record<LolPlatformRegion, string> = {
   vn2:  "Vietnam",
 };
 
-// Platform → Regional routing host for account-v1 / match-v5.
-const REGIONAL_MAP: Record<LolPlatformRegion, "americas" | "europe" | "asia" | "sea"> = {
-  na1: "americas", br1: "americas", la1: "americas", la2: "americas", oc1: "sea",
-  euw1: "europe", eun1: "europe", tr1: "europe", ru: "europe",
-  kr: "asia", jp1: "asia",
-  ph2: "sea", sg2: "sea", th2: "sea", tw2: "sea", vn2: "sea",
+// Platform → Regional routing host for account-v1.
+//
+// account-v1 ONLY exists on americas / europe / asia hosts. Riot's `sea` host
+// is a match-v5-only cluster — calling account-v1 against it 403s. So SEA
+// platforms route to `asia` here.
+const REGIONAL_MAP: Record<LolPlatformRegion, "americas" | "europe" | "asia"> = {
+  na1:  "americas", br1: "americas", la1: "americas", la2: "americas",
+  oc1:  "americas", // OCE historically routed to americas for account-v1
+  euw1: "europe",   eun1: "europe", tr1: "europe",   ru:  "europe",
+  kr:   "asia",     jp1: "asia",
+  ph2:  "asia",     sg2: "asia",    th2: "asia",     tw2: "asia", vn2: "asia",
 };
 
 export function platformHost(region: LolPlatformRegion): string {
