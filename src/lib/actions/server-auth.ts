@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { inWebhookContext } from "@/lib/webhook-context";
+import { isRole, meetsRole, type Role } from "@/lib/auth/roles";
 
 /**
  * Extracts and verifies the session cookie, returning the authenticated UID.
@@ -32,19 +33,74 @@ export async function requireAuthContext(): Promise<void> {
   await getSessionUid();
 }
 
+// ─── Role-tier helpers ───────────────────────────────────────────────────────
+//
+// Authorization source-of-truth is the Firebase Custom Claim `role` set on
+// the auth user. We fall back to the legacy `profiles.isAdmin` field during
+// the migration period so existing admin users keep working until the
+// bootstrap script (or admin grant flow) has set their claims. Once every
+// admin has a claim, the fallback can be removed.
+
+interface SessionWithRole {
+  uid:  string;
+  role: Role | null;
+}
+
 /**
- * Like getSessionUid but also asserts the user has isAdmin=true on their profile.
- * Throws "Forbidden" if the session is valid but the user is not an admin.
- * Use inside server actions that are admin-only (challenge/season management, etc.).
- * NOTE: Next.js layout guards only run in the browser; server actions are callable
- * directly via HTTP POST, so every admin action must verify this independently.
+ * Resolves the session uid AND their elevated role (if any) in a single
+ * pass. Reads the Custom Claim from the verified session cookie; falls back
+ * to the legacy `profiles.isAdmin` boolean for users who haven't been
+ * migrated to claims yet (in which case the inferred role is "admin").
  */
-export async function getAdminUid(): Promise<string> {
+export async function getSessionWithRole(): Promise<SessionWithRole> {
   const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
   const sessionCookie = cookies().get("session")?.value;
   if (!sessionCookie) throw new Error("Unauthenticated");
+
   const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const claimRole = decoded.role;
+  if (isRole(claimRole)) {
+    return { uid: decoded.uid, role: claimRole };
+  }
+
+  // Legacy fallback — read profiles.isAdmin. Remove once all admins migrated.
   const snap = await adminDb.collection("profiles").doc(decoded.uid).get();
-  if (!snap.exists || !snap.data()?.isAdmin) throw new Error("Forbidden");
-  return decoded.uid;
+  if (snap.exists && snap.data()?.isAdmin) {
+    return { uid: decoded.uid, role: "admin" };
+  }
+
+  return { uid: decoded.uid, role: null };
+}
+
+/**
+ * Like getSessionUid but asserts the user has the required role tier.
+ * Throws "Unauthenticated" if no session, "Forbidden" if session lacks the
+ * required tier.
+ *
+ * Hierarchy: super_admin > admin > moderator. Requesting `moderator` is
+ * satisfied by any of the three; requesting `super_admin` is satisfied only
+ * by `super_admin`.
+ */
+export async function requireRole(required: Role): Promise<SessionWithRole> {
+  const session = await getSessionWithRole();
+  if (!meetsRole(session.role, required)) throw new Error("Forbidden");
+  return session;
+}
+
+/** Returns the session uid iff the user is at least `admin`. */
+export async function getAdminUid(): Promise<string> {
+  const session = await requireRole("admin");
+  return session.uid;
+}
+
+/** Returns the session uid iff the user is `super_admin`. */
+export async function getSuperAdminUid(): Promise<string> {
+  const session = await requireRole("super_admin");
+  return session.uid;
+}
+
+/** Returns the session uid iff the user is at least `moderator`. */
+export async function getModeratorUid(): Promise<string> {
+  const session = await requireRole("moderator");
+  return session.uid;
 }

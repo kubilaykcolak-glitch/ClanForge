@@ -112,6 +112,21 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // ─── /admin_audit/{id} ────────────────────────────────────────────────────
+    // Immutable audit log of every privileged admin action. Readable only by
+    // users with a role custom claim of admin or super_admin (we trust the
+    // signed JWT — never the profiles.isAdmin mirror — for this read because
+    // the audit log is itself part of the security boundary). All writes
+    // come through server actions via the Admin SDK, which bypasses rules.
+    function hasAdminClaim() {
+      return isSignedIn() &&
+        (request.auth.token.role == 'admin' || request.auth.token.role == 'super_admin');
+    }
+    match /admin_audit/{id} {
+      allow read:                if hasAdminClaim();
+      allow create, update, delete: if false;
+    }
+
     // ─── /usernames/{username} ────────────────────────────────────────────────
 
     match /usernames/{username} {
