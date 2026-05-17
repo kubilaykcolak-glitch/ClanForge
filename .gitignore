@@ -39,3 +39,7 @@ next-env.d.ts
 .claude/
 
 .vercel
+
+# Local-only owner-flagged TODO tracker. Updates stay on disk and are not
+# pushed; address-on-demand from chat.
+docs/TODO.md
