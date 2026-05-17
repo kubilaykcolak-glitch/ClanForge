@@ -8,6 +8,7 @@ import {
   Calendar,
   Users,
   ScrollText,
+  Plug,
 } from "lucide-react";
 import { isRole, meetsRole, type Role } from "@/lib/auth/roles";
 
@@ -52,11 +53,13 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: "/admin",            icon: <LayoutDashboard size={16} />, label: "Overview",   minRole: "moderator" },
-  { href: "/admin/users",      icon: <Users           size={16} />, label: "Users",      minRole: "admin"     },
-  { href: "/admin/audit",      icon: <ScrollText      size={16} />, label: "Audit Log",  minRole: "admin"     },
-  { href: "/admin/challenges", icon: <Trophy          size={16} />, label: "Challenges", minRole: "admin"     },
-  { href: "/admin/seasons",    icon: <Calendar        size={16} />, label: "Seasons",    minRole: "admin"     },
+  { href: "/admin",              icon: <LayoutDashboard size={16} />, label: "Overview",      minRole: "moderator" },
+  { href: "/admin/users",        icon: <Users           size={16} />, label: "Users",         minRole: "admin"     },
+  { href: "/admin/tournaments",  icon: <Trophy          size={16} />, label: "Tournaments",   minRole: "admin"     },
+  { href: "/admin/integrations", icon: <Plug            size={16} />, label: "Integrations",  minRole: "admin"     },
+  { href: "/admin/audit",        icon: <ScrollText      size={16} />, label: "Audit Log",     minRole: "admin"     },
+  { href: "/admin/challenges",   icon: <Trophy          size={16} />, label: "Challenges",    minRole: "admin"     },
+  { href: "/admin/seasons",      icon: <Calendar        size={16} />, label: "Seasons",       minRole: "admin"     },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

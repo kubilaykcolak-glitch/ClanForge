@@ -19,13 +19,22 @@ export default async function AdminUserDetailPage({ params }: { params: { uid: s
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="font-display font-bold text-2xl truncate" style={{ color: "var(--text-primary)" }}>
-          {u.profile.displayName ?? u.profile.username ?? "(no name)"}
-        </h1>
-        <p className="text-sm mt-1 font-mono" style={{ color: "var(--text-muted)" }}>
-          {u.uid}
-        </p>
+      <div className="mb-6 flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-display font-bold text-2xl truncate" style={{ color: "var(--text-primary)" }}>
+            {u.profile.displayName ?? u.profile.username ?? "(no name)"}
+          </h1>
+          <p className="text-sm mt-1 font-mono" style={{ color: "var(--text-muted)" }}>
+            {u.uid}
+          </p>
+        </div>
+        <a
+          href={`/admin/users/${u.uid}/view`}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+        >
+          View full user state →
+        </a>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

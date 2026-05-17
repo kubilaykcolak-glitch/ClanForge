@@ -197,6 +197,401 @@ export async function getMyRole(): Promise<ActionResult<{ role: Role | null }>> 
   }
 }
 
+// ─── adminListTournaments ─────────────────────────────────────────────────────
+//
+// Admin+ paginated list of tournaments, newest first, with an optional
+// status filter. Returns enough per-row to render an admin row card; the
+// detail view loads full participant data on demand.
+
+export async function adminListTournaments(opts: {
+  status?:   "open" | "locked" | "live" | "complete" | "cancelled" | "draft" | null;
+  before?:   string;
+  pageSize?: number;
+}): Promise<ActionResult<{
+  items: Array<{
+    id:                string;
+    name:              string;
+    game:              string;
+    status:            string;
+    isPaid:            boolean;
+    entryFee:          number;
+    prizePool:         number;
+    participantCount:  number;
+    maxParticipants:   number;
+    gameProvider:      string | null;
+    creatorId:         string;
+    createdAt:         string;
+    startsAt:          string | null;
+  }>;
+  hasMore: boolean;
+}>> {
+  try {
+    const session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const pageSize = Math.min(Math.max(opts.pageSize ?? 30, 5), 100);
+
+    let q = adminDb.collection("tournaments").orderBy("createdAt", "desc").limit(pageSize + 1);
+    if (opts.status) q = q.where("status", "==", opts.status).orderBy("createdAt", "desc").limit(pageSize + 1);
+    if (opts.before) q = q.startAfter(new Date(opts.before));
+
+    const snap = await q.get();
+    const toIso = (v: unknown): string | null => {
+      if (v instanceof Date) return v.toISOString();
+      const d = (v as { toDate?: () => Date } | undefined)?.toDate?.();
+      return d ? d.toISOString() : null;
+    };
+    const items = snap.docs.slice(0, pageSize).map(d => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        id:                d.id,
+        name:              (data.name             as string) ?? "(unnamed)",
+        game:              (data.game             as string) ?? "?",
+        status:            (data.status           as string) ?? "?",
+        isPaid:            !!data.isPaid,
+        entryFee:          (data.entryFee         as number) ?? 0,
+        prizePool:         (data.prizePool        as number) ?? 0,
+        participantCount:  (data.participantCount as number) ?? 0,
+        maxParticipants:   (data.maxParticipants  as number) ?? 0,
+        gameProvider:      (data.gameProvider     as string | null) ?? null,
+        creatorId:         (data.creatorId        as string) ?? "?",
+        createdAt:         toIso(data.createdAt) ?? new Date().toISOString(),
+        startsAt:          toIso(data.startsAt),
+      };
+    });
+
+    return { success: true, data: { items, hasMore: snap.size > pageSize } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
+// ─── adminGetTournamentDetail ────────────────────────────────────────────────
+
+export async function adminGetTournamentDetail(tournamentId: string): Promise<ActionResult<{
+  tournament: Record<string, unknown>;
+  participants: Array<{
+    uid:             string;
+    displayName:     string | null;
+    paymentStatus:   string | null;
+    paidAmount:      number;
+    registeredAt:    string | null;
+    refundedAt:      string | null;
+  }>;
+}>> {
+  try {
+    const session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const [tournSnap, partsSnap] = await Promise.all([
+      adminDb.collection("tournaments").doc(tournamentId).get(),
+      adminDb.collection("tournaments").doc(tournamentId).collection("participants").get(),
+    ]);
+
+    if (!tournSnap.exists) return { success: false, error: "Tournament not found" };
+
+    const toIso = (v: unknown): string | null => {
+      if (v instanceof Date) return v.toISOString();
+      const d = (v as { toDate?: () => Date } | undefined)?.toDate?.();
+      return d ? d.toISOString() : null;
+    };
+
+    const participants = partsSnap.docs.map(d => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        uid:           d.id,
+        displayName:   (data.displayName   as string | null) ?? null,
+        paymentStatus: (data.paymentStatus as string | null) ?? null,
+        paidAmount:    (data.paidAmount    as number) ?? 0,
+        registeredAt:  toIso(data.registeredAt),
+        refundedAt:    toIso(data.refundedAt),
+      };
+    });
+
+    const tdata = tournSnap.data() as Record<string, unknown>;
+    return {
+      success: true,
+      data: {
+        tournament: {
+          id:        tournSnap.id,
+          ...tdata,
+          createdAt:            toIso(tdata.createdAt),
+          startsAt:             toIso(tdata.startsAt),
+          registrationClosesAt: toIso(tdata.registrationClosesAt),
+          rosterLockedAt:       toIso(tdata.rosterLockedAt),
+        },
+        participants,
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
+// ─── adminListLeagueOwners ────────────────────────────────────────────────────
+//
+// Admin+ view of the /league_account_owners uniqueness locks — useful for
+// support cases ("which ClanForge profile owns this PUUID?"). Joins with
+// each owner's profile snippet for context.
+
+export async function adminListLeagueOwners(opts: {
+  query?:    string;       // matches puuid prefix OR Riot ID OR uid
+  pageSize?: number;
+}): Promise<ActionResult<Array<{
+  puuid:        string;
+  uid:          string;
+  username:     string | null;
+  displayName:  string | null;
+  gameName:     string | null;
+  tagLine:      string | null;
+  region:       string | null;
+  claimedAt:    string | null;
+}>>> {
+  try {
+    const session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 5), 200);
+    const trimmed = (opts.query ?? "").trim();
+
+    let snap: FirebaseFirestore.QuerySnapshot;
+    if (trimmed.length > 0) {
+      // No native multi-field search. We do a prefix on the doc id (puuid),
+      // and if that yields nothing fall back to scanning by uid via
+      // collectionGroup on integrations. For v1 the puuid-prefix path is
+      // good enough for the common "I have a puuid, who owns it?" support
+      // case. UID match handled separately below.
+      snap = await adminDb.collection("league_account_owners")
+        .where("__name__", ">=", trimmed)
+        .where("__name__", "<=", trimmed + "")
+        .limit(pageSize)
+        .get();
+
+      if (snap.empty) {
+        // Try as uid
+        snap = await adminDb.collection("league_account_owners")
+          .where("uid", "==", trimmed)
+          .limit(pageSize)
+          .get();
+      }
+    } else {
+      snap = await adminDb.collection("league_account_owners")
+        .orderBy("claimedAt", "desc")
+        .limit(pageSize)
+        .get();
+    }
+
+    const toIso = (v: unknown): string | null => {
+      if (v instanceof Date) return v.toISOString();
+      const d = (v as { toDate?: () => Date } | undefined)?.toDate?.();
+      return d ? d.toISOString() : null;
+    };
+
+    const items = await Promise.all(snap.docs.map(async d => {
+      const data = d.data() as { uid?: string; claimedAt?: unknown };
+      const uid = data.uid ?? "";
+      const [profileSnap, integrationSnap] = await Promise.all([
+        uid ? adminDb.collection("profiles").doc(uid).get() : Promise.resolve(null),
+        uid ? adminDb.collection("profiles").doc(uid).collection("integrations").doc("league").get() : Promise.resolve(null),
+      ]);
+      const pd = profileSnap?.data() as { username?: string; displayName?: string } | undefined;
+      const acct = (integrationSnap?.data() as { account?: { gameName?: string; tagLine?: string; region?: string } } | undefined)?.account;
+      return {
+        puuid:       d.id,
+        uid,
+        username:    pd?.username ?? null,
+        displayName: pd?.displayName ?? null,
+        gameName:    acct?.gameName ?? null,
+        tagLine:     acct?.tagLine ?? null,
+        region:      acct?.region ?? null,
+        claimedAt:   toIso(data.claimedAt),
+      };
+    }));
+
+    return { success: true, data: items };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
+// ─── adminViewUserState ───────────────────────────────────────────────────────
+//
+// Comprehensive read-only "show me everything about this user" payload.
+// Joins profile, integrations, recent notifications, recent payments,
+// recent matches into one server-side fetch. The viewing admin's identity
+// is captured in the audit log as a sensitive read.
+
+export async function adminViewUserState(targetUid: string): Promise<ActionResult<{
+  profile: {
+    uid:          string;
+    username:     string | null;
+    displayName:  string | null;
+    email:        string | null;
+    bannedAt:     string | null;
+    bannedReason: string | null;
+    role:         Role | null;
+    clanName:     string | null;
+    xp:           number;
+    tournamentsPlayed: number;
+    tournamentsWon:    number;
+  };
+  integration: {
+    provider:   string;
+    gameName:   string;
+    tagLine:    string;
+    region:     string;
+    summonerLevel: number;
+    soloRank:   { tier: string; division: string; lp: number; wins: number; losses: number } | null;
+    linkedAt:   string | null;
+  } | null;
+  recentNotifications: Array<{ id: string; type: string; createdAt: string; read: boolean; data?: Record<string, unknown> }>;
+  recentTournaments:   Array<{ id: string; name: string; status: string; paymentStatus: string | null; paidAmount: number; registeredAt: string | null }>;
+  recentAuditTargeting: Array<{ id: string; action: string; result: string; at: string; actor: string; reason: string }>;
+}>> {
+  let session: Awaited<ReturnType<typeof getSessionWithRole>>;
+  try {
+    session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+  } catch {
+    return { success: false, error: "Unauthenticated" };
+  }
+
+  try {
+    const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
+
+    const [authRec, profileSnap, integrationSnap, notifSnap, partsGroupSnap, auditSnap] = await Promise.all([
+      adminAuth.getUser(targetUid).catch(() => null),
+      adminDb.collection("profiles").doc(targetUid).get(),
+      adminDb.collection("profiles").doc(targetUid).collection("integrations").doc("league").get(),
+      adminDb.collection("notifications").doc(targetUid).collection("items").orderBy("createdAt", "desc").limit(10).get().catch(() => ({ docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] })),
+      adminDb.collectionGroup("participants").where("userId", "==", targetUid).limit(20).get().catch(() => ({ docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] })),
+      adminDb.collection("admin_audit").where("targetId", "==", targetUid).orderBy("at", "desc").limit(10).get().catch(() => ({ docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] })),
+    ]);
+
+    if (!authRec) return { success: false, error: "User not found" };
+
+    const toIso = (v: unknown): string | null => {
+      if (v instanceof Date) return v.toISOString();
+      const d = (v as { toDate?: () => Date } | undefined)?.toDate?.();
+      return d ? d.toISOString() : null;
+    };
+
+    const pd = profileSnap.exists ? profileSnap.data() as Record<string, unknown> : {};
+    const claimRole = authRec.customClaims?.role as string | undefined;
+
+    const integration = integrationSnap.exists ? (() => {
+      const d = integrationSnap.data() as {
+        provider?: string;
+        account?: { gameName?: string; tagLine?: string; region?: string; puuid?: string };
+        snapshot?: { summonerLevel?: number; soloRank?: { tier?: string; division?: string; lp?: number; wins?: number; losses?: number } | null };
+        linkedAt?: unknown;
+      };
+      return {
+        provider:      d.provider ?? "league",
+        gameName:      d.account?.gameName ?? "",
+        tagLine:       d.account?.tagLine ?? "",
+        region:        d.account?.region ?? "",
+        summonerLevel: d.snapshot?.summonerLevel ?? 0,
+        soloRank:      d.snapshot?.soloRank ? {
+          tier:     d.snapshot.soloRank.tier ?? "",
+          division: d.snapshot.soloRank.division ?? "",
+          lp:       d.snapshot.soloRank.lp ?? 0,
+          wins:     d.snapshot.soloRank.wins ?? 0,
+          losses:   d.snapshot.soloRank.losses ?? 0,
+        } : null,
+        linkedAt:      toIso(d.linkedAt),
+      };
+    })() : null;
+
+    const recentNotifications = notifSnap.docs.slice(0, 10).map(d => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        id:        d.id,
+        type:      (data.type as string) ?? "?",
+        createdAt: toIso(data.createdAt) ?? "",
+        read:      !!data.read,
+        data:      data.data as Record<string, unknown> | undefined,
+      };
+    });
+
+    const recentTournaments = await Promise.all(partsGroupSnap.docs.slice(0, 20).map(async d => {
+      const data = d.data() as Record<string, unknown>;
+      const tournRef = d.ref.parent.parent;
+      const tournDoc = tournRef ? await tournRef.get() : null;
+      const td = tournDoc?.data() as { name?: string; status?: string } | undefined;
+      return {
+        id:            tournRef?.id ?? "",
+        name:          td?.name ?? "(unknown)",
+        status:        td?.status ?? "?",
+        paymentStatus: (data.paymentStatus as string | null) ?? null,
+        paidAmount:    (data.paidAmount    as number) ?? 0,
+        registeredAt:  toIso(data.registeredAt),
+      };
+    }));
+
+    const recentAuditTargeting = auditSnap.docs.slice(0, 10).map(d => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        id:     d.id,
+        action: (data.action as string) ?? "?",
+        result: (data.result === "failure" ? "failure" : "success"),
+        at:     toIso(data.at) ?? "",
+        actor:  (data.actor as string) ?? "?",
+        reason: (data.reason as string) ?? "",
+      };
+    });
+
+    // Audit-log this access — sensitive reads are tracked deliberately.
+    try {
+      await writeAuditLog({
+        actor:      session.uid,
+        actorRole:  session.role,
+        action:     "user.view_state",
+        targetType: "user",
+        targetId:   targetUid,
+        reason:     "Admin opened comprehensive user-state view",
+        result:     "success",
+      });
+    } catch { /* never block the view on log write failures */ }
+
+    return {
+      success: true,
+      data: {
+        profile: {
+          uid:           authRec.uid,
+          username:      (pd.username    as string | null) ?? null,
+          displayName:   (pd.displayName as string | null) ?? null,
+          email:         authRec.email ?? null,
+          bannedAt:      toIso(pd.bannedAt),
+          bannedReason:  (pd.bannedReason as string | null) ?? null,
+          role:          isRole(claimRole) ? claimRole : null,
+          clanName:      (pd.clanName as string | null) ?? null,
+          xp:            (pd.xp as number) ?? 0,
+          tournamentsPlayed: (pd.tournamentsPlayed as number) ?? 0,
+          tournamentsWon:    (pd.tournamentsWon    as number) ?? 0,
+        },
+        integration,
+        recentNotifications,
+        recentTournaments,
+        recentAuditTargeting,
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
 // ─── listAuditLog ─────────────────────────────────────────────────────────────
 //
 // Admin+ readonly view of recent audit-log entries. Paginated by `at`
