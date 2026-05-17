@@ -20,6 +20,12 @@ edge cases matter.
 - **Implementation notes** are in italics and can be skipped if you only care about behaviour.
 - **Edge cases** that have caught us before are written up as "What happens if…" sub-sections.
 
+## Internal / operational docs
+
+For the engineering-side of the platform — how to operate, deploy, debug, and extend:
+
+- **[Internal Docs Index](./internal/README.md)** — operations, architecture, schema, admin internals, Riot internals, Stripe internals.
+
 ## Adjacent docs
 
 - [`HANDOFF.md`](./HANDOFF.md) — point-in-time session handover snapshot (commits, decisions, deferred work).
