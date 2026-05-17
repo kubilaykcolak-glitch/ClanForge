@@ -130,62 +130,27 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true, action: "flagged" });
       }
 
-      // ── 3. Write the result via the same path as a manual report ─────────
+      // ── 3. Write the result via the shared finaliser ─────────────────────
       //
-      // reportMatchResult enforces participant-only auth via getSessionUid,
-      // which we don't have here. So we mirror its DB writes + side-effects
-      // inline. The webhook context flag lets the XP / mission helpers run
-      // without session.
-      await matchRef.update({
+      // Same code path as reportMatchResult / simulateRiotMatchResult so XP,
+      // clan-XP and mission tracking stay in lock-step regardless of how the
+      // result entered the system.
+      const { finaliseTournamentMatch } = await import("@/lib/actions/_match-result-core");
+      const fin = await finaliseTournamentMatch({
+        tournamentId:  verified.tournamentId,
+        matchId:       verified.matchId,
+        winnerId,
         scoreA:        winnerId === match.participantAId ? 1 : 0,
         scoreB:        winnerId === match.participantBId ? 1 : 0,
-        winnerId,
-        status:        "complete",
-        completedAt:   new Date(),
-        riotResultRaw: body as Record<string, unknown>,
         resultSource:  "riot_callback",
+        riotResultRaw: body as Record<string, unknown>,
       });
-
-      try {
-        const { awardXp } = await import("@/lib/actions/xp.actions");
-        await awardXp(winnerId, "tournament_match_win", matchSnap.id);
-      } catch (err) {
-        console.error("[riot webhook→awardXp]", err);
+      if (!fin.success) {
+        console.error("[riot webhook] finalise failed:", fin.error);
+        return NextResponse.json({ error: fin.error ?? "Finalise failed" }, { status: 500 });
       }
 
-      try {
-        const { awardClanXpForMember } = await import("@/lib/actions/clan-xp.actions");
-        await awardClanXpForMember(winnerId, "tournament_win", matchSnap.id);
-      } catch (err) {
-        console.error("[riot webhook→awardClanXpForMember]", err);
-      }
-
-      try {
-        const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
-        await trackMissionProgress(winnerId, "tournament_match_win");
-      } catch (err) {
-        console.error("[riot webhook→trackMissionProgress]", err);
-      }
-
-      try {
-        const cm = await import("@/lib/actions/clan-missions.actions");
-        await cm.trackClanMissionProgress("tournament_match_win", winnerId);
-        // Solo-streak: re-count this user's wins in this tournament. Same
-        // logic as reportMatchResult.
-        const winsSnap = await adminDb
-          .collection("tournaments").doc(verified.tournamentId)
-          .collection("matches")
-          .where("winnerId", "==", winnerId)
-          .where("status",  "==", "complete")
-          .get();
-        if (winsSnap.size === 3) {
-          await cm.trackClanMissionProgress("tournament_solo_streak", winnerId);
-        }
-      } catch (err) {
-        console.error("[riot webhook→clan-missions]", err);
-      }
-
-      return NextResponse.json({ received: true, winnerId });
+      return NextResponse.json({ received: true, winnerId, idempotent: fin.idempotent ?? false });
     } catch (err) {
       console.error("[riot webhook] handler failed:", err);
       // 500 so Riot retries with backoff.

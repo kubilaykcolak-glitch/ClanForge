@@ -1,6 +1,6 @@
 "use server";
 
-import { getSessionUid } from "@/lib/actions/server-auth";
+import { getSessionUid, getAdminUid } from "@/lib/actions/server-auth";
 import {
   registerProvider,
   registerTournament,
@@ -250,6 +250,151 @@ export async function reconcileLeagueMatch(
     }
     const message = err instanceof Error ? err.message : "Failed to reconcile";
     console.error("[reconcileLeagueMatch]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ─── regenerateMatchCode ──────────────────────────────────────────────────────
+//
+// Mint a fresh tournament code for a match that needs a replay (lag-out,
+// dispute resolution, etc). Riot codes are single-use for results, so a
+// replay requires a brand-new code. Creator or admin only. Refuses if the
+// match is already complete.
+
+export async function regenerateMatchCode(
+  tournamentId: string,
+  matchId: string,
+): Promise<ActionResult<{ code: string }>> {
+  try {
+    const sessionUid = await getSessionUid();
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const tournRef  = adminDb.collection("tournaments").doc(tournamentId);
+    const matchRef  = tournRef.collection("matches").doc(matchId);
+    const [tournSnap, matchSnap] = await Promise.all([tournRef.get(), matchRef.get()]);
+    if (!tournSnap.exists || !matchSnap.exists) {
+      return { success: false, error: "Tournament or match not found" };
+    }
+
+    const tourn = tournSnap.data() as { creatorId?: string };
+    // Authorise: creator OR platform admin
+    if (tourn.creatorId !== sessionUid) {
+      const profileSnap = await adminDb.collection("profiles").doc(sessionUid).get();
+      if (!profileSnap.data()?.isAdmin) {
+        return { success: false, error: "Only the tournament creator or an admin can regenerate codes" };
+      }
+    }
+
+    const match = matchSnap.data() as { status?: string };
+    if (match.status === "complete") {
+      return { success: false, error: "Match is already complete" };
+    }
+
+    // Clear the existing code so mintMatchCode doesn't short-circuit.
+    await matchRef.update({ riotTournamentCode: null });
+
+    const minted = await mintMatchCode(tournamentId, matchId);
+    return minted;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to regenerate";
+    console.error("[regenerateMatchCode]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ─── simulateRiotMatchResult ──────────────────────────────────────────────────
+//
+// Admin-only "fire a fake Riot callback for this match" action. Lets us
+// exercise the full result-handling code path in development before
+// Tournament-V5 production access is granted (the stub never sends real
+// callbacks). The simulated result invokes the same finaliser the real
+// webhook does — XP, missions, clan-XP all fire — but without going through
+// HMAC verify since the source is trusted server-side.
+
+export async function simulateRiotMatchResult(
+  tournamentId: string,
+  matchId: string,
+  winnerId: string,
+): Promise<ActionResult<{ winnerId: string }>> {
+  try {
+    await getAdminUid();
+
+    const { finaliseTournamentMatch } = await import("@/lib/actions/_match-result-core");
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const matchSnap = await adminDb
+      .collection("tournaments").doc(tournamentId)
+      .collection("matches").doc(matchId)
+      .get();
+    if (!matchSnap.exists) return { success: false, error: "Match not found" };
+    const m = matchSnap.data() as { participantAId?: string; participantBId?: string };
+
+    const fin = await finaliseTournamentMatch({
+      tournamentId,
+      matchId,
+      winnerId,
+      scoreA:        winnerId === m.participantAId ? 1 : 0,
+      scoreB:        winnerId === m.participantBId ? 1 : 0,
+      resultSource:  "admin_simulate",
+      riotResultRaw: { simulated: true, simulatedAt: new Date().toISOString() },
+    });
+
+    return fin.success
+      ? { success: true, data: { winnerId } }
+      : { success: false, error: fin.error };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to simulate";
+    console.error("[simulateRiotMatchResult]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ─── adminFinalizeMatch ───────────────────────────────────────────────────────
+//
+// Manual override for any tournament (LoL or not). Used when:
+//   • A LoL match was auto-flagged "disputed" because the winning team
+//     contained neither captain (e.g. captain disconnected, teammate played
+//     the actual game).
+//   • A match needs to be resolved out-of-band by an admin.
+//
+// Creator OR platform admin can call this. Forces the match to "complete"
+// with the given winner and runs all standard finaliser side-effects.
+
+export async function adminFinalizeMatch(
+  tournamentId: string,
+  matchId: string,
+  winnerId: string,
+  scoreA: number,
+  scoreB: number,
+): Promise<ActionResult> {
+  try {
+    const sessionUid = await getSessionUid();
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const tournSnap = await adminDb.collection("tournaments").doc(tournamentId).get();
+    if (!tournSnap.exists) return { success: false, error: "Tournament not found" };
+
+    const tourn = tournSnap.data() as { creatorId?: string };
+    if (tourn.creatorId !== sessionUid) {
+      const profileSnap = await adminDb.collection("profiles").doc(sessionUid).get();
+      if (!profileSnap.data()?.isAdmin) {
+        return { success: false, error: "Only the tournament creator or an admin can override results" };
+      }
+    }
+
+    const { finaliseTournamentMatch } = await import("@/lib/actions/_match-result-core");
+    const fin = await finaliseTournamentMatch({
+      tournamentId,
+      matchId,
+      winnerId,
+      scoreA,
+      scoreB,
+      resultSource: "admin_override",
+    });
+    return fin.success ? { success: true } : { success: false, error: fin.error };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to finalise";
+    console.error("[adminFinalizeMatch]", err);
     return { success: false, error: message };
   }
 }

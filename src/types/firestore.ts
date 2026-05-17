@@ -239,10 +239,14 @@ export interface TournamentMatch {
   riotTournamentCode?: string | null;
   /** Verbatim Riot callback payload, kept for audit + dispute trail. */
   riotResultRaw?: Record<string, unknown> | null;
-  /** Source of the recorded result. "manual" = reportMatchResult human
-   * input; "riot_callback" = trusted Riot POST; "riot_poll" = polling
-   * fallback fetched results we hadn't received a callback for. */
-  resultSource?: "manual" | "riot_callback" | "riot_poll";
+  /** Source of the recorded result.
+   *   manual          — reportMatchResult human input
+   *   riot_callback   — trusted Riot Tournament-V5 POST
+   *   riot_poll       — polling fallback we ran after a missed callback
+   *   admin_override  — creator/admin manual finalisation
+   *   admin_simulate  — admin "fake a callback" tool used pre-prod-approval
+   */
+  resultSource?: "manual" | "riot_callback" | "riot_poll" | "admin_override" | "admin_simulate";
 }
 
 // ─── ClanChallenge ────────────────────────────────────────────────────────────

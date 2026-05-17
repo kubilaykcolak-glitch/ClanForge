@@ -426,6 +426,9 @@ export default async function TournamentPage({
               <BracketView
                 matches={matches}
                 participantNames={participantNames}
+                tournamentId={tournament.id ?? ""}
+                isCreatorOrAdmin={isCreator}
+                isLol={tournament.gameProvider === "league"}
               />
             </div>
           </section>
