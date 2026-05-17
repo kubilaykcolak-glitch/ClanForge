@@ -20,6 +20,12 @@ edge cases matter.
 - **Implementation notes** are in italics and can be skipped if you only care about behaviour.
 - **Edge cases** that have caught us before are written up as "What happens if…" sub-sections.
 
+## Deep dives
+
+For "how does X actually work?" answers that need worked examples and the maths spelled out:
+
+- **[Deep Dives Index](./deep-dives/README.md)** — tournament mechanics (bracket generation, prize splits, round-2 gap), XP & missions (rules table, generation algorithm, anti-farming).
+
 ## Internal / operational docs
 
 For the engineering-side of the platform — how to operate, deploy, debug, and extend:
@@ -28,6 +34,5 @@ For the engineering-side of the platform — how to operate, deploy, debug, and 
 
 ## Adjacent docs
 
-- [`HANDOFF.md`](./HANDOFF.md) — point-in-time session handover snapshot (commits, decisions, deferred work).
 - [`security-guidelines.md`](./security-guidelines.md) — agent runbook for security work (auth, server actions, IDOR, webhooks).
 - [`ui-design-guidelines.md`](./ui-design-guidelines.md) — agent runbook for UI work (Arena design system, performance patterns, accessibility).

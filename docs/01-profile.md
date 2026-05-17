@@ -67,6 +67,6 @@ All appearance changes are scoped to your own profile only — they don't affect
 ## 4. What happens when…
 
 - **You change your username.** The old profile URL stops resolving; visitors land on a 404. Anyone with the old link should be re-pointed.
-- **You leave a clan.** A 24-hour cooldown begins before you can earn the "join a clan" XP again — prevents farming join XP by repeated join/leave.
+- **You leave a clan.** A 10-hour cooldown begins before you can re-join a clan. Additionally, the `clan_join` XP grant is once-per-clan-id, so re-joining the same clan never grants XP again regardless of cooldown.
 - **You unlink a Riot account.** Cached stats are deleted, the PUUID lock is released, and the account becomes re-linkable on any ClanForge profile.
 - **An admin bans you.** All sessions are revoked, you can no longer sign in, and your profile shows a banned badge to admins viewing your detail page.

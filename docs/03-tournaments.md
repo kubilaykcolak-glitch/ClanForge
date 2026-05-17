@@ -88,6 +88,8 @@ Once registration is closed, the creator hits **Generate Bracket** on the tourna
 5. **For LoL tournaments only**: registers the tournament with Riot via Tournament-V5 (once), then mints one tournament code per non-bye match (allowedParticipants whitelisted to both captains' PUUIDs).
 6. Flips the tournament status to `live`.
 
+> ⚠️ **Known gap**: bracket generation creates **Round 1 only**. There is no code that auto-advances winners into Round 2 / 3 / etc. yet. Bracket views render multi-round columns but Round 2+ matches won't exist until this is built. Workaround: creator runs `finalizeTournament` once Round 1 is complete to skip directly to prize-payout computation. See [deep-dives/tournament-mechanics.md §4](./deep-dives/tournament-mechanics.md#4-️-the-round-2-advancement-gap) for the full explanation + design options for closing the gap.
+
 ---
 
 ## 5. Matches and result reporting

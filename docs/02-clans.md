@@ -51,7 +51,7 @@ From a public clan page, any non-member can hit **Join**. Two paths:
 - **Open join** (default for public clans): the user becomes a member immediately.
 - **Approval required**: clan opt-in. New requests land as `pending` members; an officer or leader accepts or rejects from the members panel.
 
-Joining is gated by a **24-hour cooldown** after leaving a clan — prevents farming join XP.
+Joining is gated by a **10-hour cooldown** after leaving a clan (`CLAN_JOIN_COOLDOWN_HOURS` in `src/lib/xp.ts`) — prevents farming join XP. Note: the `clan_join` XP rule is additionally `once_per_target` so re-joining the same clan grants nothing regardless of cooldown.
 
 ---
 

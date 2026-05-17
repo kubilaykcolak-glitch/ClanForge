@@ -6,22 +6,33 @@ Three layered systems: **personal XP** (your account level), **clan XP** (your c
 
 ## 1. Personal XP
 
-Earned passively as you use the site. Sources:
+Earned passively as you use the site. Canonical table from `src/lib/xp.ts → XP_RULES`:
 
-| Reason | When it fires | Amount |
-|---|---|---|
-| `daily_login` | First visit of the day | 50 |
-| `post_create` | Posting in a clan feed (rate-limited) | 5 |
-| `tournament_register` | Registering for any tournament | 25 |
-| `tournament_match_win` | Winning a bracket match | 100 |
-| `daily_mission_complete` | Completing a daily mission | snapshot |
-| `weekly_mission_complete` | Completing a weekly mission | snapshot |
-| `clan_mission_contribute` | Your clan completes a clan mission you contributed to | snapshot |
-| `clan_join` | Joining a clan (cooldown 24h to prevent farming) | 10 |
+| Reason | Amount | Rule type | Cap / dedup |
+|---|---|---|---|
+| `onboarding_complete` | 100 | `once_global` | First sign-up only |
+| `clan_create` | 200 | `once_global` | First clan created only |
+| `clan_join` | 50 | `once_per_target` | Once per distinct clanId; 10h cooldown after leaving |
+| `tournament_create` | 100 | `daily_cap` | Up to 2 / 24h |
+| `tournament_register` | 25 | `daily_cap` | Up to 4 / 24h |
+| `tournament_match_win` | 50 | `once_per_target` | Once per matchId |
+| `tournament_place_1` | 500 | `once_per_target` | Once per tournamentId |
+| `tournament_place_2` | 300 | `once_per_target` | Once per tournamentId |
+| `tournament_place_3` | 200 | `once_per_target` | Once per tournamentId |
+| `tournament_place_4_5` | 100 | `once_per_target` | Once per tournamentId |
+| `post_create` | 10 | `daily_cap` | 1 / 24h (anti-spam) |
+| `post_receive_like` | 2 | `daily_cap` | Up to 20 / 24h |
+| `challenge_complete` | 75 | `once_per_target` | Once per challengeId |
+| `member_recruit` | 30 | `once_per_target` | Once per recruited uid |
+| `daily_mission_complete` | snapshot | `once_per_target` | Once per (uid, day, templateId) |
+| `weekly_mission_complete` | snapshot | `once_per_target` | Once per (uid, week, templateId) |
+| `clan_mission_contribute` | snapshot | `once_per_target` | Once per (clan, mission, uid) |
 
-**Hard cap:** 1000 personal XP per call. **Idempotency:** every grant carries a target id, so rerunning the same action never double-grants.
+**Hard cap:** 1000 personal XP per call. **Idempotency:** every grant carries a target id (or is `once_global` / `daily_cap`), so retries never double-grant.
 
-*Implementation: rewards for missions are read from the user-specific mission doc, not supplied by the caller — clients can't inflate the reward.*
+**`daily_login` has no standalone XP reason** — the once-per-day login reward comes via the `d_login_1` mission template (10 XP), not directly from an XP rule.
+
+For the full mechanics including dedup formats, mission generation algorithm, and anti-farming defenses, see [deep-dives/xp-and-missions.md](./deep-dives/xp-and-missions.md).
 
 ---
 
