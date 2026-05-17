@@ -56,3 +56,24 @@ export type LeagueIntegration = IntegrationDoc<LeagueSnapshot> & {
   provider: "league";
   account: LeagueAccount;
 };
+
+// ─── Pending verification ─────────────────────────────────────────────────────
+//
+// Lives at /profiles/{uid}/integrations_pending/league while a user is in the
+// middle of the profile-icon ownership challenge. Once the user confirms and
+// we verify, the doc is deleted and a real LeagueIntegration is written.
+
+export interface LeaguePendingVerification {
+  puuid:         string;
+  region:        LolPlatformRegion;
+  gameName:      string;
+  tagLine:       string;
+  /** Icon ID we picked. The user must set their LoL profile icon to this. */
+  targetIconId:  number;
+  /** Icon ID we observed at the time the challenge was issued. We won't
+   * accept this as proof — they must change it. */
+  initialIconId: number;
+  startedAt:     Date;
+  /** Hard expiry. After this we drop the challenge and force a fresh attempt. */
+  expiresAt:     Date;
+}

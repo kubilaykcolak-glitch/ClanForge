@@ -92,6 +92,24 @@ service cloud.firestore {
         allow read:                if isSignedIn();
         allow create, update, delete: if false;
       }
+
+      // ─── /profiles/{userId}/integrations_pending/{provider} ────────────────
+      // Mid-flight ownership verification (profile-icon challenge). Owner-read
+      // so the UI can poll its own pending state if needed; server-only write.
+      match /integrations_pending/{provider} {
+        allow read:                if isOwner(userId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ─── /league_account_owners/{puuid} ───────────────────────────────────────
+    // Global uniqueness lock for Riot PUUIDs. One PUUID can only be claimed by
+    // one ClanForge profile. Any signed-in user can read (so we can show
+    // "this account is already linked to <user>" hints); server-only writes
+    // via Admin SDK inside a Firestore transaction.
+    match /league_account_owners/{puuid} {
+      allow read:                if isSignedIn();
+      allow create, update, delete: if false;
     }
 
     // ─── /usernames/{username} ────────────────────────────────────────────────

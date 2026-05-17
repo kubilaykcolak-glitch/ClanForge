@@ -96,19 +96,47 @@ async function buildLeagueSnapshot(
   };
 }
 
-// ─── linkLeagueAccount ────────────────────────────────────────────────────────
+// ─── Ownership verification configuration ────────────────────────────────────
 //
-// Resolves the user-entered Riot ID + region to a PUUID, fetches an initial
-// snapshot, and writes /profiles/{uid}/integrations/league. Owner-only.
+// Anti-fraud measure. Without RSO/OAuth (which requires separate Riot
+// partnership approval) the next-best ownership proof is the profile-icon
+// challenge — same approach Battlefy/Toornament/Challengermode use.
+//
+// We pick a target icon from the 28 default League profile icons (icon IDs
+// 1..28) — these come with every account at creation and never need to be
+// unlocked. The user has 10 minutes to set their LoL profile icon to it.
 
-export async function linkLeagueAccount(
+const VERIFICATION_ICON_POOL: readonly number[] = Array.from({ length: 28 }, (_, i) => i + 1);
+const VERIFICATION_TTL_MS = 10 * 60 * 1000;
+
+function pickTargetIcon(excludeIconId: number): number {
+  // Exclude the icon the user currently has so they MUST take action.
+  const choices = VERIFICATION_ICON_POOL.filter(i => i !== excludeIconId);
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
+// ─── startLeagueLinkVerification ──────────────────────────────────────────────
+//
+// Step 1 of the two-step link flow:
+//   1. Validate the Riot ID and resolve PUUID.
+//   2. Pre-check PUUID uniqueness — short-circuit early if someone else
+//      already owns this account (no point making the user wait through the
+//      icon challenge for a doomed link).
+//   3. Capture their current profile icon and pick a different target icon.
+//   4. Persist a pending-verification doc and return the target icon details
+//      to the UI.
+
+export async function startLeagueLinkVerification(
   uid: string,
   riotId: string,
   region: string,
 ): Promise<ActionResult<{
-  gameName: string;
-  tagLine:  string;
-  snapshot: LeagueSnapshot;
+  targetIconId:  number;
+  initialIconId: number;
+  gameName:      string;
+  tagLine:       string;
+  expiresAt:     string;
+  ddragonVersion: string;
 }>> {
   try {
     const sessionUid = await getSessionUid();
@@ -122,35 +150,55 @@ export async function linkLeagueAccount(
       return { success: false, error: "Riot ID must look like Name#TAG" };
     }
 
-    const account = await fetchAccountByRiotId(parsed.gameName, parsed.tagLine, region);
-    const snapshot = await buildLeagueSnapshot(account.puuid, region);
-
+    const account  = await fetchAccountByRiotId(parsed.gameName, parsed.tagLine, region);
     const { adminDb } = await import("@/lib/firebase/admin");
-    const now = new Date();
 
-    const doc: LeagueIntegration = {
-      provider:   "league",
-      linkedAt:   now,
-      lastSyncAt: now,
-      account: {
-        puuid:    account.puuid,
-        region,
-        gameName: account.gameName,
-        tagLine:  account.tagLine,
-      },
-      snapshot,
-    };
+    // Early uniqueness check (the authoritative one is the transaction in
+    // confirmLeagueLinkVerification — this just gives the user a fast "no"
+    // before they bother changing their icon).
+    const ownerSnap = await adminDb.collection("league_account_owners").doc(account.puuid).get();
+    if (ownerSnap.exists) {
+      const ownerUid = (ownerSnap.data() as { uid?: string }).uid;
+      if (ownerUid && ownerUid !== uid) {
+        return {
+          success: false,
+          error:   "This Riot account is already linked to another ClanForge profile. Unlink it there first.",
+        };
+      }
+    }
+
+    const { fetchSummonerByPuuid } = await import("@/lib/riot/client");
+    const summoner = await fetchSummonerByPuuid(account.puuid, region);
+
+    const initialIconId = summoner.profileIconId ?? 0;
+    const targetIconId  = pickTargetIcon(initialIconId);
+    const now           = new Date();
+    const expiresAt     = new Date(now.getTime() + VERIFICATION_TTL_MS);
 
     await adminDb
-      .collection("profiles")
-      .doc(uid)
-      .collection("integrations")
-      .doc("league")
-      .set(doc);
+      .collection("profiles").doc(uid)
+      .collection("integrations_pending").doc("league")
+      .set({
+        puuid:         account.puuid,
+        region,
+        gameName:      account.gameName,
+        tagLine:       account.tagLine,
+        targetIconId,
+        initialIconId,
+        startedAt:     now,
+        expiresAt,
+      });
 
     return {
       success: true,
-      data: { gameName: account.gameName, tagLine: account.tagLine, snapshot },
+      data: {
+        targetIconId,
+        initialIconId,
+        gameName:       account.gameName,
+        tagLine:        account.tagLine,
+        expiresAt:      expiresAt.toISOString(),
+        ddragonVersion: DDRAGON_VERSION,
+      },
     };
   } catch (err) {
     if (err instanceof RiotApiError) {
@@ -161,8 +209,158 @@ export async function linkLeagueAccount(
       if (err.status === 429) return { success: false, error: "Riot API rate-limited — try again in a moment" };
       return { success: false, error: `Riot API error (${err.status})` };
     }
-    const message = err instanceof Error ? err.message : "Failed to link account";
-    console.error("[linkLeagueAccount]", err);
+    const message = err instanceof Error ? err.message : "Failed to start verification";
+    console.error("[startLeagueLinkVerification]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ─── confirmLeagueLinkVerification ────────────────────────────────────────────
+//
+// Step 2 of the two-step link flow:
+//   1. Re-fetch summoner-v4 and verify the live profileIconId matches the
+//      target we issued.
+//   2. Build the initial snapshot.
+//   3. Inside a Firestore transaction:
+//        a. Re-check the owners doc for the PUUID. If someone else claimed it
+//           in the meantime (race), abort cleanly.
+//        b. Claim the PUUID for this uid (set /league_account_owners/{puuid}).
+//        c. Write the LeagueIntegration doc.
+//        d. Delete the pending-verification doc.
+//   Returns the same shape as the old linkLeagueAccount so the UI's success
+//   modal still works unchanged.
+
+export async function confirmLeagueLinkVerification(
+  uid: string,
+): Promise<ActionResult<{
+  gameName: string;
+  tagLine:  string;
+  snapshot: LeagueSnapshot;
+}>> {
+  try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const pendingRef = adminDb
+      .collection("profiles").doc(uid)
+      .collection("integrations_pending").doc("league");
+
+    const pendingSnap = await pendingRef.get();
+    if (!pendingSnap.exists) {
+      return { success: false, error: "No verification in progress. Start the link flow again." };
+    }
+
+    const pending = pendingSnap.data() as {
+      puuid?:        string;
+      region?:       string;
+      gameName?:     string;
+      tagLine?:      string;
+      targetIconId?: number;
+      expiresAt?:    { toDate?: () => Date } | Date | null;
+    };
+
+    const expiresAtMs = pending.expiresAt instanceof Date
+      ? pending.expiresAt.getTime()
+      : (pending.expiresAt as { toDate?: () => Date } | undefined)?.toDate?.().getTime() ?? 0;
+    if (Date.now() > expiresAtMs) {
+      await pendingRef.delete().catch(() => {});
+      return { success: false, error: "Verification expired. Please start again." };
+    }
+
+    if (!pending.puuid || !pending.region || !isLolPlatformRegion(pending.region) || typeof pending.targetIconId !== "number") {
+      return { success: false, error: "Pending verification is malformed. Start again." };
+    }
+
+    // Live check: does their profileIconId match what we asked for?
+    const { fetchSummonerByPuuid } = await import("@/lib/riot/client");
+    const summoner = await fetchSummonerByPuuid(pending.puuid, pending.region);
+    if (summoner.profileIconId !== pending.targetIconId) {
+      return {
+        success: false,
+        error:   `Profile icon doesn't match yet. Make sure you've changed it in the LoL client (it can take ~30s to refresh) and try again.`,
+      };
+    }
+
+    // Build the snapshot before the transaction so the transaction stays short.
+    const snapshot = await buildLeagueSnapshot(pending.puuid, pending.region);
+
+    // ── Transactional uniqueness claim ───────────────────────────────────────
+    const ownersRef = adminDb.collection("league_account_owners").doc(pending.puuid);
+    const integrationRef = adminDb
+      .collection("profiles").doc(uid)
+      .collection("integrations").doc("league");
+    const now = new Date();
+
+    await adminDb.runTransaction(async tx => {
+      const ownerSnap = await tx.get(ownersRef);
+      if (ownerSnap.exists) {
+        const ownerUid = (ownerSnap.data() as { uid?: string }).uid;
+        if (ownerUid && ownerUid !== uid) {
+          throw new Error("This Riot account is already linked to another ClanForge profile.");
+        }
+      }
+
+      tx.set(ownersRef, {
+        uid,
+        puuid:     pending.puuid,
+        claimedAt: now,
+      });
+
+      // Region was validated by isLolPlatformRegion above — safe cast.
+      const integration: LeagueIntegration = {
+        provider:   "league",
+        linkedAt:   now,
+        lastSyncAt: now,
+        account: {
+          puuid:    pending.puuid as string,
+          region:   pending.region as LeagueIntegration["account"]["region"],
+          gameName: pending.gameName ?? "",
+          tagLine:  pending.tagLine ?? "",
+        },
+        snapshot,
+      };
+      tx.set(integrationRef, integration);
+      tx.delete(pendingRef);
+    });
+
+    return {
+      success: true,
+      data: {
+        gameName: pending.gameName ?? "",
+        tagLine:  pending.tagLine ?? "",
+        snapshot,
+      },
+    };
+  } catch (err) {
+    if (err instanceof RiotApiError) {
+      if (err.status === 429) return { success: false, error: "Riot API rate-limited — try again in a moment" };
+      return { success: false, error: `Riot API error (${err.status})` };
+    }
+    const message = err instanceof Error ? err.message : "Failed to confirm verification";
+    console.error("[confirmLeagueLinkVerification]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ─── cancelLeagueLinkVerification ─────────────────────────────────────────────
+// Lets the user abandon a pending verification (e.g. they got the wrong icon
+// or want to start over with a different Riot ID).
+
+export async function cancelLeagueLinkVerification(uid: string): Promise<ActionResult> {
+  try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    await adminDb
+      .collection("profiles").doc(uid)
+      .collection("integrations_pending").doc("league")
+      .delete();
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to cancel";
+    console.error("[cancelLeagueLinkVerification]", err);
     return { success: false, error: message };
   }
 }
@@ -175,12 +373,30 @@ export async function unlinkLeagueAccount(uid: string): Promise<ActionResult> {
     if (sessionUid !== uid) return { success: false, error: "Forbidden" };
 
     const { adminDb } = await import("@/lib/firebase/admin");
-    await adminDb
-      .collection("profiles")
-      .doc(uid)
-      .collection("integrations")
-      .doc("league")
-      .delete();
+
+    // Read the integration to learn the PUUID — we need it to release the
+    // uniqueness lock so the account can be re-linked elsewhere.
+    const integrationRef = adminDb
+      .collection("profiles").doc(uid)
+      .collection("integrations").doc("league");
+    const snap = await integrationRef.get();
+    const puuid = snap.exists
+      ? (snap.data() as { account?: { puuid?: string } }).account?.puuid ?? null
+      : null;
+
+    // Transactional cleanup: delete the integration doc + the uniqueness
+    // claim, but ONLY release the claim if it actually points at this user
+    // (defence against a stale write from a previous owner).
+    await adminDb.runTransaction(async tx => {
+      tx.delete(integrationRef);
+      if (puuid) {
+        const ownersRef = adminDb.collection("league_account_owners").doc(puuid);
+        const ownerSnap = await tx.get(ownersRef);
+        if (ownerSnap.exists && (ownerSnap.data() as { uid?: string }).uid === uid) {
+          tx.delete(ownersRef);
+        }
+      }
+    });
 
     return { success: true };
   } catch (err) {
