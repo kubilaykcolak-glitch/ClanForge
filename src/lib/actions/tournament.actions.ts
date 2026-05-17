@@ -96,6 +96,22 @@ export async function registerForTournament(
         throw new Error("You are already registered for this tournament");
       }
 
+      // ── LoL provider guard ────────────────────────────────────────────
+      //
+      // Tournaments using Riot's Tournament API need every participant's
+      // PUUID to lock the lobby + identify match winners. The cleanest
+      // place to enforce that is here, at registration, so anyone who
+      // gets through has a linked account by the time bracket generation
+      // mints codes.
+      if (tourn.gameProvider === "league") {
+        const intSnap = await tx.get(
+          adminDb.collection("profiles").doc(uid).collection("integrations").doc("league"),
+        );
+        if (!intSnap.exists) {
+          throw new Error("Link your Riot account on your profile before registering for a League of Legends tournament");
+        }
+      }
+
       const seed = (tourn.participantCount as number) + 1;
 
       tx.set(participantRef, {
@@ -392,6 +408,17 @@ export async function generateBracket(
       return { success: false, error: "No registered participants to bracket" };
     }
 
+    // For LoL tournaments we register with Riot (if not already done) BEFORE
+    // creating matches — minting codes needs `riotTournamentId`.
+    const isLol = tourn.gameProvider === "league";
+    if (isLol) {
+      const { ensureRiotTournament } = await import("@/lib/actions/riot-tournament.actions");
+      const ensured = await ensureRiotTournament(tournamentId);
+      if (!ensured.success) {
+        return { success: false, error: ensured.error ?? "Could not register tournament with Riot" };
+      }
+    }
+
     const participantIds = shuffle(participantsSnap.docs.map(d => d.id));
 
     // Build match documents in a batch (Firestore batch limit is 500 writes)
@@ -399,6 +426,7 @@ export async function generateBracket(
     const matchesRef  = adminDb.collection("tournaments").doc(tournamentId).collection("matches");
     let matchNumber   = 1;
     let matchesCreated = 0;
+    const newMatchIds: string[] = [];
 
     for (let i = 0; i < participantIds.length; i += 2) {
       const participantAId = participantIds[i];
@@ -418,6 +446,7 @@ export async function generateBracket(
         scheduledAt:    null,
         completedAt:    isBye ? new Date() : null,
       });
+      if (!isBye) newMatchIds.push(matchRef.id);
 
       // Update participant seed to reflect their shuffled position
       const participantRef = adminDb
@@ -435,6 +464,24 @@ export async function generateBracket(
     batch.update(tournRef, { status: "live" });
 
     await batch.commit();
+
+    // ── Mint Riot tournament codes for LoL matches ─────────────────────────
+    //
+    // Run AFTER the batch commit because the codes are stored on the match
+    // docs we just created. Errors here don't roll back the bracket — the
+    // creator can hit "Sync codes" later (or polling reconcile picks it up).
+    // Sequential not parallel: Tournament-V5 stub returns one code per POST;
+    // 8 matches = 8 calls which is well within per-app rate limits.
+    if (isLol) {
+      const { mintMatchCode } = await import("@/lib/actions/riot-tournament.actions");
+      for (const matchId of newMatchIds) {
+        try {
+          await mintMatchCode(tournamentId, matchId);
+        } catch (err) {
+          console.error("[generateBracket→mintMatchCode]", matchId, err);
+        }
+      }
+    }
 
     return { success: true, data: { matchesCreated } };
   } catch (err) {

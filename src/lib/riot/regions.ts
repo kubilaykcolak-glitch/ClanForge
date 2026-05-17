@@ -55,3 +55,34 @@ export function regionalHost(region: LolPlatformRegion): string {
 export function isLolPlatformRegion(value: unknown): value is LolPlatformRegion {
   return typeof value === "string" && (LOL_PLATFORM_REGIONS as readonly string[]).includes(value);
 }
+
+// ─── Tournament-V5 region mapping ────────────────────────────────────────────
+//
+// Tournament-V5 uses a separate region enum from summoner-v4. PH/SG/TH/TW/VN
+// are not supported by the Tournament service — those servers don't run
+// tournament custom games. Returns null for unsupported platforms; callers
+// must surface a clear "region not supported" error.
+import type { TournamentRegion } from "./tournament";
+
+const PLATFORM_TO_TOURNAMENT_REGION: Record<LolPlatformRegion, TournamentRegion | null> = {
+  na1: "NA",  euw1: "EUW", eun1: "EUNE", kr: "KR",  jp1: "JP",
+  br1: "BR",  la1:  "LAN", la2:  "LAS",  oc1: "OCE",
+  tr1: "TR",  ru:   "RU",
+  ph2: null,  sg2: null,   th2:  null,   tw2: null, vn2: null,
+};
+
+export function platformToTournamentRegion(p: LolPlatformRegion): TournamentRegion | null {
+  return PLATFORM_TO_TOURNAMENT_REGION[p];
+}
+
+export const TOURNAMENT_REGION_LABELS: Record<TournamentRegion, string> = {
+  NA: "North America",  EUW: "Europe West", EUNE: "Europe Nordic & East",
+  KR: "Korea",          JP:  "Japan",
+  BR: "Brazil",         LAN: "Latin America North", LAS: "Latin America South",
+  OCE: "Oceania",       TR:  "Turkey",      RU: "Russia", PBE: "PBE",
+};
+
+export const TOURNAMENT_REGIONS: readonly TournamentRegion[] = [
+  "NA", "EUW", "EUNE", "KR", "JP",
+  "BR", "LAN", "LAS", "OCE", "TR", "RU",
+] as const;

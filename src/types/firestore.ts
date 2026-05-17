@@ -163,6 +163,17 @@ export interface Tournament {
   rosterLockedAt: Date;
   participantCount: number;
   createdAt: Date;
+
+  // ─── Live-game integration (LoL only for v1) ────────────────────────────
+  /** Which third-party game-result provider verifies matches in this
+   * tournament. `null`/absent = no integration; results reported manually. */
+  gameProvider?: "league" | null;
+  /** Riot platform region this tournament's lobbies are hosted in.
+   * Required when gameProvider === "league". */
+  riotRegion?: import("../lib/riot/tournament").TournamentRegion | null;
+  /** Numeric tournamentId returned by Riot's Tournament-V5 /tournaments
+   * registration call. Codes are minted against this id. */
+  riotTournamentId?: number | null;
 }
 
 // ─── TournamentParticipant ────────────────────────────────────────────────────
@@ -221,6 +232,17 @@ export interface TournamentMatch {
   status: MatchStatus;
   scheduledAt?: Date;
   completedAt?: Date;
+
+  // ─── Live-game integration ──────────────────────────────────────────────
+  /** Riot tournament code the two players paste into the LoL client. Set
+   * when the parent tournament has gameProvider === "league". */
+  riotTournamentCode?: string | null;
+  /** Verbatim Riot callback payload, kept for audit + dispute trail. */
+  riotResultRaw?: Record<string, unknown> | null;
+  /** Source of the recorded result. "manual" = reportMatchResult human
+   * input; "riot_callback" = trusted Riot POST; "riot_poll" = polling
+   * fallback fetched results we hadn't received a callback for. */
+  resultSource?: "manual" | "riot_callback" | "riot_poll";
 }
 
 // ─── ClanChallenge ────────────────────────────────────────────────────────────

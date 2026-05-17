@@ -127,17 +127,20 @@ async function getPageData(id: string): Promise<PageData | null> {
   const matches: TournamentMatch[] = matchesSnap.docs.map(d => {
     const data = d.data();
     return {
-      id:             d.id,
-      round:          data.round as number,
-      matchNumber:    data.matchNumber as number,
-      participantAId: data.participantAId as string,
-      participantBId: data.participantBId as string,
-      winnerId:       data.winnerId as string | undefined,
-      scoreA:         (data.scoreA as number) ?? 0,
-      scoreB:         (data.scoreB as number) ?? 0,
-      status:         data.status ?? "pending",
-      scheduledAt:    data.scheduledAt?.toDate?.(),
-      completedAt:    data.completedAt?.toDate?.(),
+      id:                 d.id,
+      round:              data.round as number,
+      matchNumber:        data.matchNumber as number,
+      participantAId:     data.participantAId as string,
+      participantBId:     data.participantBId as string,
+      winnerId:           data.winnerId as string | undefined,
+      scoreA:             (data.scoreA as number) ?? 0,
+      scoreB:             (data.scoreB as number) ?? 0,
+      status:             data.status ?? "pending",
+      scheduledAt:        data.scheduledAt?.toDate?.(),
+      completedAt:        data.completedAt?.toDate?.(),
+      // Live-game integration fields (LoL). Plain strings — no Date conversion.
+      riotTournamentCode: (data.riotTournamentCode as string | null | undefined) ?? null,
+      resultSource:       data.resultSource as TournamentMatch["resultSource"],
     } as TournamentMatch;
   });
 

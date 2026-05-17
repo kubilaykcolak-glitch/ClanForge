@@ -9,6 +9,11 @@ import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
 import type { PrizeSplit, TournamentFormat } from "@/types";
 import { DateTimePicker } from "@/components/ui/DateTimePicker";
+import {
+  TOURNAMENT_REGIONS,
+  TOURNAMENT_REGION_LABELS,
+} from "@/lib/riot/regions";
+import type { TournamentRegion } from "@/lib/riot/tournament";
 import { validateImageFile } from "@/lib/uploads";
 import {
   PRIZE_SPLIT_PRESETS,
@@ -240,6 +245,9 @@ interface Step1State {
   format:      TournamentFormat | "";
   bannerFile:  File | null;
   bannerPreview: string | null;
+  /** Only meaningful when game === "League of Legends" — the platform region
+   * Riot will host all tournament-code lobbies in. */
+  riotRegion?: TournamentRegion | "";
 }
 
 interface Step1Props {
@@ -406,6 +414,31 @@ function Step1({ state, onChange, errors }: Step1Props) {
         </div>
         {errors.format && <p className="text-xs" style={{ color: "var(--danger)" }}>{errors.format}</p>}
       </Section>
+
+      {/* League of Legends — region picker. Only shown when LoL is the picked
+          game. Required for Riot's Tournament-V5 code generation. */}
+      {state.game === "League of Legends" && (
+        <Section title="League of Legends Server">
+          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+            All match lobbies will run on this server. Players must have a Riot
+            account on this region to participate. Match results will be pulled
+            automatically from Riot when each game ends.
+          </p>
+          <select
+            value={state.riotRegion ?? ""}
+            onChange={e => onChange({ riotRegion: (e.target.value || "") as TournamentRegion | "" })}
+            style={inputStyle()}
+            onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+            onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
+          >
+            <option value="">— Select server —</option>
+            {TOURNAMENT_REGIONS.map(r => (
+              <option key={r} value={r}>{TOURNAMENT_REGION_LABELS[r]} ({r})</option>
+            ))}
+          </select>
+          {errors.riotRegion && <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>{errors.riotRegion}</p>}
+        </Section>
+      )}
 
       {/* Banner upload */}
       <Section title="Banner Image">
@@ -812,6 +845,7 @@ export default function CreateTournamentPage() {
     format:        "",
     bannerFile:    null,
     bannerPreview: null,
+    riotRegion:    "",
   });
 
   const [s2, setS2] = useState<Step2State>({
@@ -867,6 +901,8 @@ export default function CreateTournamentPage() {
       e.game = "Select a game";
     if (!s1.format)
       e.format = "Select a format";
+    if (s1.game === "League of Legends" && !s1.riotRegion)
+      e.riotRegion = "Select the League of Legends server";
     setErrors1(e);
     return Object.keys(e).length === 0;
   };
@@ -959,6 +995,8 @@ export default function CreateTournamentPage() {
       const entryFeePence = s2.isPaid ? Math.round(s2.entryFee * 100) : 0;
       const prizePoolPence = s2.isPaid ? 0 : s2.prizePool * 100; // grows via paid registrations
 
+      const isLol = s1.game === "League of Legends";
+
       const docRef = await addDoc(collection(db, "tournaments"), {
         name:                 s1.name.trim(),
         game:                 s1.game,
@@ -972,6 +1010,13 @@ export default function CreateTournamentPage() {
         ...(s2.isPaid && {
           prizeSplit:     s2.prizeSplit,
           platformFeePct: DEFAULT_PLATFORM_FEE_PCT,
+        }),
+        ...(isLol && {
+          // Live-game integration. The presence of these fields tells the
+          // bracket-generator + registration flow to enforce Riot-account
+          // linking and auto-mint tournament codes.
+          gameProvider: "league",
+          riotRegion:   s1.riotRegion,
         }),
         registrationClosesAt: s2.registrationClosesAt,
         startsAt:             s2.startsAt,

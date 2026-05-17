@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { Copy, Check } from "lucide-react";
 import type { TournamentMatch } from "@/types";
 
 interface BracketViewProps {
@@ -60,6 +64,48 @@ function PlaceholderBracket() {
   );
 }
 
+// ── Tournament code chip ─────────────────────────────────────────────────────
+//
+// LoL-only. Shows the Riot tournament code with a copy button. Both
+// participants paste the code into their LoL client (Play → Tournament) to
+// join the auto-configured custom lobby.
+
+function TournamentCodeChip({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — user can still read the code */ }
+  };
+
+  return (
+    <div
+      title="Tournament code — paste in your LoL client: Play → Tournaments"
+      className="flex items-center gap-1 px-2 py-1 border-t text-[10px]"
+      style={{
+        background:   "rgba(99,102,241,0.08)",
+        borderColor:  "var(--border-subtle)",
+        color:        "var(--accent)",
+      }}
+    >
+      <span className="font-mono truncate flex-1" style={{ fontSize: 9 }}>
+        {code}
+      </span>
+      <button
+        type="button"
+        onClick={onCopy}
+        className="shrink-0 p-0.5 rounded transition-colors"
+        style={{ color: "var(--text-muted)" }}
+        aria-label="Copy tournament code"
+      >
+        {copied ? <Check size={10} /> : <Copy size={10} />}
+      </button>
+    </div>
+  );
+}
+
 // ── Match box ─────────────────────────────────────────────────────────────────
 
 function MatchBox({
@@ -78,6 +124,10 @@ function MatchBox({
   const aWins    = match.status === "complete" && match.winnerId === match.participantAId;
   const bWins    = match.status === "complete" && match.winnerId === match.participantBId;
 
+  const showCode = match.status !== "complete"
+    && match.participantBId !== "BYE"
+    && !!match.riotTournamentCode;
+
   return (
     <div
       className="rounded-lg overflow-hidden text-xs"
@@ -94,6 +144,17 @@ function MatchBox({
           style={{ background: "rgba(245,158,11,0.1)", color: "var(--warning)" }}
         >
           DISPUTED
+        </div>
+      )}
+
+      {/* Auto-verify badge (LoL only) */}
+      {match.resultSource === "riot_callback" && (
+        <div
+          className="px-2 py-0.5 text-center text-[10px] font-semibold"
+          style={{ background: "rgba(34,197,94,0.10)", color: "var(--success)" }}
+          title="Result verified automatically by Riot"
+        >
+          AUTO-VERIFIED
         </div>
       )}
 
@@ -141,6 +202,9 @@ function MatchBox({
           </span>
         )}
       </div>
+
+      {/* Tournament code (LoL only, before completion) */}
+      {showCode && <TournamentCodeChip code={match.riotTournamentCode as string} />}
     </div>
   );
 }
