@@ -30,6 +30,13 @@ export interface Profile {
   isAdmin: boolean;
   /** When true the profile is excluded from all search and directory queries. */
   isPrivate?: boolean;
+  // ─── Moderation state (set by admin actions, never client-writable) ────
+  /** Set when an admin bans the user. Reads of banned profiles return
+   * gracefully; writes by the banned user are rejected via Firestore rules
+   * + session disabling. Cleared on unban. */
+  bannedAt?:     Date | null;
+  bannedBy?:     string | null;     // admin uid
+  bannedReason?: string | null;     // human reason from the audit log entry
   /** Firestore document ID of the clan this user belongs to. */
   clanId?: string | null;
   /** Denormalised from /clans/{clanId}.clanTag — avoids a join on profile reads. */
