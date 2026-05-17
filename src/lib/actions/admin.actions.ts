@@ -197,6 +197,253 @@ export async function getMyRole(): Promise<ActionResult<{ role: Role | null }>> 
   }
 }
 
+// ─── listAuditLog ─────────────────────────────────────────────────────────────
+//
+// Admin+ readonly view of recent audit-log entries. Paginated by `at`
+// timestamp descending. Pass `before` (ISO string) to fetch the next page.
+
+export async function listAuditLog(opts: {
+  before?:     string;
+  pageSize?:   number;
+  actionLike?: string;
+}): Promise<ActionResult<{
+  items: Array<{
+    id:         string;
+    actor:      string;
+    actorRole:  Role | null;
+    action:     string;
+    targetType: string;
+    targetId:   string;
+    reason:     string;
+    result:     "success" | "failure";
+    errorMsg:   string | null;
+    metadata:   Record<string, unknown> | null;
+    ip:         string | null;
+    at:         string;
+  }>;
+  hasMore: boolean;
+}>> {
+  try {
+    const session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 10), 200);
+
+    let q = adminDb.collection("admin_audit").orderBy("at", "desc").limit(pageSize + 1);
+    if (opts.before) q = q.startAfter(new Date(opts.before));
+    if (opts.actionLike && opts.actionLike.trim()) {
+      // Firestore can't do contains; use action == exact for now. Future:
+      // denormalize a top-level `actionPrefix` for prefix search.
+      q = adminDb.collection("admin_audit").where("action", "==", opts.actionLike.trim()).orderBy("at", "desc").limit(pageSize + 1);
+      if (opts.before) q = q.startAfter(new Date(opts.before));
+    }
+
+    const snap = await q.get();
+    const items = snap.docs.slice(0, pageSize).map(d => {
+      const data = d.data() as Record<string, unknown>;
+      const at = data.at instanceof Date ? data.at
+        : (data.at as { toDate?: () => Date } | undefined)?.toDate?.()
+        ?? new Date();
+      return {
+        id:         d.id,
+        actor:      (data.actor as string) ?? "(unknown)",
+        actorRole:  isRole(data.actorRole) ? data.actorRole : null,
+        action:     (data.action     as string) ?? "?",
+        targetType: (data.targetType as string) ?? "?",
+        targetId:   (data.targetId   as string) ?? "?",
+        reason:     (data.reason     as string) ?? "",
+        result:     (data.result === "failure" ? "failure" : "success") as "success" | "failure",
+        errorMsg:   (data.errorMsg   as string | null) ?? null,
+        metadata:   (data.metadata   as Record<string, unknown> | null) ?? null,
+        ip:         (data.ip         as string | null) ?? null,
+        at:         at.toISOString(),
+      };
+    });
+
+    return {
+      success: true,
+      data: { items, hasMore: snap.size > pageSize },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
+// ─── adminGetUser ─────────────────────────────────────────────────────────────
+//
+// Admin+ read-only view of a user — combines the Firestore profile with the
+// Firebase auth record (so we can show email + claim role + disabled state).
+// Audit-logged as a sensitive read so we can spot mass-snooping later.
+
+export async function adminGetUser(targetUid: string): Promise<ActionResult<{
+  uid:          string;
+  email:        string | null;
+  emailVerified: boolean;
+  disabled:     boolean;
+  role:         Role | null;
+  createdAt:    string | null;
+  lastSignInAt: string | null;
+  profile:      {
+    username:          string | null;
+    displayName:       string | null;
+    avatarUrl:         string | null;
+    xp:                number;
+    tournamentsPlayed: number;
+    tournamentsWon:    number;
+    isVerified:        boolean;
+    isPrivate:         boolean;
+    bannedAt:          string | null;
+    bannedReason:      string | null;
+    clanName:          string | null;
+    clanSlug:          string | null;
+  };
+}>> {
+  let session: Awaited<ReturnType<typeof getSessionWithRole>>;
+  try {
+    session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+  } catch {
+    return { success: false, error: "Unauthenticated" };
+  }
+
+  try {
+    const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
+    const [authRec, profileSnap] = await Promise.all([
+      adminAuth.getUser(targetUid).catch(() => null),
+      adminDb.collection("profiles").doc(targetUid).get(),
+    ]);
+
+    if (!authRec) return { success: false, error: "User not found" };
+
+    const claimRole = authRec.customClaims?.role as string | undefined;
+    const role: Role | null = isRole(claimRole) ? claimRole : null;
+    const p = profileSnap.exists ? (profileSnap.data() as Record<string, unknown>) : {};
+    const toIso = (v: unknown): string | null => {
+      if (v instanceof Date) return v.toISOString();
+      const d = (v as { toDate?: () => Date } | undefined)?.toDate?.();
+      return d ? d.toISOString() : null;
+    };
+
+    return {
+      success: true,
+      data: {
+        uid:           authRec.uid,
+        email:         authRec.email ?? null,
+        emailVerified: authRec.emailVerified,
+        disabled:      authRec.disabled,
+        role,
+        createdAt:    authRec.metadata.creationTime ?? null,
+        lastSignInAt: authRec.metadata.lastSignInTime ?? null,
+        profile: {
+          username:          (p.username    as string | null) ?? null,
+          displayName:       (p.displayName as string | null) ?? null,
+          avatarUrl:         (p.avatarUrl   as string | null) ?? null,
+          xp:                (p.xp as number) ?? 0,
+          tournamentsPlayed: (p.tournamentsPlayed as number) ?? 0,
+          tournamentsWon:    (p.tournamentsWon    as number) ?? 0,
+          isVerified:        !!p.isVerified,
+          isPrivate:         !!p.isPrivate,
+          bannedAt:          toIso(p.bannedAt),
+          bannedReason:      (p.bannedReason as string | null) ?? null,
+          clanName:          (p.clanName as string | null) ?? null,
+          clanSlug:          (p.clanSlug as string | null) ?? null,
+        },
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
+// ─── adminSearchUsers ─────────────────────────────────────────────────────────
+//
+// Admin+ user lookup. Tries each of these in turn (stops at first hit):
+//   1. exact uid match (if the query looks like a Firebase uid: 28 chars)
+//   2. exact email match (via Firebase Auth)
+//   3. exact username match (via /usernames/{lower})
+//   4. username prefix (Firestore range query, limit 20)
+
+export async function adminSearchUsers(query: string): Promise<ActionResult<Array<{
+  uid:         string;
+  username:    string | null;
+  displayName: string | null;
+  email:       string | null;
+  role:        Role | null;
+  banned:      boolean;
+}>>> {
+  try {
+    const session = await getSessionWithRole();
+    if (!session.role || !["admin", "super_admin"].includes(session.role)) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const trimmed = (query ?? "").trim();
+    if (trimmed.length === 0) return { success: true, data: [] };
+
+    const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
+    const matchedUids = new Set<string>();
+
+    // 1. uid
+    if (/^[A-Za-z0-9]{20,40}$/.test(trimmed)) matchedUids.add(trimmed);
+
+    // 2. email
+    if (trimmed.includes("@")) {
+      const u = await adminAuth.getUserByEmail(trimmed).catch(() => null);
+      if (u) matchedUids.add(u.uid);
+    }
+
+    // 3. exact username
+    const exact = await adminDb.collection("usernames").doc(trimmed.toLowerCase()).get();
+    if (exact.exists) {
+      const uid = (exact.data() as { uid?: string }).uid;
+      if (uid) matchedUids.add(uid);
+    }
+
+    // 4. username prefix (Firestore range trick)
+    if (trimmed.length >= 2) {
+      const lo = trimmed.toLowerCase();
+      const hi = lo + "";
+      const prefix = await adminDb.collection("usernames")
+        .where("__name__", ">=", lo)
+        .where("__name__", "<=", hi)
+        .limit(20)
+        .get();
+      prefix.docs.forEach(d => {
+        const uid = (d.data() as { uid?: string }).uid;
+        if (uid) matchedUids.add(uid);
+      });
+    }
+
+    if (matchedUids.size === 0) return { success: true, data: [] };
+
+    const results = await Promise.all(Array.from(matchedUids).slice(0, 25).map(async uid => {
+      const [u, p] = await Promise.all([
+        adminAuth.getUser(uid).catch(() => null),
+        adminDb.collection("profiles").doc(uid).get(),
+      ]);
+      const pd = p.exists ? (p.data() as Record<string, unknown>) : {};
+      const claimRole = u?.customClaims?.role as string | undefined;
+      return {
+        uid,
+        username:    (pd.username    as string | null) ?? null,
+        displayName: (pd.displayName as string | null) ?? null,
+        email:       u?.email ?? null,
+        role:        isRole(claimRole) ? claimRole : null,
+        banned:      !!pd.bannedAt,
+      };
+    }));
+
+    return { success: true, data: results };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" };
+  }
+}
+
 // ─── listRoleHolders ──────────────────────────────────────────────────────────
 //
 // Super_admin only. Lists all users with any elevated role. Reads custom

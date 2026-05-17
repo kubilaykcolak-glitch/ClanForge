@@ -17,7 +17,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify the ID token is valid before creating a session
-    await adminAuth.verifyIdToken(idToken);
+    const decoded = await adminAuth.verifyIdToken(idToken);
+
+    // Block banned users at the session-mint step. We already disable the
+    // auth user on ban (kills refresh + revokes tokens) but this is the
+    // belt-and-braces gate: even a brief race in which the user has a fresh
+    // ID token from before the ban gets caught here. Reads the auth record
+    // server-side rather than trusting the JWT.
+    const userRecord = await adminAuth.getUser(decoded.uid).catch(() => null);
+    if (!userRecord || userRecord.disabled) {
+      return NextResponse.json({ error: "Account suspended" }, { status: 403 });
+    }
 
     // Create a session cookie valid for 5 days
     const sessionCookie = await adminAuth.createSessionCookie(idToken, {
