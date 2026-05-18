@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
-import { getAllChallenges } from "@/lib/actions/challenge.actions";
-import { updateChallengeStatus } from "@/lib/actions/challenge.actions";
+import { Plus, ChevronDown } from "lucide-react";
+import { getAllChallenges, updateChallengeStatus } from "@/lib/actions/challenge.actions";
 import { redirect } from "next/navigation";
 import type { ChallengeStatus } from "@/types";
 
-// ── Server actions for status updates ────────────────────────────────────────
+// ─── Server actions for status updates ────────────────────────────────────────
 
 async function activateChallenge(formData: FormData) {
   "use server";
@@ -21,7 +20,7 @@ async function cancelChallenge(formData: FormData) {
   redirect("/admin/challenges");
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
+// ─── Status palette ───────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<ChallengeStatus, string> = {
   upcoming:  "rgba(99,102,241,0.15)",
@@ -37,7 +36,13 @@ const STATUS_TEXT: Record<ChallengeStatus, string> = {
   cancelled: "var(--danger)",
 };
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ─── Page ──────────────────────────────────────────────────────────────────────
+//
+// Server-rendered list with a native <details>/<summary> per row. Each summary
+// shows the headline info (title, status, type, target, end date); expanding
+// reveals the full description + every reward + dates + season + audit info
+// without needing a separate "view" page. Native <details> keeps this a pure
+// server component (no client JS).
 
 export default async function AdminChallengesPage() {
   const result = await getAllChallenges();
@@ -72,62 +77,163 @@ export default async function AdminChallengesPage() {
           style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
         >
           {challenges.map((c, i) => (
-            <div
+            <details
               key={c.id}
-              className="px-5 py-4 flex items-center gap-4"
+              className="group"
               style={{ borderBottom: i < challenges.length - 1 ? "1px solid var(--border-subtle)" : "none" }}
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>
-                    {c.title}
-                  </span>
-                  <span
-                    className="text-xs px-2 py-0.5 rounded-full shrink-0"
-                    style={{ background: STATUS_COLORS[c.status], color: STATUS_TEXT[c.status] }}
-                  >
-                    {c.status}
-                  </span>
-                  <span className="text-xs capitalize shrink-0" style={{ color: "var(--text-muted)" }}>
-                    {c.duration}
-                  </span>
+              {/* ── Summary row (collapsed view) ─────────────────────────────── */}
+              <summary
+                className="px-5 py-4 flex items-center gap-4 cursor-pointer list-none"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <ChevronDown
+                  size={14}
+                  className="shrink-0 transition-transform group-open:rotate-180"
+                  style={{ color: "var(--text-muted)" }}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>
+                      {c.title}
+                    </span>
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                      style={{ background: STATUS_COLORS[c.status], color: STATUS_TEXT[c.status] }}
+                    >
+                      {c.status}
+                    </span>
+                    <span className="text-xs capitalize shrink-0" style={{ color: "var(--text-muted)" }}>
+                      {c.duration}
+                    </span>
+                  </div>
+                  <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>
+                    {c.type.replace(/_/g, " ")} · Target: {c.targetValue} · {c.pointValue} pts
+                    · Ends {new Date(c.endAt).toLocaleDateString()}
+                  </p>
                 </div>
-                <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>
-                  {c.type.replace(/_/g, " ")} · Target: {c.targetValue} · {c.pointValue} pts
-                  · Ends {new Date(c.endAt).toLocaleDateString()}
-                </p>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {c.status === "upcoming" && (
-                  <form action={activateChallenge}>
-                    <input type="hidden" name="id" value={c.id} />
-                    <button
-                      type="submit"
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                      style={{ background: "rgba(34,197,94,0.12)", color: "var(--success)", border: "1px solid rgba(34,197,94,0.25)" }}
+                {/* Action buttons — wrap in span to dodge the <summary>'s default
+                    toggle-on-click. Buttons live inside forms which submit
+                    independently. */}
+                <span className="flex items-center gap-2 shrink-0">
+                  {c.status === "upcoming" && (
+                    <form action={activateChallenge}>
+                      <input type="hidden" name="id" value={c.id} />
+                      <button
+                        type="submit"
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                        style={{ background: "rgba(34,197,94,0.12)", color: "var(--success)", border: "1px solid rgba(34,197,94,0.25)" }}
+                      >
+                        Activate
+                      </button>
+                    </form>
+                  )}
+                  {(c.status === "active" || c.status === "upcoming") && (
+                    <form action={cancelChallenge}>
+                      <input type="hidden" name="id" value={c.id} />
+                      <button
+                        type="submit"
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                        style={{ background: "rgba(239,68,68,0.08)", color: "var(--danger)", border: "1px solid rgba(239,68,68,0.2)" }}
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  )}
+                </span>
+              </summary>
+
+              {/* ── Expanded detail panel ────────────────────────────────────── */}
+              <div
+                className="px-5 pb-5"
+                style={{ background: "rgba(99,102,241,0.03)" }}
+              >
+                <div
+                  className="rounded-xl p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}
+                >
+                  {/* Description */}
+                  <div className="md:col-span-2">
+                    <p
+                      className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                      style={{ color: "var(--text-muted)" }}
                     >
-                      Activate
-                    </button>
-                  </form>
-                )}
-                {(c.status === "active" || c.status === "upcoming") && (
-                  <form action={cancelChallenge}>
-                    <input type="hidden" name="id" value={c.id} />
-                    <button
-                      type="submit"
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                      style={{ background: "rgba(239,68,68,0.08)", color: "var(--danger)", border: "1px solid rgba(239,68,68,0.2)" }}
+                      Description
+                    </p>
+                    <p
+                      className="text-xs whitespace-pre-wrap"
+                      style={{ color: "var(--text-secondary)" }}
                     >
-                      Cancel
-                    </button>
-                  </form>
-                )}
+                      {c.description || <em style={{ color: "var(--text-muted)" }}>(none)</em>}
+                    </p>
+                  </div>
+
+                  {/* Identification */}
+                  <Section title="Identification">
+                    <Row label="ID"       value={c.id} mono />
+                    <Row label="Type"     value={c.type.replace(/_/g, " ")} />
+                    <Row label="Duration" value={c.duration} />
+                    <Row label="Season"   value={c.seasonId ?? "—"} mono={!!c.seasonId} />
+                  </Section>
+
+                  {/* Goal */}
+                  <Section title="Goal">
+                    <Row label="Target value" value={String(c.targetValue)} />
+                    <Row label="Point value"  value={`${c.pointValue} pts`} />
+                  </Section>
+
+                  {/* Rewards */}
+                  <Section title="Rewards">
+                    <Row label="Member XP" value={c.memberXpReward > 0 ? `+${c.memberXpReward}` : "—"} />
+                    <Row label="Clan XP"   value={c.clanXpReward   > 0 ? `+${c.clanXpReward}`   : "—"} />
+                    <Row label="Badge"     value={c.badgeReward ?? "—"} />
+                    <Row label="Title"     value={c.titleReward ?? "—"} />
+                  </Section>
+
+                  {/* Timeline + audit */}
+                  <Section title="Timeline">
+                    <Row label="Starts"     value={new Date(c.startAt).toLocaleString()} />
+                    <Row label="Ends"       value={new Date(c.endAt).toLocaleString()} />
+                    <Row label="Created at" value={new Date(c.createdAt).toLocaleString()} />
+                    <Row label="Created by" value={c.createdBy} mono />
+                  </Section>
+                </div>
               </div>
-            </div>
+            </details>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Layout helpers (local — local to this file by design) ───────────────────
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p
+        className="text-[10px] font-bold uppercase tracking-wider mb-1"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>{label}</span>
+      <span
+        className={`text-xs text-right truncate ${mono ? "font-mono" : ""}`}
+        style={{ color: "var(--text-primary)" }}
+      >
+        {value}
+      </span>
     </div>
   );
 }

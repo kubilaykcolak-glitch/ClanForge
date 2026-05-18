@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Trophy, Clock, ChevronRight, Zap } from "lucide-react";
+import { Trophy, Clock, ChevronRight, Zap, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { getClanActiveChallenges, type ClanChallengeWidgetData } from "@/lib/actions/challenge.actions";
 import { ChallengeProgressBar } from "./ChallengeProgressBar";
 
@@ -47,6 +47,7 @@ export function ClanChallengesWidget({ clanId }: Props) {
   const [data,    setData]    = useState<ClanChallengeWidgetData[]>([]);
   const [loading, setLoading] = useState(true);
   const [active,  setActive]  = useState(0); // index of selected challenge
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     getClanActiveChallenges(clanId).then(result => {
@@ -143,15 +144,31 @@ export function ClanChallengesWidget({ clanId }: Props) {
       <div className="px-5 pt-4 pb-5">
         {/* Challenge header */}
         <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-xs font-medium mb-0.5" style={{ color: "var(--accent)" }}>
               {TYPE_ICONS[challenge.type]} {TYPE_LABELS[challenge.type] ?? challenge.type}
               {" · "}
               <span className="capitalize">{challenge.duration}</span>
             </p>
-            <h3 className="font-display font-semibold text-base leading-tight" style={{ color: "var(--text-primary)" }}>
-              {challenge.title}
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-display font-semibold text-base leading-tight" style={{ color: "var(--text-primary)" }}>
+                {challenge.title}
+              </h3>
+              {/* Clickable info icon — toggles the details panel below.
+                  Keeps the row compact at rest, surfaces the full
+                  description + "how to complete" criteria on demand. */}
+              <button
+                type="button"
+                onClick={() => setShowDetails(v => !v)}
+                aria-expanded={showDetails}
+                aria-label={showDetails ? "Hide challenge details" : "Show challenge details"}
+                title="How to complete this challenge"
+                className="p-0.5 rounded transition-colors"
+                style={{ color: showDetails ? "var(--accent)" : "var(--text-muted)" }}
+              >
+                <Info size={13} />
+              </button>
+            </div>
             <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>
               {challenge.description}
             </p>
@@ -173,6 +190,64 @@ export function ClanChallengesWidget({ clanId }: Props) {
             )}
           </div>
         </div>
+
+        {/* Expanded details panel — shown when the info button is toggled.
+            Contains the full (un-clamped) description plus the criteria a
+            clan needs to satisfy. */}
+        {showDetails && (
+          <div
+            className="mb-3 rounded-xl p-3 flex flex-col gap-2"
+            style={{
+              background: "var(--bg-elevated)",
+              border:     "1px solid var(--border-subtle)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <p
+                className="text-[10px] font-bold uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
+                How to complete
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowDetails(false)}
+                aria-label="Hide details"
+                className="p-0.5"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <ChevronUp size={12} />
+              </button>
+            </div>
+            <p
+              className="text-xs whitespace-pre-wrap"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {challenge.description || <em style={{ color: "var(--text-muted)" }}>No description provided.</em>}
+            </p>
+            <div
+              className="grid grid-cols-2 gap-2 mt-1 pt-2"
+              style={{ borderTop: "1px solid var(--border-subtle)" }}
+            >
+              <DetailCell label="Action"  value={TYPE_LABELS[challenge.type] ?? challenge.type} />
+              <DetailCell label="Target"  value={`${challenge.targetValue}`} />
+              <DetailCell label="Points"  value={`${challenge.pointValue} pts`} />
+              {challenge.memberXpReward > 0 && (
+                <DetailCell label="Member XP"  value={`+${challenge.memberXpReward}`} />
+              )}
+              {challenge.clanXpReward > 0 && (
+                <DetailCell label="Clan XP"    value={`+${challenge.clanXpReward}`} />
+              )}
+              {challenge.badgeReward && (
+                <DetailCell label="Badge"      value={challenge.badgeReward} />
+              )}
+              {challenge.titleReward && (
+                <DetailCell label="Title"      value={challenge.titleReward} />
+              )}
+              <DetailCell label="Ends"   value={new Date(challenge.endAt).toLocaleString()} />
+            </div>
+          </div>
+        )}
 
         {/* Progress */}
         <div className="mb-4">
@@ -252,3 +327,25 @@ export function ClanChallengesWidget({ clanId }: Props) {
     </div>
   );
 }
+
+// ─── DetailCell ──────────────────────────────────────────────────────────────
+// Small label/value pair used inside the expanded details panel. Kept local
+// to the file since the dashboard widget renders a slightly different layout
+// and a shared helper would force layout coupling without obvious benefit.
+
+function DetailCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+        {label}
+      </span>
+      <span className="text-xs" style={{ color: "var(--text-primary)" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// (Imported for parity with the unused-import linter — used in the future
+// "down chevron" affordance.)
+void ChevronDown;
