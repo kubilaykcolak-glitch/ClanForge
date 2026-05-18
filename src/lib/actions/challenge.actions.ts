@@ -134,12 +134,16 @@ export async function createChallenge(
 
     const ref = await adminDb.collection("challenges").add({
       ...input,
-      badgeReward:  input.badgeReward  ?? null,
-      titleReward:  input.titleReward  ?? null,
-      seasonId:     input.seasonId     ?? null,
+      badgeReward:        input.badgeReward  ?? null,
+      titleReward:        input.titleReward  ?? null,
+      seasonId:           input.seasonId     ?? null,
       status,
-      createdAt:    now,
-      updatedAt:    now,
+      // First run. Bumped by reactivateChallenge so per-clan rewards on
+      // subsequent runs aren't deduplicated against earlier completions.
+      currentRunNumber:   1,
+      lastReactivatedAt:  null,
+      createdAt:          now,
+      updatedAt:          now,
     });
 
     return { success: true, data: { id: ref.id } };
@@ -234,11 +238,21 @@ export async function updateChallenge(
 // knows to use Edit to push the endAt forward before retrying. Idempotent:
 // reactivating an already-active challenge is a no-op success.
 
+// ─── Anti-abuse: cooldown between reactivations of the same challenge ───────
+//
+// Primarily protects against accidental double-clicks / refresh-resubmits
+// (each of which would bump the run number and wipe entries). One hour is
+// short enough not to block a legitimate "I made a mistake, reactivate
+// again" flow but long enough to give an admin time to notice that the
+// previous reactivation already succeeded.
+
+const REACTIVATION_COOLDOWN_MS = 60 * 60 * 1000;
+
 export async function reactivateChallenge(
   challengeId: string,
-): Promise<ActionResult<{ newStatus: ChallengeStatus }>> {
+): Promise<ActionResult<{ newStatus: ChallengeStatus; newRunNumber: number }>> {
   try {
-    await getAdminUid();
+    const sessionUid = await getAdminUid();
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const ref = adminDb.collection("challenges").doc(challengeId);
@@ -246,6 +260,7 @@ export async function reactivateChallenge(
     if (!snap.exists) return { success: false, error: "Challenge not found" };
 
     const data = snap.data() as Record<string, unknown>;
+
     // Firestore returns Timestamp objects (with toDate()). Sometimes the
     // field is already a plain Date if the server actions stamp it directly.
     // Normalise both shapes through a single helper.
@@ -265,14 +280,76 @@ export async function reactivateChallenge(
       };
     }
 
-    const newStatus: ChallengeStatus = startAt > now ? "upcoming" : "active";
+    // ── Cooldown check ────────────────────────────────────────────────────
+    const lastReactivatedAt = data.lastReactivatedAt
+      ? toDate(data.lastReactivatedAt)
+      : null;
+    if (lastReactivatedAt && now.getTime() - lastReactivatedAt.getTime() < REACTIVATION_COOLDOWN_MS) {
+      const remainingMs = REACTIVATION_COOLDOWN_MS - (now.getTime() - lastReactivatedAt.getTime());
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      return {
+        success: false,
+        error: `This challenge was reactivated recently. Try again in ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`,
+      };
+    }
 
+    const newStatus: ChallengeStatus = startAt > now ? "upcoming" : "active";
+    const currentRunNumber = (data.currentRunNumber as number | undefined) ?? 1;
+    const newRunNumber = currentRunNumber + 1;
+
+    // ── Wipe every clan's entry for this challenge ───────────────────────
+    //
+    // Each entry doc represents one clan's progress on the current run.
+    // Reactivation should let clans who already completed the previous run
+    // win again from zero, so we delete the lot. Firestore batched-delete
+    // caps at 500 ops; we paginate in case a popular challenge has more.
+    const entriesCol = ref.collection("entries");
+    let deletedTotal = 0;
+    for (;;) {
+      const page = await entriesCol.limit(400).get();
+      if (page.empty) break;
+      const batch = adminDb.batch();
+      page.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      deletedTotal += page.size;
+      if (page.size < 400) break;
+    }
+
+    // ── Apply the new state ──────────────────────────────────────────────
     await ref.update({
-      status: newStatus,
-      updatedAt: new Date(),
+      status:             newStatus,
+      currentRunNumber:   newRunNumber,
+      lastReactivatedAt:  now,
+      updatedAt:          now,
     });
 
-    return { success: true, data: { newStatus } };
+    // ── Audit trail ──────────────────────────────────────────────────────
+    // Best-effort: a write failure here mustn't prevent the reactivation
+    // from being effective. The action is also captured indirectly by the
+    // getAdminUid call earlier (which writes nothing itself, but every admin
+    // server action is implicitly traceable via Vercel logs).
+    try {
+      const { writeAuditLog } = await import("@/lib/auth/audit-log");
+      await writeAuditLog({
+        actor:      sessionUid,
+        actorRole:  null,    // legacy: callers using getAdminUid don't carry a role string
+        action:     "challenge.reactivate",
+        targetType: "post",  // best-fit existing AuditTargetType; could add "challenge"
+        targetId:   challengeId,
+        reason:     `Reactivated challenge (run ${currentRunNumber} → ${newRunNumber}, wiped ${deletedTotal} entries)`,
+        metadata:   {
+          previousRun: currentRunNumber,
+          newRun:      newRunNumber,
+          newStatus,
+          entriesCleared: deletedTotal,
+        },
+        result:     "success",
+      });
+    } catch (auditErr) {
+      console.error("[reactivateChallenge→audit]", auditErr);
+    }
+
+    return { success: true, data: { newStatus, newRunNumber } };
   } catch (err) {
     console.error("[reactivateChallenge]", err);
     return { success: false, error: err instanceof Error ? err.message : "Failed to reactivate" };
@@ -565,10 +642,17 @@ async function _issueCompletionRewards(
 
     if (alreadyIssued) return;
 
+    // The current run number scopes XP / clan-XP dedup so a clan that
+    // completed an earlier run can win the same challenge again after
+    // it's reactivated. Existing challenges without the field behave
+    // as run 1 (no suffix change from the previous targetId).
+    const runNumber = (challenge.currentRunNumber as number | undefined) ?? 1;
+    const runSuffix = runNumber > 1 ? `_run${runNumber}` : "";
+
     // 1. Award clan XP (routes through awardClanXp for level-up detection + audit log)
     if ((challenge.clanXpReward ?? 0) > 0) {
       const { awardClanXp } = await import("@/lib/actions/clan-xp.actions");
-      await awardClanXp(clanId, "challenge_complete", contributorUid, challengeId, challenge.clanXpReward);
+      await awardClanXp(clanId, "challenge_complete", contributorUid, `${challengeId}${runSuffix}`, challenge.clanXpReward);
     }
 
     // 2. Update clan_points leaderboard doc (create if absent)
@@ -634,9 +718,10 @@ async function _issueCompletionRewards(
       }
     });
 
-    // 3. Award member XP to the contributor
+    // 3. Award member XP to the contributor — targetId scoped by run so a
+    //    clan that completed a previous run still receives XP on the new run.
     if ((challenge.memberXpReward ?? 0) > 0) {
-      await awardXp(contributorUid, "challenge_complete", challengeId + "_" + clanId);
+      await awardXp(contributorUid, "challenge_complete", `${challengeId}_${clanId}${runSuffix}`);
     }
 
     // 4. Award badge to contributor (and all members who contributed)

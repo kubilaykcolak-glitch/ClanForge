@@ -319,6 +319,18 @@ export interface ClanChallenge {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Monotonic counter that increments every time this challenge is
+   * reactivated. Lets clans who already completed a previous run win
+   * the rewards again on the new run — XP/clan-XP dedup keys include
+   * the run number, and existing entry docs are wiped on reactivation
+   * so progress starts fresh.
+   *
+   * Existing challenges without the field default to 1 when read. */
+  currentRunNumber?: number;
+  /** Timestamp of the most recent reactivation. Drives a per-challenge
+   * cooldown (REACTIVATION_COOLDOWN_MS) so an admin can't double-click
+   * the button and accidentally bump the run number twice. */
+  lastReactivatedAt?: Date | null;
 }
 
 // ─── ClanChallengeEntry ───────────────────────────────────────────────────────
