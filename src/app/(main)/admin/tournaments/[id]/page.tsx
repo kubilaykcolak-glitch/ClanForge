@@ -80,6 +80,8 @@ export default async function AdminTournamentDetailPage({ params }: { params: { 
       <AdminTournamentActions
         tournamentId={params.id}
         canForce={status !== "complete" && status !== "cancelled"}
+        participantCount={participants.length}
+        paidParticipantCount={participants.filter(p => p.paymentStatus === "paid").length}
       />
 
       {/* Participants */}

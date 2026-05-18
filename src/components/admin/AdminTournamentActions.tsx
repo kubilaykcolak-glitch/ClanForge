@@ -11,11 +11,19 @@ import {
 import { useStepUp } from "@/components/admin/useStepUp";
 
 interface Props {
-  tournamentId: string;
-  canForce:     boolean;
+  tournamentId:         string;
+  canForce:             boolean;
+  participantCount:     number;
+  paidParticipantCount: number;
 }
 
-export function AdminTournamentActions({ tournamentId, canForce }: Props) {
+export function AdminTournamentActions({
+  tournamentId,
+  canForce,
+  participantCount,
+  paidParticipantCount,
+}: Props) {
+  const hasPaid = paidParticipantCount > 0;
   const router = useRouter();
   const { call, modal } = useStepUp();
   const [pending, setPending] = useState<string | null>(null);
@@ -38,7 +46,12 @@ export function AdminTournamentActions({ tournamentId, canForce }: Props) {
   };
 
   const handleCancel = async () => {
-    const reason = promptReason("Force-cancel this tournament? Paid participants will be refunded automatically.");
+    const summary = hasPaid
+      ? `Force-cancel this tournament?\n\n${paidParticipantCount} paid participant${paidParticipantCount === 1 ? "" : "s"} will be refunded via Stripe.`
+      : participantCount > 0
+        ? `Force-cancel this tournament?\n\n${participantCount} participant${participantCount === 1 ? "" : "s"} registered — none paid, no refunds needed.`
+        : "Force-cancel this tournament?\n\nNo participants registered, no money involved.";
+    const reason = promptReason(summary);
     if (!reason) return;
     setPending("cancel");
     const res = await call(() => forceCancelTournament(tournamentId, reason));
@@ -46,7 +59,10 @@ export function AdminTournamentActions({ tournamentId, canForce }: Props) {
     if (res.success) {
       const refunded = res.data?.refundedCount ?? 0;
       const failures = res.data?.failures      ?? 0;
-      toast.success(`Tournament cancelled — refunded ${refunded}${failures > 0 ? `, ${failures} refund failure(s)` : ""}`);
+      const msg = refunded > 0
+        ? `Tournament cancelled — ${refunded} refunded${failures > 0 ? `, ${failures} refund failure(s)` : ""}`
+        : "Tournament cancelled";
+      toast.success(msg);
       router.refresh();
     } else if (!res.needsStepUp) {
       toast.error(res.error ?? "Failed");
@@ -88,11 +104,14 @@ export function AdminTournamentActions({ tournamentId, canForce }: Props) {
             style={{ background: "var(--bg-elevated)", border: "1px solid var(--danger)", color: "var(--danger)" }}
           >
             {pending === "cancel" ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
-            Force cancel (with refunds)
+            {hasPaid ? `Force cancel (refund ${paidParticipantCount})` : "Force cancel"}
           </button>
         </div>
         <p className="text-[11px] mt-3" style={{ color: "var(--text-muted)" }}>
-          Cancellation issues Stripe refunds to every paid participant. Both actions require re-entering your password.
+          {hasPaid
+            ? `Cancellation will issue Stripe refunds to ${paidParticipantCount} paid participant${paidParticipantCount === 1 ? "" : "s"}.`
+            : "No paid participants — cancellation involves no refunds."}
+          {" "}Both actions require re-entering your password.
         </p>
       </div>
 
