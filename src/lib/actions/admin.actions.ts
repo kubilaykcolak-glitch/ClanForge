@@ -132,13 +132,13 @@ export async function setUserRole(
     ]);
     await sendAdminAlert({
       title: newRole === null ? "🔻 Role revoked" : `🔼 Role ${newRole} granted`,
-      body:  `**${actor.label}** changed **${target.label}** from \`${currentTargetRole ?? "user"}\` → \`${newRole ?? "user"}\`.`,
+      body:  `Changed **${target.label}** from \`${currentTargetRole ?? "user"}\` → \`${newRole ?? "user"}\`.`,
       level: "critical",
+      actor,
       fields: [
-        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Target", value: `${target.label}${userRecord.email ? ` · ${userRecord.email}` : ""}\n\`${target.id}\`` },
+        { name: "Target", value: `${target.label}${userRecord.email ? ` · ${userRecord.email}` : ""}\n\`${target.id}\``, inline: false },
         { name: "Change", value: `\`${currentTargetRole ?? "user"}\` → \`${newRole ?? "user"}\`` },
-        { name: "Reason", value: cleanedReason },
+        { name: "Reason", value: cleanedReason, inline: false },
       ],
     });
 
@@ -186,13 +186,13 @@ async function logAndReject(
       ]);
       await sendAdminAlert({
         title: "⚠ Role-change attempt rejected",
-        body:  `**${actorEnriched.label}** tried to set role \`${attemptedRole ?? "user"}\` on **${targetEnriched.label}** — denied: ${error}`,
+        body:  `Tried to set role \`${attemptedRole ?? "user"}\` on **${targetEnriched.label}** — denied.`,
         level: "warn",
+        actor: actorEnriched,
         fields: [
-          { name: "Actor",         value: `${actorEnriched.label}\n\`${actorEnriched.uid}\`` },
-          { name: "Target",        value: `${targetEnriched.label}\n\`${targetEnriched.id}\`` },
+          { name: "Target",        value: `${targetEnriched.label}\n\`${targetEnriched.id}\``, inline: false },
           { name: "Attempted",     value: `\`${attemptedRole ?? "user"}\`` },
-          { name: "Rejected with", value: error },
+          { name: "Rejected with", value: error, inline: false },
         ],
       });
     }

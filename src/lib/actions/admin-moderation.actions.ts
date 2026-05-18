@@ -111,12 +111,12 @@ export async function banUser(targetUid: string, reason: string): Promise<Action
     ]);
     await sendAdminAlert({
       title: "🚫 User banned",
-      body:  `**${actor.label}** banned **${target.label}**${userRecord.email ? ` · ${userRecord.email}` : ""}.`,
+      body:  `Banned **${target.label}**${userRecord.email ? ` · ${userRecord.email}` : ""}.`,
       level: "critical",
+      actor,
       fields: [
-        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Target", value: `${target.label}\n\`${target.id}\`` },
-        { name: "Reason", value: cleanedReason },
+        { name: "Target", value: `${target.label}\n\`${target.id}\``, inline: false },
+        { name: "Reason", value: cleanedReason, inline: false },
       ],
     });
 
@@ -175,12 +175,12 @@ export async function unbanUser(targetUid: string, reason: string): Promise<Acti
     ]);
     await sendAdminAlert({
       title: "✅ User unbanned",
-      body:  `**${actor.label}** unbanned **${target.label}**${userRecord.email ? ` · ${userRecord.email}` : ""}.`,
+      body:  `Unbanned **${target.label}**${userRecord.email ? ` · ${userRecord.email}` : ""}.`,
       level: "info",
+      actor,
       fields: [
-        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Target", value: `${target.label}\n\`${target.id}\`` },
-        { name: "Reason", value: cleanedReason },
+        { name: "Target", value: `${target.label}\n\`${target.id}\``, inline: false },
+        { name: "Reason", value: cleanedReason, inline: false },
       ],
     });
 
@@ -262,13 +262,13 @@ export async function forceUnlinkRiotAccount(
     ]);
     await sendAdminAlert({
       title: "🔌 Riot integration force-unlinked",
-      body:  `**${actor.label}** force-unlinked the League integration of **${target.label}**.`,
+      body:  `Force-unlinked the League integration of **${target.label}**.`,
       level: "warn",
+      actor,
       fields: [
-        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Target", value: `${target.label}\n\`${target.id}\`` },
-        { name: "PUUID",  value: puuid ? `\`${puuid}\`` : "(unknown)" },
-        { name: "Reason", value: cleanedReason },
+        { name: "Target", value: `${target.label}\n\`${target.id}\``, inline: false },
+        { name: "PUUID",  value: puuid ? `\`${puuid}\`` : "(unknown)", inline: false },
+        { name: "Reason", value: cleanedReason, inline: false },
       ],
     });
 
@@ -353,12 +353,12 @@ export async function hideContent(
 
     await sendAdminAlert({
       title: `🙈 ${targetType[0].toUpperCase() + targetType.slice(1)} hidden`,
-      body:  `**${actor.label}** hid ${targetType} **${targetLabel}**.`,
+      body:  `Hid ${targetType} **${targetLabel}**.`,
       level: "info",
+      actor,
       fields: [
-        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Target", value: `${targetLabel}\n\`${targetPath}\`` },
-        { name: "Reason", value: cleanedReason },
+        { name: "Target", value: `${targetLabel}\n\`${targetPath}\``, inline: false },
+        { name: "Reason", value: cleanedReason, inline: false },
       ],
     });
 

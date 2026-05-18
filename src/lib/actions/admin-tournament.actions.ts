@@ -95,12 +95,12 @@ export async function forceFinalizeTournament(
     ]);
     await sendAdminAlert({
       title: "🏁 Tournament force-finalized",
-      body:  `**${actor.label}** force-completed **${tournament.label}**. Pending matches remain unfinalized — review them individually if needed.`,
+      body:  `Force-completed **${tournament.label}**.\n_Pending matches remain unfinalized — review them individually if needed._`,
       level: "warn",
+      actor,
       fields: [
-        { name: "Actor",      value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Tournament", value: tournament.label },
-        { name: "Reason",     value: cleanedReason },
+        { name: "Tournament", value: tournament.label, inline: false },
+        { name: "Reason",     value: cleanedReason,    inline: false },
       ],
     });
 
@@ -201,14 +201,14 @@ export async function forceCancelTournament(
     ]);
     await sendAdminAlert({
       title: "🛑 Tournament force-cancelled",
-      body:  `**${actor.label}** cancelled **${tournament.label}**${refundedCount > 0 ? ` — ${refundedCount} paid participant${refundedCount === 1 ? "" : "s"} refunded` : ""}${failures > 0 ? `, ${failures} refund failure${failures === 1 ? "" : "s"}` : ""}.`,
+      body:  `Cancelled **${tournament.label}**${refundedCount > 0 ? ` — ${refundedCount} paid participant${refundedCount === 1 ? "" : "s"} refunded` : ""}${failures > 0 ? `, ${failures} refund failure${failures === 1 ? "" : "s"}` : ""}.`,
       level: "critical",
+      actor,
       fields: [
-        { name: "Actor",         value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Tournament",    value: tournament.label },
+        { name: "Tournament",    value: tournament.label, inline: false },
         { name: "Refunded",      value: String(refundedCount) },
         { name: "Refund errors", value: String(failures) },
-        { name: "Reason",        value: cleanedReason },
+        { name: "Reason",        value: cleanedReason,    inline: false },
       ],
     });
 
@@ -295,14 +295,14 @@ export async function forceRefundParticipant(
     ]);
     await sendAdminAlert({
       title: "💸 Force refund",
-      body:  `**${actor.label}** refunded **${ctx.user.label}** from **${ctx.tournament.label}**.`,
+      body:  `Refunded **${ctx.user.label}** from **${ctx.tournament.label}**.`,
       level: "critical",
+      actor,
       fields: [
-        { name: "Actor",       value: `${actor.label}\n\`${actor.uid}\`` },
-        { name: "Participant", value: `${ctx.user.label}\n\`${ctx.user.id}\`` },
-        { name: "Tournament",  value: ctx.tournament.label },
+        { name: "Participant", value: `${ctx.user.label}\n\`${ctx.user.id}\``, inline: false },
+        { name: "Tournament",  value: ctx.tournament.label, inline: false },
         { name: "Amount",      value: refundedAmount > 0 ? `£${(refundedAmount / 100).toFixed(2)}` : "Free entry (no money)" },
-        { name: "Reason",      value: cleanedReason },
+        { name: "Reason",      value: cleanedReason, inline: false },
       ],
     });
 
