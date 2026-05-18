@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Paperclip, Loader2, X } from "lucide-react";
+import { AlertCircle, Megaphone, Paperclip, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { createPost } from "@/lib/clan-actions";
+import { createClanAnnouncement } from "@/lib/actions/clan.actions";
 import { getInitials } from "@/lib/utils";
 import { validateImageFile } from "@/lib/uploads";
 import { awardXp } from "@/lib/actions/xp.actions";
@@ -15,6 +17,11 @@ interface ComposePostProps {
   authorUsername:    string;
   authorDisplayName: string;
   authorAvatarUrl?:  string;
+  /** When true the compose box surfaces the "📣 Announcement" toggle.
+   * Should be set when the current user is the clan leader. The server
+   * action additionally re-verifies leader role — this prop only gates
+   * the UI affordance. */
+  isLeader?:         boolean;
 }
 
 const MAX_CHARS = 500;
@@ -27,7 +34,9 @@ export function ComposePost({
   authorUsername,
   authorDisplayName,
   authorAvatarUrl,
+  isLeader,
 }: ComposePostProps) {
+  const router = useRouter();
   const [content, setContent]           = useState("");
   const [imageFile, setImageFile]       = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -35,6 +44,7 @@ export function ComposePost({
   const [posting, setPosting]           = useState(false);
   const [isSlow, setIsSlow]             = useState(false);
   const [postError, setPostError]       = useState<string | null>(null);
+  const [isAnnouncement, setIsAnnouncement] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -118,20 +128,43 @@ export function ComposePost({
 
     try {
       const imageUrl = imageFile ? await uploadImage() : null;
-      await createPost(clanId, authorId, authorUsername, authorAvatarUrl, content.trim(), imageUrl);
-      setContent("");
-      clearImage();
-      toast.success("Post published!");
 
-      // Daily-capped XP (1/day) for posting — only the first post each
-      // 24h actually awards XP; later ones still post but skip XP.
-      const xp = await awardXp(authorId, "post_create");
-      if (xp.success && xp.data && xp.data.awarded > 0) {
-        toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+      if (isAnnouncement && isLeader) {
+        // Leader announcement path — server action that fans out
+        // notifications to every clan member and rate-limits to 3 per 24h.
+        const result = await createClanAnnouncement(
+          authorId,
+          clanId,
+          content.trim(),
+          { imageUrl, pinnedUntil: null },
+          { username: authorUsername, avatarUrl: authorAvatarUrl, displayName: authorDisplayName },
+        );
+        if (!result.success) {
+          setPostError(result.error ?? "Failed to post announcement");
+          toast.error(result.error ?? "Failed to post announcement");
+          return;
+        }
+        const notified = result.data?.notifiedCount ?? 0;
+        toast.success(`📣 Announcement posted — ${notified} member${notified === 1 ? "" : "s"} notified`);
+      } else {
+        await createPost(clanId, authorId, authorUsername, authorAvatarUrl, content.trim(), imageUrl);
+        toast.success("Post published!");
+
+        // Daily-capped XP (1/day) for posting — only the first post each
+        // 24h actually awards XP; later ones still post but skip XP.
+        const xp = await awardXp(authorId, "post_create");
+        if (xp.success && xp.data && xp.data.awarded > 0) {
+          toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+        }
+
+        // Fire-and-forget challenge progress tracking
+        trackChallengeProgress(clanId, "post_create", authorId).catch(() => {});
       }
 
-      // Fire-and-forget challenge progress tracking
-      trackChallengeProgress(clanId, "post_create", authorId).catch(() => {});
+      setContent("");
+      setIsAnnouncement(false);
+      clearImage();
+      router.refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to post";
       setPostError(msg);
@@ -260,6 +293,24 @@ export function ComposePost({
             className="hidden"
             onChange={handleFile}
           />
+
+          {/* Leader-only: announcement toggle */}
+          {isLeader && (
+            <button
+              type="button"
+              onClick={() => setIsAnnouncement(v => !v)}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-colors disabled:opacity-40"
+              style={{
+                background: isAnnouncement ? "rgba(99,102,241,0.15)" : "transparent",
+                color:      isAnnouncement ? "var(--accent)" : "var(--text-muted)",
+                border:     `1px solid ${isAnnouncement ? "var(--accent)" : "var(--border-subtle)"}`,
+              }}
+              title="Toggle announcement mode — fans out a notification to every clan member (rate-limited 3 / 24h)"
+            >
+              <Megaphone size={11} /> {isAnnouncement ? "Announcement on" : "Announce"}
+            </button>
+          )}
 
           {/* Char counter */}
           <span

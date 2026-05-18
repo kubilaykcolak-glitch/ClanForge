@@ -14,7 +14,7 @@ Earned passively as you use the site. Canonical table from `src/lib/xp.ts → XP
 | `clan_create` | 200 | `once_global` | First clan created only |
 | `clan_join` | 50 | `once_per_target` | Once per distinct clanId; 10h cooldown after leaving |
 | `tournament_create` | 100 | `daily_cap` | Up to 2 / 24h |
-| `tournament_register` | 25 | `daily_cap` | Up to 4 / 24h |
+| `tournament_register` | 25 | `once_per_target` | Once per tournamentId (lifetime) |
 | `tournament_match_win` | 50 | `once_per_target` | Once per matchId |
 | `tournament_place_1` | 500 | `once_per_target` | Once per tournamentId |
 | `tournament_place_2` | 300 | `once_per_target` | Once per tournamentId |

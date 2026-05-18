@@ -44,7 +44,11 @@ export const XP_RULES: Record<XpReason, XpRule> = {
   clan_create:          { reason: "clan_create",          amount: 200, type: "once_global",     label: "Created your first clan" },
   clan_join:            { reason: "clan_join",            amount:  50, type: "once_per_target", label: "Joined a new clan" },
   tournament_create:    { reason: "tournament_create",    amount: 100, type: "daily_cap",       dailyCap: 2, label: "Created a tournament" },
-  tournament_register:  { reason: "tournament_register",  amount:  25, type: "daily_cap",       dailyCap: 4, label: "Registered for a tournament" },
+  // Once per distinct tournament. Previously had a daily_cap of 4, which
+  // let a user farm by repeatedly register → withdraw → register on the
+  // same tournament. Once-per-target keyed by tournamentId closes the loop
+  // (and still grants XP correctly when joining different tournaments).
+  tournament_register:  { reason: "tournament_register",  amount:  25, type: "once_per_target", label: "Registered for a tournament" },
   tournament_match_win: { reason: "tournament_match_win", amount:  50, type: "once_per_target", label: "Won a match" },
   tournament_place_1:   { reason: "tournament_place_1",   amount: 500, type: "once_per_target", label: "1st place" },
   tournament_place_2:   { reason: "tournament_place_2",   amount: 300, type: "once_per_target", label: "2nd place" },

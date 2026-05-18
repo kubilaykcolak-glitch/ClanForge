@@ -369,6 +369,7 @@ export default async function ClanPage({
             clanId={clanId}
             currentUserId={currentUid}
             isMember={isMember}
+            isLeader={currentRole === "leader"}
             authorId={currentUid ?? undefined}
             authorUsername={currentUsername}
             authorDisplayName={currentDisplayName}

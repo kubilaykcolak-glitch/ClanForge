@@ -13,6 +13,9 @@ interface ClanFeedProps {
   clanId:            string;
   currentUserId:     string | null;
   isMember:          boolean;
+  /** Pass true when the current user is the clan leader. Unlocks the
+   * "Announce" toggle in the compose box. */
+  isLeader?:         boolean;
   // Author info — only provided when isMember is true
   authorId?:         string;
   authorUsername?:   string;
@@ -26,6 +29,7 @@ export function ClanFeed({
   clanId,
   currentUserId,
   isMember,
+  isLeader,
   authorId,
   authorUsername,
   authorDisplayName,
@@ -57,6 +61,7 @@ export function ClanFeed({
           authorUsername={authorUsername}
           authorDisplayName={authorDisplayName}
           authorAvatarUrl={authorAvatarUrl}
+          isLeader={isLeader}
         />
       )}
 

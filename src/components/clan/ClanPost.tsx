@@ -69,14 +69,36 @@ export function ClanPost({ post, clanId, currentUserId }: ClanPostProps) {
 
   if (deleting) return null;
 
+  const isAnnouncement = !!post.isAnnouncement;
+
   return (
     <div
-      className="rounded-xl p-4"
+      id={`post-${post.id}`}
+      className="rounded-xl p-4 relative"
       style={{
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-subtle)",
+        // Announcements get the accent border + a subtle indigo glow so they
+        // visually pop above regular posts without dominating the feed.
+        border: isAnnouncement
+          ? "1px solid var(--accent)"
+          : "1px solid var(--border-subtle)",
+        boxShadow: isAnnouncement ? "0 0 16px rgba(99,102,241,0.18)" : undefined,
       }}
     >
+      {/* Announcement chip */}
+      {isAnnouncement && (
+        <div
+          className="inline-flex items-center gap-1 px-2 py-0.5 mb-2 rounded text-[10px] font-bold uppercase tracking-wider"
+          style={{
+            background: "rgba(99,102,241,0.15)",
+            color:      "var(--accent)",
+            border:     "1px solid rgba(99,102,241,0.30)",
+          }}
+        >
+          📣 Announcement
+        </div>
+      )}
+
       {/* ── Author row ── */}
       <div className="flex items-center gap-3 mb-3">
         <div

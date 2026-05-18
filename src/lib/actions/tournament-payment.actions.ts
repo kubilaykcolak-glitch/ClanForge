@@ -220,29 +220,28 @@ export async function confirmPaidParticipant(
       return { success: true, data: { alreadyPaid: false } } as ActionResult<{ alreadyPaid: boolean }>;
     });
 
-    // Award XP for registration. Outside the transaction because awardXp
-    // runs its own writes; the previous transaction already committed.
-    // Daily cap enforced by the rule itself.
-    // Wrapped in try/catch: this is called from the Stripe webhook (no session
-    // cookie) so getSessionUid() inside awardXp would throw. XP award is
-    // best-effort — the payment confirmation must not fail because of it.
+    // XP + mission progress. Same gated pattern as registerForTournament
+    // (§ src/lib/actions/tournament.actions.ts) — once-per-target awardXp on
+    // tournamentId is the source of truth for whether this is the user's
+    // first register, and we only fire mission progress when it is.
+    //
+    // Wrapped in try/catch because this runs from the Stripe webhook (no
+    // session cookie). The webhook context flag set by the route handler lets
+    // awardXp/trackMissionProgress skip their session check; if anything
+    // throws anyway it must not fail the payment confirmation.
     if (result.success && result.data?.alreadyPaid === false) {
       try {
         const { awardXp } = await import("@/lib/actions/xp.actions");
-        await awardXp(uid, "tournament_register", tournamentId);
+        const xpResult = await awardXp(uid, "tournament_register", tournamentId);
+        const isFirstTime = xpResult.success && (xpResult.data?.awarded ?? 0) > 0;
+        if (isFirstTime) {
+          try {
+            const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
+            await trackMissionProgress(uid, "tournament_register");
+          } catch { /* non-fatal */ }
+        }
       } catch {
         // Non-fatal: XP award skipped when called from webhook context.
-      }
-
-      // Personal-mission progress for the paid registration path. Same webhook
-      // safety pattern (§1.7) — trackMissionProgress requires a session and the
-      // Stripe webhook has none, so a stray throw here must not cause Stripe
-      // to retry the entire confirmation indefinitely.
-      try {
-        const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
-        await trackMissionProgress(uid, "tournament_register");
-      } catch {
-        // Non-fatal.
       }
     }
 

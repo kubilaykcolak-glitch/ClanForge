@@ -186,12 +186,24 @@ service cloud.firestore {
       }
 
       // ─── /clans/{clanId}/posts/{postId} ──────────────────────────────────
-      // Members can read and create; only the author can update or delete.
+      // Members can read and create. Clients can ONLY create regular posts —
+      // posts with isAnnouncement == true must go through the server action
+      // createClanAnnouncement (which uses the Admin SDK to bypass rules and
+      // ALSO re-checks that the caller is the clan leader + enforces the 3
+      // announcements per 24h rate limit). This is defence-in-depth so a
+      // forged client write can't flip the flag.
+      // Author can update / delete their own posts; the isAnnouncement flag
+      // is locked once written (no rule lets a client update it).
 
       match /posts/{postId} {
         allow read: if isClanMember(clanId);
-        allow create: if isClanMember(clanId);
-        allow update: if isSignedIn() && request.auth.uid == resource.data.authorId;
+        allow create: if isClanMember(clanId) &&
+          (!('isAnnouncement' in request.resource.data) ||
+            request.resource.data.isAnnouncement == false);
+        allow update: if isSignedIn() &&
+          request.auth.uid == resource.data.authorId &&
+          !('isAnnouncement' in request.resource.data.diff(resource.data).affectedKeys()) &&
+          !('pinnedUntil'    in request.resource.data.diff(resource.data).affectedKeys());
         allow delete: if isSignedIn() && request.auth.uid == resource.data.authorId;
 
         // ─── /clans/{clanId}/posts/{postId}/likes/{userId} ─────────────────

@@ -566,6 +566,137 @@ export async function createPost(
   }
 }
 
+// ── createClanAnnouncement ───────────────────────────────────────────────────
+//
+// Leader-only post that:
+//   1. Writes the post with isAnnouncement: true (and optional pinnedUntil).
+//   2. Fans out an in-app notification to every clan member.
+//   3. Rate-limits: max 3 announcements per clan per rolling 24h window —
+//      prevents a leader spamming the notification inbox of every member.
+//
+// We re-use the existing /clans/{clanId}/posts/{postId} collection rather
+// than creating a parallel one. The post-feed renderer picks up
+// isAnnouncement and styles distinctly.
+
+const ANNOUNCEMENT_DAILY_LIMIT      = 3;
+const ANNOUNCEMENT_WINDOW_MS        = 24 * 60 * 60 * 1000;
+
+export async function createClanAnnouncement(
+  uid: string,
+  clanId: string,
+  content: string,
+  options: { pinnedUntil?: Date | null; imageUrl?: string | null },
+  profile: Pick<Profile, "username" | "avatarUrl" | "displayName">,
+): Promise<ActionResult<{ postId: string; notifiedCount: number }>> {
+  try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
+    if (!content.trim()) {
+      return { success: false, error: "Announcement content cannot be empty" };
+    }
+    if (content.length > 2000) {
+      return { success: false, error: "Announcement content exceeds 2000 characters" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    // Verify the caller is the leader of this clan.
+    const memberSnap = await adminDb
+      .collection("clans").doc(clanId)
+      .collection("members").doc(uid)
+      .get();
+    if (!memberSnap.exists) {
+      return { success: false, error: "You are not a member of this clan" };
+    }
+    if ((memberSnap.data() as { role?: string }).role !== "leader") {
+      return { success: false, error: "Only the clan leader can post announcements" };
+    }
+
+    // Rate-limit: count announcements in the last 24h.
+    const windowStart = new Date(Date.now() - ANNOUNCEMENT_WINDOW_MS);
+    const recentSnap = await adminDb
+      .collection("clans").doc(clanId).collection("posts")
+      .where("isAnnouncement", "==", true)
+      .where("createdAt", ">=", windowStart)
+      .get();
+    if (recentSnap.size >= ANNOUNCEMENT_DAILY_LIMIT) {
+      return {
+        success: false,
+        error: `Clan announcement limit reached (${ANNOUNCEMENT_DAILY_LIMIT} per 24 hours). Try again later.`,
+      };
+    }
+
+    // Write the post.
+    const postRef = await adminDb.collection("clans").doc(clanId).collection("posts").add({
+      authorId:        uid,
+      authorUsername:  profile.username,
+      authorAvatarUrl: profile.avatarUrl ?? null,
+      content:         content.trim(),
+      imageUrl:        options.imageUrl ?? null,
+      likesCount:      0,
+      createdAt:       new Date(),
+      isAnnouncement:  true,
+      ...(options.pinnedUntil && { pinnedUntil: options.pinnedUntil }),
+    });
+
+    // Fanout: notify every confirmed member of this clan (excluding the
+    // author — they already saw it). We list members in chunks via
+    // collectionGroup-free query so this scales linearly with member count
+    // (acceptable for clan sizes up to a few hundred; if clans ever exceed
+    // 500 members we'd want a queue).
+    const membersSnap = await adminDb
+      .collection("clans").doc(clanId)
+      .collection("members")
+      .get();
+
+    const clanSnap = await adminDb.collection("clans").doc(clanId).get();
+    const clanName = (clanSnap.data() as { name?: string })?.name ?? "your clan";
+    const clanSlug = (clanSnap.data() as { slug?: string })?.slug ?? clanId;
+
+    const { createNotification } = await import("@/lib/actions/notification.actions");
+
+    let notifiedCount = 0;
+    await Promise.all(
+      membersSnap.docs
+        .filter(d => d.id !== uid)
+        .filter(d => (d.data() as { role?: string }).role !== "pending")
+        .map(async d => {
+          try {
+            await createNotification(d.id, {
+              type:        "clan_announcement",
+              title:       `📣 ${profile.displayName ?? profile.username} posted an announcement`,
+              body:        content.trim().slice(0, 140),
+              href:        `/clans/${clanSlug}#post-${postRef.id}`,
+              clanId,
+              challengeId: null,
+            });
+            notifiedCount++;
+          } catch (err) {
+            console.error("[createClanAnnouncement→notif]", d.id, err);
+          }
+        }),
+    );
+
+    // Best-effort: award clan XP for the post the same way createPost does.
+    import("@/lib/actions/clan-xp.actions")
+      .then(m => m.awardClanXp(clanId, "post_created", uid))
+      .catch(() => {});
+
+    // ─ Note name shadowing: this function uses `clanName` for the clan's
+    //   public name, distinct from anything else in scope. `notifiedCount`
+    //   is returned so the UI can toast "Announcement posted — 12 members
+    //   notified".
+    void clanName; // silence linter if unused after notif body rewrite
+
+    return { success: true, data: { postId: postRef.id, notifiedCount } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to post announcement";
+    console.error("[createClanAnnouncement]", err);
+    return { success: false, error: message };
+  }
+}
+
 // ── likePost ──────────────────────────────────────────────────────────────────
 // setDoc is idempotent — double-liking from different devices won't double-count.
 

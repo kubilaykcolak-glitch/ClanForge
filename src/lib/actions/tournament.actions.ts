@@ -103,12 +103,58 @@ export async function registerForTournament(
       // place to enforce that is here, at registration, so anyone who
       // gets through has a linked account by the time bracket generation
       // mints codes.
+      //
+      // Rank restriction is also enforced here when set on the tournament.
+      // We read soloRank from the linked-account snapshot; flex rank is
+      // ignored for v1 (most ranked LoL competition is solo/duo anyway).
       if (tourn.gameProvider === "league") {
         const intSnap = await tx.get(
           adminDb.collection("profiles").doc(uid).collection("integrations").doc("league"),
         );
         if (!intSnap.exists) {
           throw new Error("Link your Riot account on your profile before registering for a League of Legends tournament");
+        }
+
+        const restriction = tourn.riotRankRestriction as {
+          minTier?: string | null;
+          maxTier?: string | null;
+          allowUnranked?: boolean;
+        } | null | undefined;
+
+        if (restriction && (restriction.minTier || restriction.maxTier)) {
+          const intData = intSnap.data() as {
+            snapshot?: { soloRank?: { tier?: string } | null };
+          };
+          const playerTier = intData.snapshot?.soloRank?.tier?.toUpperCase() ?? null;
+
+          const { TIER_RANK, tierLabel } = await import("@/lib/riot/assets");
+
+          if (!playerTier) {
+            // Unranked player attempting to register.
+            if (!restriction.allowUnranked) {
+              throw new Error(
+                "This tournament requires a ranked solo/duo placement. Play your placement matches first or pick a different tournament.",
+              );
+            }
+          } else {
+            const playerRank = TIER_RANK[playerTier] ?? 0;
+            if (restriction.minTier) {
+              const minRank = TIER_RANK[restriction.minTier.toUpperCase()] ?? 0;
+              if (playerRank < minRank) {
+                throw new Error(
+                  `This tournament requires ${tierLabel(restriction.minTier)} or higher. You're ${tierLabel(playerTier)}.`,
+                );
+              }
+            }
+            if (restriction.maxTier) {
+              const maxRank = TIER_RANK[restriction.maxTier.toUpperCase()] ?? 99;
+              if (playerRank > maxRank) {
+                throw new Error(
+                  `This tournament is capped at ${tierLabel(restriction.maxTier)} or lower. You're ${tierLabel(playerTier)}.`,
+                );
+              }
+            }
+          }
         }
       }
 
@@ -125,16 +171,35 @@ export async function registerForTournament(
       tx.update(tournRef, { participantCount: FieldValue.increment(1) });
     });
 
-    // Personal-mission progress for free tournament registration. The paid
-    // path is tracked separately from confirmPaidParticipant (webhook).
-    // sessionUid === uid is already enforced at the top of this action.
-    // Awaited (not fire-and-forget) so the request's session context is still
-    // alive when trackMissionProgress performs its own session check inside.
+    // XP + mission progress. Both are gated on whether awardXp actually
+    // granted XP (i.e. this is the user's FIRST register for this tournament).
+    // Re-registering after withdrawing the same tournament is a no-op for
+    // both XP and mission progress — closes the farm loop.
+    //
+    // awardXp uses once_per_target dedup on tournamentId, so it returns
+    // `awarded: 0` on the second register attempt. We use that as the
+    // first-time signal for mission tracking + clan XP.
     try {
-      const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
-      await trackMissionProgress(uid, "tournament_register");
+      const { awardXp } = await import("@/lib/actions/xp.actions");
+      const xpResult = await awardXp(uid, "tournament_register", tournamentId);
+      const isFirstTime = xpResult.success && (xpResult.data?.awarded ?? 0) > 0;
+
+      if (isFirstTime) {
+        try {
+          const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
+          await trackMissionProgress(uid, "tournament_register");
+        } catch (err) {
+          console.error("[registerForTournament→missions]", err);
+        }
+        try {
+          const { awardClanXpForMember } = await import("@/lib/actions/clan-xp.actions");
+          await awardClanXpForMember(uid, "tournament_participate", tournamentId);
+        } catch (err) {
+          console.error("[registerForTournament→clan-xp]", err);
+        }
+      }
     } catch (err) {
-      console.error("[registerForTournament→missions]", err);
+      console.error("[registerForTournament→xp]", err);
     }
 
     return { success: true };
@@ -192,8 +257,11 @@ export async function withdrawFromTournament(
 }
 
 // ── reportMatchResult ─────────────────────────────────────────────────────────
-// Either participant may submit the result. Scores are recorded together with
-// the winner; the match moves to 'complete'.
+// Either participant may submit the result. The auth + participant validation
+// lives here; the actual finalisation + XP / mission / bracket-advancement
+// chain runs through the shared finaliseTournamentMatch helper so every
+// result entry point (manual, Riot callback, admin override, simulate) ends
+// up doing identical downstream work.
 
 export async function reportMatchResult(
   uid: string,
@@ -222,85 +290,28 @@ export async function reportMatchResult(
 
     const match = matchSnap.data()!;
 
-    // Verify the reporter is one of the participants
     if (match.participantAId !== uid && match.participantBId !== uid) {
       return { success: false, error: "You are not a participant in this match" };
     }
-
-    // Winner must be one of the participants
     if (winnerId !== match.participantAId && winnerId !== match.participantBId) {
       return { success: false, error: "Winner must be one of the match participants" };
     }
-
     if (match.status === "complete") {
       return { success: false, error: "This match has already been completed" };
     }
 
-    await matchRef.update({
+    const { finaliseTournamentMatch } = await import("@/lib/actions/_match-result-core");
+    const fin = await finaliseTournamentMatch({
+      tournamentId,
+      matchId,
+      winnerId,
       scoreA,
       scoreB,
-      winnerId,
-      status:      "complete",
-      completedAt: new Date(),
+      resultSource: "manual",
     });
-
-    // Award match-win XP to whoever won. Once-per-target (matchId) so a
-    // late re-report can't double-award.
-    const { awardXp } = await import("@/lib/actions/xp.actions");
-    await awardXp(winnerId, "tournament_match_win", matchId);
-
-    // Award clan XP for the win. Awaited so we maintain session context for
-    // the inner awardClanXp call's auth check.
-    try {
-      const { awardClanXpForMember } = await import("@/lib/actions/clan-xp.actions");
-      await awardClanXpForMember(winnerId, "tournament_win", matchId);
-    } catch (err) {
-      console.error("[reportMatchResult→awardClanXpForMember]", err);
+    if (!fin.success) {
+      return { success: false, error: fin.error ?? "Failed to finalise" };
     }
-
-    // Personal-mission progress for the winner (cross-user §1.6 — same pattern
-    // as the awardXp call above: the caller is one of the participants, the
-    // winnerId is validated against match.participantAId/BId, and the inner
-    // function uses once_per_target dedup keyed by mission target so late
-    // re-reports cannot double-credit.
-    try {
-      const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
-      await trackMissionProgress(winnerId, "tournament_match_win");
-    } catch (err) {
-      console.error("[reportMatchResult→trackMissionProgress]", err);
-    }
-
-    // Clan-mission progress for the winner's clan. Two fires:
-    //   1. tournament_match_win — every win, dedup'd via the contributors map.
-    //   2. tournament_solo_streak — fires ONCE when the winner's match-win
-    //      count in THIS tournament reaches 3. We re-query the matches
-    //      subcollection to count their wins (deterministic, no new state).
-    //      Once-per-(tournament, uid) dedup is provided by the mission
-    //      doc's `completed` flag plus the contributors map.
-    try {
-      const cm = await import("@/lib/actions/clan-missions.actions");
-      try {
-        await cm.trackClanMissionProgress("tournament_match_win", winnerId);
-      } catch (err) {
-        console.error("[reportMatchResult→clan match_win]", err);
-      }
-      try {
-        const winsSnap = await adminDb
-          .collection("tournaments").doc(tournamentId)
-          .collection("matches")
-          .where("winnerId", "==", winnerId)
-          .where("status",  "==", "complete")
-          .get();
-        if (winsSnap.size === 3) {
-          await cm.trackClanMissionProgress("tournament_solo_streak", winnerId);
-        }
-      } catch (err) {
-        console.error("[reportMatchResult→solo_streak]", err);
-      }
-    } catch (err) {
-      console.error("[reportMatchResult→clan-missions]", err);
-    }
-
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to report match result";

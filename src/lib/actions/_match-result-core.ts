@@ -119,5 +119,163 @@ export async function finaliseTournamentMatch(input: FinaliseInput): Promise<Fin
     console.error("[finaliseTournamentMatch→clan-missions]", err);
   }
 
+  // ── Bracket advancement ────────────────────────────────────────────────
+  // If finishing this match completes the current round, lazy-create the
+  // next round (or finalise the tournament if this was the final). Best-
+  // effort — a failure here leaves the match marked complete but the
+  // bracket frozen, which an admin can resolve via the per-match panel or
+  // a re-call of any subsequent action.
+  try {
+    await advanceBracketIfReady(input.tournamentId);
+  } catch (err) {
+    console.error("[finaliseTournamentMatch→advanceBracketIfReady]", err);
+  }
+
   return { success: true };
+}
+
+// ─── advanceBracketIfReady ──────────────────────────────────────────────────
+//
+// Lazy bracket advancement: when a match completes, check if all matches in
+// the current highest round are also complete. If yes, build the next round
+// from the winners. If only one winner remains, mark the tournament complete.
+//
+// Idempotent: safe to call repeatedly. If the next round already exists, or
+// no round is fully complete, we return without doing anything.
+//
+// Format note: implements single-elimination. The current bracket generator
+// only ships single-elim, so this matches. If/when double-elim or round-robin
+// are wired up, this helper will need a format-aware branch.
+
+interface BracketMatch {
+  id:             string;
+  round:          number;
+  matchNumber:    number;
+  participantAId: string;
+  participantBId: string;
+  winnerId?:      string | null;
+  status:         string;
+}
+
+export async function advanceBracketIfReady(tournamentId: string): Promise<void> {
+  const { adminDb } = await import("@/lib/firebase/admin");
+
+  const tournRef = adminDb.collection("tournaments").doc(tournamentId);
+  const [tournSnap, matchesSnap] = await Promise.all([
+    tournRef.get(),
+    tournRef.collection("matches").get(),
+  ]);
+  if (!tournSnap.exists) return;
+  const tourn = tournSnap.data() as { status?: string; gameProvider?: string };
+  if (tourn.status === "complete" || tourn.status === "cancelled") return;
+
+  const matches: BracketMatch[] = matchesSnap.docs.map(d => {
+    const data = d.data();
+    return {
+      id:             d.id,
+      round:          data.round as number,
+      matchNumber:    data.matchNumber as number,
+      participantAId: data.participantAId as string,
+      participantBId: data.participantBId as string,
+      winnerId:       data.winnerId as string | undefined,
+      status:         data.status as string,
+    };
+  });
+
+  if (matches.length === 0) return;
+
+  // Highest round that exists.
+  const maxRound = matches.reduce((m, x) => Math.max(m, x.round), 1);
+  const currentRound = matches.filter(m => m.round === maxRound);
+
+  // Are all matches in the current top round complete?
+  const allComplete = currentRound.every(m => m.status === "complete");
+  if (!allComplete) return;
+
+  // Winners in match-number order (canonical bracket layout — winner of
+  // match 1 plays winner of match 2 in the next round, etc).
+  const winners = currentRound
+    .slice()
+    .sort((a, b) => a.matchNumber - b.matchNumber)
+    .map(m => m.winnerId ?? "")
+    .filter(w => w !== "");
+
+  // Sanity: every complete match should have a winner. If somehow not, abort
+  // rather than create a broken next round.
+  if (winners.length !== currentRound.length) {
+    console.warn("[advanceBracketIfReady] incomplete winners list", { tournamentId, round: maxRound });
+    return;
+  }
+
+  // If exactly one winner remains, the tournament is over.
+  if (winners.length === 1) {
+    await tournRef.update({ status: "complete" });
+    return;
+  }
+
+  // Build the next round. Same pairing logic as generateBracket: pair sequential
+  // winners, last unpaired participant gets a bye and auto-completes.
+  const nextRound = maxRound + 1;
+  const batch       = adminDb.batch();
+  const matchesRef  = tournRef.collection("matches");
+  const newMatchIds: string[] = [];
+  let nextMatchNumber = 1;
+
+  for (let i = 0; i < winners.length; i += 2) {
+    const participantAId = winners[i];
+    const participantBId = winners[i + 1] ?? "BYE";
+    const isBye = participantBId === "BYE";
+
+    const matchRef = matchesRef.doc();
+    batch.set(matchRef, {
+      round:          nextRound,
+      matchNumber:    nextMatchNumber,
+      participantAId,
+      participantBId,
+      scoreA:         0,
+      scoreB:         0,
+      winnerId:       isBye ? participantAId : null,
+      status:         isBye ? "complete" : "pending",
+      scheduledAt:    null,
+      completedAt:    isBye ? new Date() : null,
+    });
+    if (!isBye) newMatchIds.push(matchRef.id);
+    nextMatchNumber++;
+  }
+
+  await batch.commit();
+
+  // LoL: mint a Riot tournament code for each new non-bye match.
+  if (tourn.gameProvider === "league") {
+    try {
+      const { mintMatchCode } = await import("@/lib/actions/riot-tournament.actions");
+      for (const matchId of newMatchIds) {
+        try {
+          await mintMatchCode(tournamentId, matchId);
+        } catch (err) {
+          console.error("[advanceBracketIfReady→mintMatchCode]", matchId, err);
+        }
+      }
+    } catch (err) {
+      console.error("[advanceBracketIfReady→codes import]", err);
+    }
+  }
+
+  // If the new round contains an all-bye situation (rare: single winner via
+  // a bye chain), recurse so the tournament finalises immediately.
+  if (winners.length === 2 && newMatchIds.length === 0) {
+    // Both were byes? Not possible — we built the round from real winners.
+    // No-op fallback.
+    return;
+  }
+
+  // The new round may itself be entirely complete (e.g. odd-winner-count
+  // produced a bye that auto-completed AND we only had 1 other winner — but
+  // that case is caught earlier as winners.length === 1). For full bye-only
+  // rounds, re-run to advance again.
+  const newRoundMatches = await tournRef.collection("matches").where("round", "==", nextRound).get();
+  const newAllComplete  = newRoundMatches.docs.every(d => (d.data() as { status?: string }).status === "complete");
+  if (newAllComplete) {
+    await advanceBracketIfReady(tournamentId);
+  }
 }

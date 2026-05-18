@@ -14,7 +14,7 @@ Lives in `src/lib/xp.ts → XP_RULES`. Every XP grant goes through `awardXp` whi
 | `clan_create` | 200 | `once_global` | One time ever (first clan only) |
 | `clan_join` | 50 | `once_per_target` | Once per distinct clan |
 | `tournament_create` | 100 | `daily_cap` | Up to 2 per 24h |
-| `tournament_register` | 25 | `daily_cap` | Up to 4 per 24h |
+| `tournament_register` | 25 | `once_per_target` | Once per tournamentId (lifetime) |
 | `tournament_match_win` | 50 | `once_per_target` | Once per match ID |
 | `tournament_place_1` | 500 | `once_per_target` | Once per tournament ID |
 | `tournament_place_2` | 300 | `once_per_target` | Once per tournament ID |
@@ -227,4 +227,4 @@ There is no "post in feed" or "like a post" clan mission — those would be triv
 - **You delete a template.** Already-generated user docs reference an unknown `templateId`; the dashboard widget falls back to a generic label. Cosmetic only — the progress + reward still work because they're snapshotted.
 - **A user's clan changes mid-mission.** Past clan-mission contributions stay in the old clan's contributors map (they were a member when they contributed). They don't earn the `clan_mission_contribute` reward when their old clan's mission completes (only current members qualify at completion time).
 - **Daily-login dedup spans days incorrectly because of timezones.** We use UTC `dailyKey` deliberately to avoid this. A user in UTC-12 will see their daily reset at noon local; they're already getting all 5 days of `w_login_5` if they log in once every UTC day.
-- **`tournament_register` fires twice for the same tournament (e.g. register → withdraw → re-register).** Currently: yes, each registration grants XP up to the daily cap of 4. This is the gap the TODO #1 tracker entry covers — should be tightened so a single tournament-uid pair only ever grants once.
+- **`tournament_register` fires twice for the same tournament (e.g. register → withdraw → re-register).** No — `tournament_register` is `once_per_target` keyed by tournamentId, so re-registering grants 0 XP. Mission progress + clan-XP fanout are also gated on the XP grant actually firing, so they only fire on first-time register. Closes the farm loop.

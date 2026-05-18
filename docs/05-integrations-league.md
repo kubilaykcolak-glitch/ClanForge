@@ -93,7 +93,7 @@ After unlink, the user can re-link the same or a different Riot account. The rel
 A tournament created with **League of Legends** as the game and a **region** picked gets `gameProvider: "league"` on the tournament doc. Registration into such a tournament additionally requires:
 
 - The registering user has a linked + verified Riot account on `/profiles/{uid}/integrations/league`.
-- (Future) The user's tier matches the tournament's tier restriction — see deferred TODO #3.
+- The user's **solo-queue tier** falls within the tournament's optional `riotRankRestriction` bounds (min/max). Unranked players are blocked unless the tournament has `allowUnranked: true`. Errors are user-friendly ("This tournament requires Diamond or higher. You're Gold.").
 
 See [03-tournaments.md §6](./03-tournaments.md#6-lol-auto-verification-flow) for the full Tournament-V5 auto-verification flow.
 

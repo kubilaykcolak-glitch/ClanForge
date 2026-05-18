@@ -6,7 +6,6 @@ import {
   deleteDoc,
   doc,
   increment,
-  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
@@ -17,7 +16,7 @@ import { CountdownTimer } from "./CountdownTimer";
 import type { TournamentStatus } from "@/types";
 import { formatPence } from "@/lib/prize-splits";
 import { createCheckoutSession, withdrawPaidEntry } from "@/lib/actions/tournament-payment.actions";
-import { awardXp } from "@/lib/actions/xp.actions";
+import { registerForTournament } from "@/lib/actions/tournament.actions";
 
 interface TournamentRegistrationProps {
   tournamentId:        string;
@@ -102,32 +101,25 @@ export function TournamentRegistration({
 
     try {
       if (isFree) {
-        await setDoc(doc(db, "tournaments", tournamentId, "participants", currentUid), {
-          userId:        currentUid,
-          seed:          0,
-          status:        "registered",
-          paymentStatus: "free",
-          registeredAt:  new Date(),
-          displayName:   currentDisplayName,
-          avatarUrl:     currentAvatarUrl ?? null,
-        });
-        await updateDoc(doc(db, "tournaments", tournamentId), {
-          participantCount: increment(1),
-        });
-        toast.success("You're registered! 🏆");
-
-        // Small XP reward for registering. daily_cap of 4.
-        const xp = await awardXp(currentUid, "tournament_register", tournamentId);
-        if (xp.success && xp.data && xp.data.awarded > 0) {
-          toast.success(`+${xp.data.awarded} XP — ${xp.data.label}`);
+        // Server-action path. The action handles the participant doc + count
+        // atomically AND the gated XP/mission/clan-XP grants. Replaces the
+        // previous client-side write + parallel XP calls, which were
+        // exploitable for register/withdraw XP farming on the same tournament.
+        const result = await registerForTournament(
+          currentUid,
+          tournamentId,
+          currentDisplayName,
+          currentAvatarUrl,
+        );
+        if (!result.success) {
+          setOpError(result.error ?? "Registration failed");
+          toast.error(result.error ?? "Registration failed");
+          setBusy(false);
+          return;
         }
-
-        // Award clan XP for tournament participation (fire-and-forget)
-        import("@/lib/actions/clan-xp.actions")
-          .then(m => m.awardClanXpForMember(currentUid, "tournament_participate", tournamentId))
-          .catch(() => {});
-
+        toast.success("You're registered! 🏆");
         router.refresh();
+        setBusy(false);
         return;
       }
 
@@ -175,8 +167,12 @@ export function TournamentRegistration({
         });
         toast.success("Withdrawn from tournament");
         router.refresh();
-        // busy stays true — component re-renders via router.refresh(), preventing
-        // an immediate re-register click while the server state is in-flight.
+        // Reset busy so the re-rendered Register button (now visible because
+        // isRegistered flipped to false) isn't stuck disabled. router.refresh
+        // is fire-and-forget — the new server data arrives shortly after,
+        // and any accidental re-register click in the gap is harmlessly
+        // rejected by the server transaction's "already registered" check.
+        setBusy(false);
         return;
       }
 
@@ -189,7 +185,7 @@ export function TournamentRegistration({
       }
       toast.success("Refund issued — should land within a few days");
       router.refresh();
-      // busy stays true (same pattern as paid register path)
+      setBusy(false);
     } catch {
       setOpError("Withdrawal failed. Please try again.");
       toast.error("Withdrawal failed. Try again.");

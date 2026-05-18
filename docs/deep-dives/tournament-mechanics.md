@@ -121,36 +121,74 @@ Round 1 matches:
 
 ---
 
-## 4. ⚠️ The round-2 advancement gap
+## 4. Round advancement (lazy)
 
-**Current behaviour:** `generateBracket` only ever creates **Round 1 matches**. There is no code anywhere in `src/lib/actions/tournament.actions.ts` (or anywhere else) that creates Round 2, 3, etc. matches as winners are determined.
+`generateBracket` only writes Round 1. **All higher rounds are lazy-created** by `advanceBracketIfReady` in `_match-result-core.ts`, which runs at the end of every match finalisation regardless of source (manual report / Riot callback / admin override / admin simulate).
 
-The `BracketView` UI groups matches by `round` and displays multiple rounds visually, but the higher-round columns will be empty for any non-trivial tournament.
+### Algorithm
 
-### What this means in practice
+1. Load every match for the tournament.
+2. Find the highest existing round number. If the tournament is already `complete` or `cancelled`, return.
+3. Check whether every match in that round has `status === "complete"`. If not, return.
+4. Collect the winners in match-number order. (Each match was assigned a `matchNumber` at creation; sorting by it gives the canonical bracket layout.)
+5. **If exactly one winner remains, mark the tournament `status: complete` and return.** That winner is the tournament winner; prize-payout computation runs from there.
+6. Otherwise, pair winners into new round-(N+1) matches: winner of match 1 plays winner of match 2, etc. Odd-winner case → the last one gets a bye and is auto-completed immediately.
+7. For LoL tournaments (`gameProvider === "league"`), mint a fresh Riot Tournament-V5 code for each new non-bye round-N+1 match. Failures are logged and don't roll back the bracket — admin can `regenerateMatchCode` if needed.
+8. If the new round is itself entirely complete (rare — happens when bye chains produce no real matches), recurse so the tournament finalises immediately.
 
-- 8-person tournaments produce 4 Round-1 matches. Once all 4 resolve, the tournament has 4 winners but no Round-2 matches to play. Result: stuck.
-- 4-person tournaments produce 2 Round-1 matches. After resolving, 2 winners, no final match → stuck.
-- Only **byes** auto-complete, and they only advance via the immediate `winnerId` set at generation time.
+### Why lazy (not pre-create)
 
-### Workarounds
+The other common approach is to pre-create all rounds at bracket generation time with `participantAId = "TBD"` slots, then fill the slots as winners are decided. Lazy creation has two advantages:
 
-- **Manual creator finalisation** — once Round-1 winners are clear, the creator runs the `finalizeTournament` action via the tournament page admin flow. This skips the bracket and goes straight to picking the overall winner(s) for prize payouts. Less satisfying than a full bracket but functional.
-- **Admin force-finalize** — same end-state, super-admin can drive it.
-- **For LoL tournaments specifically** — the same workaround applies, with the bonus that auto-verification handles the Round-1 matches end-to-end before the manual finalise.
+- **Cleaner doc shape.** No TBD-or-real conditional in the match doc; every match in Firestore is a real match between two real participants.
+- **No "phantom matches".** The bracket view doesn't have to handle "this match exists but has no opponents yet" — it just shows whatever's there.
 
-### Why the gap exists
+The trade-off: the BracketView UI can't show "winner of Match 3 vs winner of Match 4" before those matches resolve. Acceptable for v1; the visible bracket is always a true snapshot of what's been played.
 
-The Phase-1 bracket build prioritised getting a working Round-1 + LoL Tournament-V5 + admin-override + payment flow shipped. Round-N advancement is a single feature that needs its own design (when does it trigger? how are losers slotted into a losers bracket if we ever support double-elim? do we re-render the bracket between rounds or pre-create all rounds with TBD opponents?).
+### Worked example — 8-person tournament
 
-### How to close the gap (future work)
+```
+Round 1 (created at bracket gen):
+  M1: Alice vs Bob   → Alice wins
+  M2: Carol vs Dave  → Carol wins
+  M3: Eve   vs Frank → Frank wins
+  M4: Gina  vs Hank  → Hank wins
 
-Two viable approaches:
+[advanceBracketIfReady fires on M4 finalisation]
+[all of Round 1 complete → lazy-create Round 2]
 
-1. **Pre-create all rounds at generation time** with `participantAId = "TBD"` / `participantBId = "TBD"` and a `previousMatchId` reference. When a Round-N match completes, the helper writes the winner into the `participantAId`/`participantBId` slot of the next-round match it feeds into.
-2. **Lazily create the next round** when N-1 matches all reach `status === "complete"`. Simpler initial code; trickier to render the bracket because the UI has to handle "round 2 doesn't exist yet" gracefully (which it already does).
+Round 2 (created automatically):
+  M1: Alice vs Carol  → Alice wins
+  M2: Frank vs Hank   → Frank wins
 
-Approach (1) is what most tournament platforms do — it's why bracket UIs can show "vs winner of Match 3" before that match has been played. Worth picking up as a TODO when bracket advancement becomes a real customer-pain point.
+[advanceBracketIfReady fires again]
+[all of Round 2 complete → lazy-create Round 3 — but only 2 winners
+ ≠ 1, so build a real Round 3 match]
+
+Round 3 (final):
+  M1: Alice vs Frank  → Alice wins
+
+[advanceBracketIfReady fires]
+[1 winner remaining → tournament.status = "complete"]
+```
+
+### Bye chains
+
+A 5-person tournament:
+```
+Round 1: M1: A vs B → A wins
+         M2: C vs D → C wins
+         M3: E vs BYE → E auto-completes as winner immediately at gen
+
+Round 2 (auto-created):
+         M1: A vs C → A wins
+         M2: E vs BYE → E auto-completes
+
+Round 3 (auto-created):
+         M1: A vs E → A wins → tournament complete
+```
+
+The recursive re-check at step 8 catches the case where Round 2 was created with all-bye, which would have left the bracket stalled otherwise.
 
 ---
 

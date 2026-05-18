@@ -12,6 +12,37 @@ export function profileIconUrl(version: string, iconId: number): string {
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/profileicon/${iconId}.png`;
 }
 
+// ─── Rank tier ordering ──────────────────────────────────────────────────────
+// Numeric rank used for tournament rank-restriction comparisons. Higher number
+// = higher tier. "UNRANKED" sentinel sits below Iron so a restriction with a
+// minTier of Iron can still allow unranked players via an explicit opt-in.
+
+export const TIER_RANK: Record<string, number> = {
+  UNRANKED:    0,
+  IRON:        1,
+  BRONZE:      2,
+  SILVER:      3,
+  GOLD:        4,
+  PLATINUM:    5,
+  EMERALD:     6,
+  DIAMOND:     7,
+  MASTER:      8,
+  GRANDMASTER: 9,
+  CHALLENGER:  10,
+};
+
+/** Tier strings the UI offers for the restriction picker (excludes UNRANKED). */
+export const PICKABLE_TIERS: readonly string[] = [
+  "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD",
+  "DIAMOND", "MASTER", "GRANDMASTER", "CHALLENGER",
+];
+
+/** Title-cased label for a tier, e.g. "GOLD" → "Gold". */
+export function tierLabel(tier: string): string {
+  if (!tier) return "Any";
+  return tier.charAt(0) + tier.slice(1).toLowerCase();
+}
+
 // ─── Rank tier colour palette ────────────────────────────────────────────────
 // Drives the rank-chip tint on the LinkedGameCard. Kept close to canonical
 // Riot client colours but biased slightly to match the Arena palette.

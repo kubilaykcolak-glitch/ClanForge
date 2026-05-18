@@ -65,6 +65,18 @@ Member-only feed of clan posts:
 
 Posts are read-restricted by clan privacy (see §1).
 
+### Announcements (leader-only)
+
+Clan leaders see an extra **📣 Announce** toggle on the compose box. Posts created with the toggle on:
+
+- Get an `isAnnouncement: true` flag on the doc and render with an accent border + "📣 Announcement" pill, distinct from regular posts.
+- **Fan out an in-app notification to every confirmed clan member** (the bell icon in the navbar; deep-links to the announcement's anchor on the clan page).
+- Are **rate-limited to 3 announcements per clan per rolling 24 hours** to prevent notification spam.
+
+Non-leaders cannot create announcements — the UI toggle is hidden AND the server action re-verifies leader role AND a Firestore rule blocks any client-side write that tries to set `isAnnouncement: true`. Defence in depth.
+
+`pinnedUntil` field exists in the schema for future "stick this announcement to the top" behaviour but isn't surfaced in the compose UI yet.
+
 ---
 
 ## 5. Clan missions

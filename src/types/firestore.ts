@@ -138,6 +138,16 @@ export interface ClanPost {
   imageUrl?: string;
   likesCount: number;
   createdAt: Date;
+  /** When true, this post was authored by the clan leader as an
+   * announcement and triggered a notification fanout to every clan
+   * member. Renders with distinct "ANNOUNCEMENT" styling. Writable only
+   * by the clan leader (enforced in createClanAnnouncement + Firestore
+   * rule). */
+  isAnnouncement?: boolean;
+  /** Optional sticky-until timestamp. While in the future, the post
+   * floats to the top of the clan feed regardless of chronological
+   * order. Only meaningful when isAnnouncement === true. */
+  pinnedUntil?: Date | null;
 }
 
 // ─── Tournament ───────────────────────────────────────────────────────────────
@@ -181,6 +191,19 @@ export interface Tournament {
   /** Numeric tournamentId returned by Riot's Tournament-V5 /tournaments
    * registration call. Codes are minted against this id. */
   riotTournamentId?: number | null;
+  /** Optional rank restriction enforced at registration time. Only
+   * meaningful when gameProvider === "league". Tiers are uppercase
+   * canonical Riot values: IRON .. CHALLENGER. */
+  riotRankRestriction?: {
+    /** Minimum tier (inclusive). If unset, no minimum. */
+    minTier?: string | null;
+    /** Maximum tier (inclusive). If unset, no maximum. */
+    maxTier?: string | null;
+    /** When true, unranked players are also allowed regardless of bounds.
+     * Useful for "newbie cup" tournaments that explicitly want unranked
+     * + low-rank players. */
+    allowUnranked?: boolean;
+  } | null;
 }
 
 // ─── TournamentParticipant ────────────────────────────────────────────────────

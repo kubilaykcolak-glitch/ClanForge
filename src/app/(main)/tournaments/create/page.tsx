@@ -13,6 +13,7 @@ import {
   TOURNAMENT_REGIONS,
   TOURNAMENT_REGION_LABELS,
 } from "@/lib/riot/regions";
+import { PICKABLE_TIERS, tierLabel } from "@/lib/riot/assets";
 import type { TournamentRegion } from "@/lib/riot/tournament";
 import { validateImageFile } from "@/lib/uploads";
 import {
@@ -248,6 +249,12 @@ interface Step1State {
   /** Only meaningful when game === "League of Legends" — the platform region
    * Riot will host all tournament-code lobbies in. */
   riotRegion?: TournamentRegion | "";
+  /** Optional rank floor (inclusive). Empty string = no floor. */
+  riotMinTier?: string;
+  /** Optional rank ceiling (inclusive). Empty string = no ceiling. */
+  riotMaxTier?: string;
+  /** When true, unranked players bypass min/max bounds. */
+  riotAllowUnranked?: boolean;
 }
 
 interface Step1Props {
@@ -437,6 +444,58 @@ function Step1({ state, onChange, errors }: Step1Props) {
             ))}
           </select>
           {errors.riotRegion && <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>{errors.riotRegion}</p>}
+        </Section>
+      )}
+
+      {/* League of Legends — optional rank-tier restriction. Empty
+          From / To = no restriction. Useful for "Diamond+ only" or
+          "Bronze-only newbie cup" formats. Enforced at registration time
+          against the user's solo-queue tier from their linked account. */}
+      {state.game === "League of Legends" && (
+        <Section title="Rank Restriction (optional)">
+          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+            Limit who can register by League solo/duo rank. Leave both as &quot;Any&quot; for no restriction.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>From (minimum)</Label>
+              <select
+                value={state.riotMinTier ?? ""}
+                onChange={e => onChange({ riotMinTier: e.target.value })}
+                style={inputStyle()}
+                onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+                onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
+              >
+                <option value="">Any</option>
+                {PICKABLE_TIERS.map(t => (
+                  <option key={t} value={t}>{tierLabel(t)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>To (maximum)</Label>
+              <select
+                value={state.riotMaxTier ?? ""}
+                onChange={e => onChange({ riotMaxTier: e.target.value })}
+                style={inputStyle()}
+                onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+                onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
+              >
+                <option value="">Any</option>
+                {PICKABLE_TIERS.map(t => (
+                  <option key={t} value={t}>{tierLabel(t)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <label className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <input
+              type="checkbox"
+              checked={!!state.riotAllowUnranked}
+              onChange={e => onChange({ riotAllowUnranked: e.target.checked })}
+            />
+            Allow unranked players (bypass the bounds above)
+          </label>
         </Section>
       )}
 
@@ -846,6 +905,9 @@ export default function CreateTournamentPage() {
     bannerFile:    null,
     bannerPreview: null,
     riotRegion:    "",
+    riotMinTier:   "",
+    riotMaxTier:   "",
+    riotAllowUnranked: false,
   });
 
   const [s2, setS2] = useState<Step2State>({
@@ -903,6 +965,15 @@ export default function CreateTournamentPage() {
       e.format = "Select a format";
     if (s1.game === "League of Legends" && !s1.riotRegion)
       e.riotRegion = "Select the League of Legends server";
+    // Rank-restriction sanity: min must not exceed max.
+    if (s1.game === "League of Legends" && s1.riotMinTier && s1.riotMaxTier) {
+      const order = PICKABLE_TIERS;
+      const minIdx = order.indexOf(s1.riotMinTier);
+      const maxIdx = order.indexOf(s1.riotMaxTier);
+      if (minIdx > maxIdx) {
+        e.riotMinTier = "Minimum rank cannot be higher than the maximum";
+      }
+    }
     setErrors1(e);
     return Object.keys(e).length === 0;
   };
@@ -1017,6 +1088,15 @@ export default function CreateTournamentPage() {
           // linking and auto-mint tournament codes.
           gameProvider: "league",
           riotRegion:   s1.riotRegion,
+          // Optional rank restriction. Omit the whole object when neither
+          // bound is set so the registration guard short-circuits cleanly.
+          ...((s1.riotMinTier || s1.riotMaxTier) && {
+            riotRankRestriction: {
+              minTier:       s1.riotMinTier || null,
+              maxTier:       s1.riotMaxTier || null,
+              allowUnranked: !!s1.riotAllowUnranked,
+            },
+          }),
         }),
         registrationClosesAt: s2.registrationClosesAt,
         startsAt:             s2.startsAt,
