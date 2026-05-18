@@ -4,6 +4,7 @@
 
 import { notFound } from "next/navigation";
 import { getDefaultSection, getGame } from "@/lib/games/registry";
+import { SectionErrorFallback } from "@/components/games/SectionErrorFallback";
 import type { GameSectionProps } from "@/lib/games/types";
 
 interface PageProps {
@@ -16,13 +17,17 @@ export default async function GameHubRootPage({ params }: PageProps) {
   const section = getDefaultSection(game);
   if (!section) notFound();
 
-  const mod = await section.loader();
-  const SectionComponent = mod.default;
-
   const props: GameSectionProps = {
     gameSlug: game.slug,
     gameName: game.name,
   };
 
-  return <SectionComponent {...props} />;
+  try {
+    const mod = await section.loader();
+    const SectionComponent = mod.default;
+    return <SectionComponent {...props} />;
+  } catch (err) {
+    console.error("[game-hub] failed to render section", { gameSlug: game.slug, section: section.slug, err });
+    return <SectionErrorFallback sectionLabel={section.label} gameSlug={game.slug} />;
+  }
 }

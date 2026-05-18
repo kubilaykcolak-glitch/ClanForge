@@ -15,10 +15,21 @@ export default function GameHubLayout({ params, children }: LayoutProps) {
   const game = getGame(params.gameSlug);
   if (!game) notFound();
 
+  // Build a plain-serializable tab list for the client component. Doing the
+  // shape transform server-side keeps function refs (icons) out of the RSC
+  // payload, which avoids the prod-build "An error occurred in the Server
+  // Components render" crash that fires when Lucide refs cross the boundary.
+  const liveSections = game.sections.filter(s => s.status === "live");
+  const hubTabs = liveSections.map((s, idx) => ({
+    slug:  s.slug,
+    label: s.label,
+    href:  idx === 0 ? `/games/${game.slug}` : `/games/${game.slug}/${s.slug}`,
+  }));
+
   return (
     <div className="max-w-6xl mx-auto">
       <GameHubBanner game={game} />
-      <GameHubTabs game={game} />
+      <GameHubTabs gameSlug={game.slug} accentColor={game.accentColor} tabs={hubTabs} />
       {children}
     </div>
   );
