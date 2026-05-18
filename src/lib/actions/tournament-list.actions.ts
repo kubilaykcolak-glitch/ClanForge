@@ -85,15 +85,24 @@ export async function getTournamentTab(
   status:      TournamentStatusTab,
   sort:        TournamentSort,
   cursorDocId?: string | null,
+  /** Optional equality filter on the `game` field (display name, e.g.
+   * "League of Legends"). Used by the per-game hub sections. When set, the
+   * query needs a (status, game, sortField) composite index. */
+  game?:       string | null,
 ): Promise<ActionResult<TournamentsPage>> {
   try {
     const { adminDb } = await import("@/lib/firebase/admin");
     const { field, direction } = SORT_FIELD[sort];
 
-    let query = adminDb
+    let query: FirebaseFirestore.Query = adminDb
       .collection("tournaments")
-      .where("status", "==", status)
-      .orderBy(field, direction);
+      .where("status", "==", status);
+
+    if (game) {
+      query = query.where("game", "==", game);
+    }
+
+    query = query.orderBy(field, direction);
 
     if (cursorDocId) {
       const cursorSnap = await adminDb.collection("tournaments").doc(cursorDocId).get();

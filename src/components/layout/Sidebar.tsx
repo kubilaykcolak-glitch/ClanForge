@@ -20,12 +20,15 @@ import {
   Plug,
   Calendar,
   ArrowLeft,
+  Gamepad2,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getInitials, clamp } from "@/lib/utils";
 import { getClanBorderStyle } from "@/lib/clan-levels";
 import type { Profile } from "@/types";
 import { meetsRole, type Role } from "@/lib/auth/roles";
+import { listGameMeta } from "@/lib/games/meta";
 
 interface SidebarProps {
   profile:         Profile | null;
@@ -63,6 +66,109 @@ function getLevel(xp: number) {
 async function handleSignOut() {
   await fetch("/api/auth/session", { method: "DELETE" });
   window.location.href = "/";
+}
+
+// ── Games dropdown (sidebar group) ────────────────────────────────────────────
+// Renders "Games" as a collapsible group. Auto-expands while the user is on
+// a /games/* route so the active game is visible without an extra click.
+// Sub-items are static — sourced from the registry, so adding a game adds a
+// row here for free.
+
+function GamesNavGroup({
+  pathname,
+  onNavigate,
+}: {
+  pathname:   string;
+  onNavigate?: () => void;
+}) {
+  const games   = listGameMeta();
+  const onAnyGame = pathname === "/games" || pathname.startsWith("/games/");
+  // Default open when in the games area; closed otherwise. Local state lets
+  // the user manually collapse/expand independent of route.
+  const [open, setOpen] = useState<boolean>(onAnyGame);
+
+  return (
+    <div className="mb-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150",
+        )}
+        style={
+          onAnyGame
+            ? { background: "rgba(99,102,241,0.10)", color: "var(--accent)" }
+            : { color: "var(--text-secondary)" }
+        }
+        onMouseEnter={e => {
+          if (!onAnyGame) {
+            e.currentTarget.style.background = "var(--bg-elevated)";
+            e.currentTarget.style.color      = "var(--text-primary)";
+          }
+        }}
+        onMouseLeave={e => {
+          if (!onAnyGame) {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color      = "var(--text-secondary)";
+          }
+        }}
+        aria-expanded={open}
+      >
+        <Gamepad2 size={18} />
+        <span className="flex-1 text-left">Games</span>
+        <ChevronRight
+          size={14}
+          style={{
+            transform:  open ? "rotate(90deg)" : "rotate(0deg)",
+            transition: "transform 150ms",
+          }}
+        />
+      </button>
+
+      {open && (
+        <div className="ml-3 mt-0.5 pl-3 flex flex-col gap-0.5" style={{ borderLeft: "1px solid var(--border-subtle)" }}>
+          {games.map(g => {
+            const href     = `/games/${g.slug}`;
+            const isActive = pathname === href || pathname.startsWith(`${href}/`);
+            return (
+              <Link
+                key={g.slug}
+                href={href}
+                onClick={onNavigate}
+                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-150"
+                style={
+                  isActive
+                    ? { background: "rgba(99,102,241,0.10)", color: "var(--accent)" }
+                    : { color: "var(--text-muted)" }
+                }
+                onMouseEnter={e => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = "var(--bg-elevated)";
+                    e.currentTarget.style.color      = "var(--text-primary)";
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color      = "var(--text-muted)";
+                  }
+                }}
+              >
+                <span
+                  className="w-5 h-5 rounded flex items-center justify-center font-display font-bold text-[10px] text-white shrink-0"
+                  style={{ background: g.accentColor }}
+                  aria-hidden
+                >
+                  {g.shortName[0]}
+                </span>
+                <span className="truncate">{g.name}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Shared sidebar body ───────────────────────────────────────────────────────
@@ -192,6 +298,9 @@ function SidebarBody({
 
       {/* ── Nav links ── */}
       <nav className="flex flex-col gap-0.5 flex-1">
+        {!inAdminMode && (
+          <GamesNavGroup pathname={pathname} onNavigate={onNavigate} />
+        )}
         {navItems.map(({ href, label, icon, activePrefix, comingSoon, comingSoonLabel }) => {
           const checkPrefix = activePrefix ?? href;
           const active = pathname === href || (checkPrefix !== "/" && pathname.startsWith(checkPrefix));

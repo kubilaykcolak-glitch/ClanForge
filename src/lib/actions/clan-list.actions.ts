@@ -83,27 +83,39 @@ const SORT_CONFIG: Record<
 export async function getClanList(
   sort:        ClanSort,
   cursorDocId?: string | null,
+  /** Optional equality filter on the `gameFocus` field (display name, e.g.
+   * "League of Legends"). Used by the per-game hub Clans section. When set,
+   * this adds an extra (isPublic, gameFocus, sortField) composite index. */
+  gameFocus?:  string | null,
 ): Promise<ActionResult<ClansPage>> {
   try {
     const { adminDb } = await import("@/lib/firebase/admin");
 
-    let query = adminDb.collection("clans").where("isPublic", "==", true);
+    let query: FirebaseFirestore.Query = adminDb
+      .collection("clans")
+      .where("isPublic", "==", true);
+
+    if (gameFocus) {
+      query = query.where("gameFocus", "==", gameFocus);
+    }
 
     if (sort === "recruiting") {
       // Filter to recruiting clans only, ordered by member count.
-      // Uses the (isPublic, isRecruiting, memberCount desc) composite index.
-      query = (query as FirebaseFirestore.Query)
+      // Uses the (isPublic, isRecruiting, memberCount desc) composite index
+      // — or (isPublic, gameFocus, isRecruiting, memberCount desc) when game
+      // filter is also present.
+      query = query
         .where("isRecruiting", "==", true)
-        .orderBy("memberCount", "desc") as typeof query;
+        .orderBy("memberCount", "desc");
     } else {
       const { field, direction } = SORT_CONFIG[sort];
-      query = (query as FirebaseFirestore.Query).orderBy(field, direction) as typeof query;
+      query = query.orderBy(field, direction);
     }
 
     if (cursorDocId) {
       const cursorSnap = await adminDb.collection("clans").doc(cursorDocId).get();
       if (cursorSnap.exists) {
-        query = (query as FirebaseFirestore.Query).startAfter(cursorSnap) as typeof query;
+        query = query.startAfter(cursorSnap);
       }
     }
 

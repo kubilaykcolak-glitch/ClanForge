@@ -46,6 +46,19 @@
       ]
     },
 
+    // Game-hub Clans section: public + gameFocus filter + most members first.
+    // Used by getClanList when the optional `gameFocus` param is set
+    // (per-game hub at /games/<slug>/clans).
+    {
+      "collectionGroup": "clans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic",    "order": "ASCENDING"  },
+        { "fieldPath": "gameFocus",   "order": "ASCENDING"  },
+        { "fieldPath": "memberCount", "order": "DESCENDING" }
+      ]
+    },
+
     // ── tournaments ──────────────────────────────────────────────────────────
 
     // Open / live / locked tabs: status filter + soonest first
@@ -54,6 +67,19 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status",   "order": "ASCENDING" },
+        { "fieldPath": "startsAt", "order": "ASCENDING" }
+      ]
+    },
+
+    // Game-hub Tournaments section: status + game filter + soonest first.
+    // Used by getTournamentTab when the optional `game` param is set
+    // (per-game hub at /games/<slug>/tournaments and the overview block).
+    {
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",   "order": "ASCENDING" },
+        { "fieldPath": "game",     "order": "ASCENDING" },
         { "fieldPath": "startsAt", "order": "ASCENDING" }
       ]
     },
