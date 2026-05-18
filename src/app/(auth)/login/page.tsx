@@ -49,7 +49,12 @@ export default function LoginPage() {
   const onSubmit = async (values: FormValues) => {
     try {
       const cred = await signInWithEmailAndPassword(auth, values.email, values.password);
-      const token = await cred.user.getIdToken();
+      // forceRefresh: true — fetch a fresh ID token from Firebase Auth's
+      // servers instead of returning the locally-cached one. Without this,
+      // the session cookie can embed stale custom claims (e.g. a recent
+      // role grant or revoke that hasn't yet propagated to the cached
+      // token's 1-hour TTL window).
+      const token = await cred.user.getIdToken(true);
       await createSession(token);
       window.location.href = "/dashboard";
     } catch (err) {
@@ -61,7 +66,12 @@ export default function LoginPage() {
     setGoogleLoading(true);
     try {
       const cred = await signInWithPopup(auth, new GoogleAuthProvider());
-      const token = await cred.user.getIdToken();
+      // forceRefresh: true — fetch a fresh ID token from Firebase Auth's
+      // servers instead of returning the locally-cached one. Without this,
+      // the session cookie can embed stale custom claims (e.g. a recent
+      // role grant or revoke that hasn't yet propagated to the cached
+      // token's 1-hour TTL window).
+      const token = await cred.user.getIdToken(true);
       await createSession(token);
       window.location.href = "/dashboard";
     } catch (err) {

@@ -144,7 +144,7 @@ export default function RegisterPage() {
       batch.set(doc(db, "usernames", values.username.toLowerCase()), { uid });
       await batch.commit();
 
-      const token = await cred.user.getIdToken();
+      const token = await cred.user.getIdToken(true);
       await createSession(token);
       window.location.href = "/dashboard/onboarding";
     } catch (err) {
@@ -157,7 +157,7 @@ export default function RegisterPage() {
     setGoogleLoading(true);
     try {
       const cred = await signInWithPopup(auth, new GoogleAuthProvider());
-      const token = await cred.user.getIdToken();
+      const token = await cred.user.getIdToken(true);
       await createSession(token);
       // Google users skip manual profile creation; redirect to onboarding to pick username
       window.location.href = "/dashboard/onboarding";
