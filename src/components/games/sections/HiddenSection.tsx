@@ -4,8 +4,6 @@
 // type-checks. Flipping a section to `status: "live"` requires repointing
 // the loader at a real component.
 
-import type { GameSectionProps } from "@/lib/games/types";
-
-export default function HiddenSection(_: GameSectionProps) {
+export default function HiddenSection() {
   return null;
 }
