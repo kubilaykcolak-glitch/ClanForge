@@ -1,14 +1,18 @@
 // ─── Game-hub Tournaments section ─────────────────────────────────────────────
 //
-// Server component. Renders the open tournaments for this game in a grid,
-// with a CTA into /tournaments/create and a "View all" link out to the
-// global tournaments page. Curated preview — the full /tournaments page
-// remains the deep interactive view.
+// Per the cleanup rule, the game hub does NOT duplicate the global
+// /tournaments surface. This section shows only the tournaments the
+// viewer is currently registered in for this game. Discovery + creation
+// live entirely in the dedicated Tournaments tab; "View all" funnels there.
 
 import Link from "next/link";
-import { Plus, Trophy } from "lucide-react";
-import { getTournamentTab, type TournamentRow } from "@/lib/actions/tournament-list.actions";
+import { Trophy } from "lucide-react";
+import {
+  getMyActiveTournamentsForGame,
+  type TournamentRow,
+} from "@/lib/actions/tournament-list.actions";
 import { TournamentCard } from "@/components/tournament/TournamentCard";
+import { getCurrentUserContext } from "@/lib/games/current-user";
 import type { Tournament } from "@/types";
 import type { GameSectionProps } from "@/lib/games/types";
 
@@ -23,10 +27,11 @@ function rowToTournament(row: TournamentRow): Tournament {
 }
 
 export default async function TournamentsSection({ gameName }: GameSectionProps) {
-  // First page of "open" tournaments only — the curated section view. Users
-  // who want live/locked/complete browse the global /tournaments page.
-  const res = await getTournamentTab("open", "soonest", null, gameName);
-  const items = res.data?.items ?? [];
+  const viewer = await getCurrentUserContext();
+  const mineRes = viewer
+    ? await getMyActiveTournamentsForGame(viewer.uid, gameName, 24)
+    : { success: true as const, data: [] as TournamentRow[] };
+  const items = mineRes.success ? (mineRes.data ?? []) : [];
 
   return (
     <div>
@@ -53,27 +58,19 @@ function SectionHeader({ gameName, count }: { gameName: string; count: number })
           className="font-display font-bold text-xl"
           style={{ color: "var(--text-primary)" }}
         >
-          {gameName} tournaments
+          Your {gameName} tournaments
         </h2>
         <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-          {count > 0
-            ? `${count} open for registration`
-            : "No tournaments open right now"}
+          {count > 0 ? `${count} active` : "Nothing active for you right now"}
         </p>
       </div>
-      <div className="flex items-center gap-2">
-        <Link
-          href="/tournaments"
-          className="text-xs font-medium underline-offset-2 hover:underline"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          View all →
-        </Link>
-        <Link href="/tournaments/create" className="arena-cta shrink-0">
-          <Plus size={14} />
-          Create
-        </Link>
-      </div>
+      <Link
+        href="/tournaments"
+        className="text-xs font-medium underline-offset-2 hover:underline"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        View all →
+      </Link>
     </div>
   );
 }
@@ -89,14 +86,22 @@ function EmptyState({ gameName }: { gameName: string }) {
     >
       <Trophy size={32} style={{ color: "var(--text-muted)" }} className="mb-3 opacity-40" />
       <p className="text-sm mb-1" style={{ color: "var(--text-secondary)" }}>
-        No open {gameName} tournaments
+        You haven&rsquo;t joined a {gameName} tournament yet
       </p>
-      <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
-        Be the first to host one.
+      <p className="text-xs mb-5 max-w-sm" style={{ color: "var(--text-muted)" }}>
+        Browse what&rsquo;s open and join from the Tournaments tab. Everything
+        you&rsquo;re registered in will show here.
       </p>
-      <Link href="/tournaments/create" className="arena-cta">
-        <Plus size={14} />
-        Create tournament
+      <Link
+        href="/tournaments"
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold"
+        style={{
+          background: "var(--bg-elevated)",
+          border:     "1px solid var(--border-default)",
+          color:      "var(--text-primary)",
+        }}
+      >
+        Browse all tournaments
       </Link>
     </div>
   );

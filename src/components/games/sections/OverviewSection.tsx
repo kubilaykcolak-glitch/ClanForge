@@ -1,17 +1,20 @@
 // ─── Game-hub Overview section ────────────────────────────────────────────────
 //
 // Default landing inside every game hub. Three blocks, fetched in parallel:
-//   1. Featured tournaments (top 3 open, soonest first)
+//   1. Your active tournaments for this game (user-participated only — the
+//      global /tournaments page owns discovery + creation)
 //   2. Your status card (game-specific — Riot for LoL, Discord stub for AR)
 //   3. Quick-link tiles to other hub sections
 //
-// The "Active in your clans" block is intentionally deferred until the
-// posts collection grows a `game` field. Adding it later is a drop-in
-// without touching this file's shape.
+// Deliberately NO "Create tournament" CTA, NO featured-tournaments grid —
+// those duplicate the global /tournaments surface. View All links there.
 
 import Link from "next/link";
-import { ArrowRight, Plus, Shield, Trophy, Users } from "lucide-react";
-import { getTournamentTab, type TournamentRow } from "@/lib/actions/tournament-list.actions";
+import { ArrowRight, Shield, Trophy, Users } from "lucide-react";
+import {
+  getMyActiveTournamentsForGame,
+  type TournamentRow,
+} from "@/lib/actions/tournament-list.actions";
 import { TournamentCard } from "@/components/tournament/TournamentCard";
 import { LinkedGameCard } from "@/components/profile/LinkedGameCard";
 import { getLiveSections, getGame } from "@/lib/games/registry";
@@ -31,28 +34,28 @@ function rowToTournament(row: TournamentRow): Tournament {
 
 export default async function OverviewSection({ gameSlug, gameName }: GameSectionProps) {
   const game = getGame(gameSlug);
-  // Parallel-fetch: tournaments + (for LoL only) league integration. Both
-  // request-cached, so calling them again elsewhere in the tree is free.
+  // Parallel-fetch: viewer context + (for LoL only) league integration +
+  // viewer's active tournaments for this game. All request-cached.
   const isLeague = gameSlug === "league-of-legends";
-  const [tournsRes, leagueIntegration, viewer] = await Promise.all([
-    getTournamentTab("open", "soonest", null, gameName),
+  const viewer = await getCurrentUserContext();
+  const [leagueIntegration, mineRes] = await Promise.all([
     isLeague ? getCurrentLeagueIntegration() : Promise.resolve(null),
-    getCurrentUserContext(),
+    viewer ? getMyActiveTournamentsForGame(viewer.uid, gameName, 3) : Promise.resolve({ success: true, data: [] as TournamentRow[] }),
   ]);
-  const featured = (tournsRes.data?.items ?? []).slice(0, 3);
+  const myActive = mineRes.success ? (mineRes.data ?? []) : [];
   const liveSections = game ? getLiveSections(game).filter(s => s.slug !== "overview") : [];
 
   return (
     <div className="space-y-8">
 
-      {/* ── Block 1: Featured tournaments ──────────────────────────── */}
+      {/* ── Block 1: Your active tournaments ───────────────────────── */}
       <section>
         <div className="flex items-end justify-between gap-4 mb-4 flex-wrap">
           <h2 className="font-display font-bold text-lg" style={{ color: "var(--text-primary)" }}>
-            Featured tournaments
+            Your tournaments
           </h2>
           <Link
-            href={`/games/${gameSlug}/tournaments`}
+            href="/tournaments"
             className="text-xs font-medium underline-offset-2 hover:underline"
             style={{ color: "var(--text-secondary)" }}
           >
@@ -60,29 +63,33 @@ export default async function OverviewSection({ gameSlug, gameName }: GameSectio
           </Link>
         </div>
 
-        {featured.length === 0 ? (
+        {myActive.length === 0 ? (
           <div
-            className="rounded-xl py-10 px-6 text-center"
+            className="rounded-xl py-8 px-6 text-center"
             style={{
               background: "var(--bg-surface)",
               border:     "1px solid var(--border-subtle)",
             }}
           >
-            <Trophy size={28} style={{ color: "var(--text-muted)" }} className="mx-auto mb-3 opacity-40" />
+            <Trophy size={24} style={{ color: "var(--text-muted)" }} className="mx-auto mb-3 opacity-40" />
             <p className="text-sm mb-1" style={{ color: "var(--text-secondary)" }}>
-              No open tournaments for {gameName}
+              You&rsquo;re not in any {gameName} tournament right now
             </p>
-            <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
-              Be the first to host one.
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Browse open tournaments from the{" "}
+              <Link
+                href="/tournaments"
+                className="underline-offset-2 hover:underline"
+                style={{ color: "var(--accent)" }}
+              >
+                Tournaments tab
+              </Link>
+              .
             </p>
-            <Link href="/tournaments/create" className="arena-cta">
-              <Plus size={14} />
-              Create tournament
-            </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {featured.map(row => (
+            {myActive.map(row => (
               <TournamentCard key={row.id} tournament={rowToTournament(row)} />
             ))}
           </div>

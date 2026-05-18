@@ -126,6 +126,71 @@ export async function getTournamentTab(
   }
 }
 
+// ── "My active tournaments" for a single game ─────────────────────────────────
+//
+// Used by the game-hub Overview + Tournaments sections to render ONLY the
+// tournaments the viewer is registered in, filtered to a single game and
+// in a still-relevant state (open / locked / live — i.e. not complete or
+// cancelled). Returns at most `limit` rows, soonest-first.
+//
+// Implementation: a collectionGroup query on `participants` keyed by the
+// viewer's uid (Firestore auto-indexes single-field equality on
+// collectionGroup so no explicit index is required). Then a parallel get
+// of each parent tournament doc to filter by `game` and `status`. We cap
+// the participant-doc fan-in at 60 to bound the read cost — if a user is
+// in more than 60 tournaments simultaneously, they can use the global
+// /tournaments page to find the rest.
+
+const ACTIVE_STATUSES = new Set(["open", "locked", "live"]);
+
+export async function getMyActiveTournamentsForGame(
+  uid:      string,
+  gameName: string,
+  limit:    number,
+): Promise<ActionResult<TournamentRow[]>> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const partsSnap = await adminDb
+      .collectionGroup("participants")
+      .where("userId", "==", uid)
+      .limit(60)
+      .get();
+
+    const tournamentIds = Array.from(new Set(
+      partsSnap.docs
+        .map(d => d.ref.parent.parent?.id)
+        .filter((id): id is string => !!id),
+    ));
+    if (tournamentIds.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    const tournamentRefs = tournamentIds.map(id =>
+      adminDb.collection("tournaments").doc(id));
+    const tournamentSnaps = await adminDb.getAll(...tournamentRefs);
+
+    const rows: TournamentRow[] = [];
+    for (const snap of tournamentSnaps) {
+      if (!snap.exists) continue;
+      const data = snap.data() ?? {};
+      if ((data.game as string) !== gameName) continue;
+      const status = (data.status as string) ?? "";
+      if (!ACTIVE_STATUSES.has(status)) continue;
+      rows.push(mapDoc(snap as FirebaseFirestore.QueryDocumentSnapshot));
+    }
+
+    rows.sort((a, b) => a.startsAt - b.startsAt);
+    return { success: true, data: rows.slice(0, limit) };
+  } catch (err) {
+    console.error("[getMyActiveTournamentsForGame]", err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to load your tournaments",
+    };
+  }
+}
+
 // ── Name prefix search (across all statuses) ─────────────────────────────────
 //
 // Uses Firestore's lexicographic range to approximate a "starts with" query.
