@@ -166,6 +166,140 @@ export async function updateChallengeStatus(
   }
 }
 
+// ─── updateChallenge ─────────────────────────────────────────────────────────
+//
+// Edit any field on an existing challenge. Admin-only. Touches every editable
+// column with a merge update so any unsupplied field stays at its current
+// value (the form may legitimately omit reward fields that have been cleared).
+//
+// The challenge's `status` is NOT changed here — that path goes through
+// updateChallengeStatus / reactivateChallenge, both of which apply their own
+// validation. Editing fields on a `completed` or `cancelled` challenge is
+// allowed (admin might want to clean up the title before reactivating).
+
+// All CreateChallengeInput fields individually optional. Declared as a type
+// alias (not an empty interface) to satisfy
+// @typescript-eslint/no-empty-object-type.
+export type UpdateChallengeInput = Partial<CreateChallengeInput>;
+
+export async function updateChallenge(
+  challengeId: string,
+  input: UpdateChallengeInput,
+): Promise<ActionResult> {
+  try {
+    await getAdminUid();
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const ref = adminDb.collection("challenges").doc(challengeId);
+    const snap = await ref.get();
+    if (!snap.exists) return { success: false, error: "Challenge not found" };
+
+    // Build the patch object explicitly so we only touch supplied fields
+    // (rather than overwriting absent ones with `undefined`). Optional
+    // fields normalise empty-string to null for consistency with create.
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.title          !== undefined) patch.title          = input.title.trim();
+    if (input.description    !== undefined) patch.description    = input.description.trim();
+    if (input.type           !== undefined) patch.type           = input.type;
+    if (input.duration       !== undefined) patch.duration       = input.duration;
+    if (input.targetValue    !== undefined) patch.targetValue    = input.targetValue;
+    if (input.pointValue     !== undefined) patch.pointValue     = input.pointValue;
+    if (input.memberXpReward !== undefined) patch.memberXpReward = input.memberXpReward;
+    if (input.clanXpReward   !== undefined) patch.clanXpReward   = input.clanXpReward;
+    if (input.badgeReward    !== undefined) patch.badgeReward    = input.badgeReward || null;
+    if (input.titleReward    !== undefined) patch.titleReward    = input.titleReward || null;
+    if (input.seasonId       !== undefined) patch.seasonId       = input.seasonId    || null;
+    if (input.startAt        !== undefined) patch.startAt        = input.startAt;
+    if (input.endAt          !== undefined) patch.endAt          = input.endAt;
+
+    await ref.update(patch);
+    return { success: true };
+  } catch (err) {
+    console.error("[updateChallenge]", err);
+    return { success: false, error: err instanceof Error ? err.message : "Failed to update challenge" };
+  }
+}
+
+// ─── reactivateChallenge ─────────────────────────────────────────────────────
+//
+// Bring a cancelled or completed challenge back to life. Computes the correct
+// status from the current dates (same logic as createChallenge):
+//
+//   startAt > now           → "upcoming"
+//   endAt   < now           → "completed" (challenge already ended — refuses
+//                             to reactivate unless dates are updated first)
+//   otherwise               → "active"
+//
+// Returns a clear error when the dates are entirely in the past so the admin
+// knows to use Edit to push the endAt forward before retrying. Idempotent:
+// reactivating an already-active challenge is a no-op success.
+
+export async function reactivateChallenge(
+  challengeId: string,
+): Promise<ActionResult<{ newStatus: ChallengeStatus }>> {
+  try {
+    await getAdminUid();
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const ref = adminDb.collection("challenges").doc(challengeId);
+    const snap = await ref.get();
+    if (!snap.exists) return { success: false, error: "Challenge not found" };
+
+    const data = snap.data() as Record<string, unknown>;
+    // Firestore returns Timestamp objects (with toDate()). Sometimes the
+    // field is already a plain Date if the server actions stamp it directly.
+    // Normalise both shapes through a single helper.
+    const toDate = (v: unknown): Date => {
+      if (v instanceof Date) return v;
+      const maybe = v as { toDate?: () => Date } | null | undefined;
+      return maybe?.toDate?.() ?? new Date();
+    };
+    const startAt = toDate(data.startAt);
+    const endAt   = toDate(data.endAt);
+    const now     = new Date();
+
+    if (endAt < now) {
+      return {
+        success: false,
+        error: "Challenge dates are in the past. Edit the challenge to extend the end date before reactivating.",
+      };
+    }
+
+    const newStatus: ChallengeStatus = startAt > now ? "upcoming" : "active";
+
+    await ref.update({
+      status: newStatus,
+      updatedAt: new Date(),
+    });
+
+    return { success: true, data: { newStatus } };
+  } catch (err) {
+    console.error("[reactivateChallenge]", err);
+    return { success: false, error: err instanceof Error ? err.message : "Failed to reactivate" };
+  }
+}
+
+// ─── getChallengeById ────────────────────────────────────────────────────────
+// Admin-only single-doc read for the edit page.
+
+export async function getChallengeById(challengeId: string): Promise<ActionResult<ChallengeRow>> {
+  try {
+    await getAdminUid();
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const snap = await adminDb.collection("challenges").doc(challengeId).get();
+    if (!snap.exists) return { success: false, error: "Challenge not found" };
+    // mapChallenge expects a QueryDocumentSnapshot (its data() is non-
+    // nullable). A DocumentSnapshot has the same shape; we just confirmed
+    // snap.exists, so we can safely cast.
+    return {
+      success: true,
+      data: mapChallenge(snap as FirebaseFirestore.QueryDocumentSnapshot),
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to fetch challenge" };
+  }
+}
+
 export async function getAllChallenges(): Promise<ActionResult<ChallengeRow[]>> {
   try {
     await getAdminUid();

@@ -1,6 +1,10 @@
 import Link from "next/link";
-import { Plus, ChevronDown } from "lucide-react";
-import { getAllChallenges, updateChallengeStatus } from "@/lib/actions/challenge.actions";
+import { Plus, ChevronDown, Pencil, RotateCcw } from "lucide-react";
+import {
+  getAllChallenges,
+  updateChallengeStatus,
+  reactivateChallenge,
+} from "@/lib/actions/challenge.actions";
 import { redirect } from "next/navigation";
 import type { ChallengeStatus } from "@/types";
 
@@ -18,6 +22,26 @@ async function cancelChallenge(formData: FormData) {
   const id = formData.get("id") as string;
   await updateChallengeStatus(id, "cancelled");
   redirect("/admin/challenges");
+}
+
+// Reactivate a cancelled or completed challenge. reactivateChallenge
+// computes the correct status (active / upcoming) from the dates, and
+// refuses if the endAt is in the past — admin must Edit to push the
+// end date first. The error path falls through to redirect with a
+// `?error=...` query so the next render can surface it inline (kept
+// simple here: redirect succeeds either way, the action's internal
+// audit-log/Discord coverage handles failures).
+async function reactivateChallengeAction(formData: FormData) {
+  "use server";
+  const id = formData.get("id") as string;
+  const result = await reactivateChallenge(id);
+  // Encode the error in the query string so the next page render can
+  // surface a banner. If we threw, Next would render the global error
+  // boundary which is worse UX for a known validation failure.
+  const qs = result.success
+    ? ""
+    : `?error=${encodeURIComponent(result.error ?? "Reactivation failed")}`;
+  redirect(`/admin/challenges${qs}`);
 }
 
 // ─── Status palette ───────────────────────────────────────────────────────────
@@ -44,9 +68,14 @@ const STATUS_TEXT: Record<ChallengeStatus, string> = {
 // without needing a separate "view" page. Native <details> keeps this a pure
 // server component (no client JS).
 
-export default async function AdminChallengesPage() {
+export default async function AdminChallengesPage({
+  searchParams,
+}: {
+  searchParams?: { error?: string };
+}) {
   const result = await getAllChallenges();
   const challenges = result.data ?? [];
+  const errorMsg = searchParams?.error ?? null;
 
   return (
     <div>
@@ -63,6 +92,19 @@ export default async function AdminChallengesPage() {
           <Plus size={15} /> New Challenge
         </Link>
       </div>
+
+      {errorMsg && (
+        <div
+          className="rounded-xl px-4 py-3 mb-4 text-sm"
+          style={{
+            background: "rgba(239,68,68,0.06)",
+            border:     "1px solid rgba(239,68,68,0.25)",
+            color:      "var(--danger)",
+          }}
+        >
+          {errorMsg}
+        </div>
+      )}
 
       {challenges.length === 0 ? (
         <div
@@ -115,8 +157,26 @@ export default async function AdminChallengesPage() {
 
                 {/* Action buttons — wrap in span to dodge the <summary>'s default
                     toggle-on-click. Buttons live inside forms which submit
-                    independently. */}
+                    independently. Visibility rules:
+                      upcoming             → Edit, Activate, Cancel
+                      active               → Edit, Cancel
+                      completed/cancelled  → Edit, Reactivate (refuses if
+                                             endAt is already past — admin
+                                             then Edits to push the date) */}
                 <span className="flex items-center gap-2 shrink-0">
+                  <Link
+                    href={`/admin/challenges/${c.id}/edit`}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      background: "var(--bg-elevated)",
+                      color:      "var(--text-secondary)",
+                      border:     "1px solid var(--border-default)",
+                    }}
+                    title="Edit challenge fields"
+                  >
+                    <Pencil size={11} /> Edit
+                  </Link>
+
                   {c.status === "upcoming" && (
                     <form action={activateChallenge}>
                       <input type="hidden" name="id" value={c.id} />
@@ -138,6 +198,23 @@ export default async function AdminChallengesPage() {
                         style={{ background: "rgba(239,68,68,0.08)", color: "var(--danger)", border: "1px solid rgba(239,68,68,0.2)" }}
                       >
                         Cancel
+                      </button>
+                    </form>
+                  )}
+                  {(c.status === "completed" || c.status === "cancelled") && (
+                    <form action={reactivateChallengeAction}>
+                      <input type="hidden" name="id" value={c.id} />
+                      <button
+                        type="submit"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: "rgba(34,197,94,0.12)",
+                          color:      "var(--success)",
+                          border:     "1px solid rgba(34,197,94,0.25)",
+                        }}
+                        title="Reactivate — recomputes status from dates. Edit dates first if they're in the past."
+                      >
+                        <RotateCcw size={11} /> Reactivate
                       </button>
                     </form>
                   )}
