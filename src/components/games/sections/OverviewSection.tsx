@@ -13,7 +13,9 @@ import Link from "next/link";
 import { ArrowRight, Plus, Shield, Trophy, Users } from "lucide-react";
 import { getTournamentTab, type TournamentRow } from "@/lib/actions/tournament-list.actions";
 import { TournamentCard } from "@/components/tournament/TournamentCard";
+import { LinkedGameCard } from "@/components/profile/LinkedGameCard";
 import { getLiveSections, getGame } from "@/lib/games/registry";
+import { getCurrentLeagueIntegration, getCurrentUserContext } from "@/lib/games/current-user";
 import type { Tournament } from "@/types";
 import type { GameSectionProps } from "@/lib/games/types";
 
@@ -29,8 +31,13 @@ function rowToTournament(row: TournamentRow): Tournament {
 
 export default async function OverviewSection({ gameSlug, gameName }: GameSectionProps) {
   const game = getGame(gameSlug);
-  const [tournsRes] = await Promise.all([
+  // Parallel-fetch: tournaments + (for LoL only) league integration. Both
+  // request-cached, so calling them again elsewhere in the tree is free.
+  const isLeague = gameSlug === "league-of-legends";
+  const [tournsRes, leagueIntegration, viewer] = await Promise.all([
     getTournamentTab("open", "soonest", null, gameName),
+    isLeague ? getCurrentLeagueIntegration() : Promise.resolve(null),
+    getCurrentUserContext(),
   ]);
   const featured = (tournsRes.data?.items ?? []).slice(0, 3);
   const liveSections = game ? getLiveSections(game).filter(s => s.slug !== "overview") : [];
@@ -87,7 +94,15 @@ export default async function OverviewSection({ gameSlug, gameName }: GameSectio
         <h2 className="font-display font-bold text-lg mb-4" style={{ color: "var(--text-primary)" }}>
           Your status
         </h2>
-        <YourStatusCard gameSlug={gameSlug} gameName={gameName} />
+        {isLeague && leagueIntegration && viewer ? (
+          <LinkedGameCard
+            uid={viewer.uid}
+            isOwner={true}
+            integration={leagueIntegration}
+          />
+        ) : (
+          <YourStatusCard gameSlug={gameSlug} gameName={gameName} />
+        )}
       </section>
 
       {/* ── Block 3: Quick-link tiles to other sections ────────────── */}

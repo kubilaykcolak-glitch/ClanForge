@@ -4,10 +4,10 @@
 // game. For full search/sort, users follow "View all" out to /clans.
 
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { Plus, Shield } from "lucide-react";
 import { getClanList, type ClanRow } from "@/lib/actions/clan-list.actions";
 import { ClanCard } from "@/components/clan/ClanCard";
+import { getCurrentUserContext } from "@/lib/games/current-user";
 import type { Clan } from "@/types";
 import type { GameSectionProps } from "@/lib/games/types";
 
@@ -29,25 +29,6 @@ function rowToClan(row: ClanRow): Clan {
     xp:           row.xp,
     clanTag:      row.clanTag,
   } as Clan;
-}
-
-async function getCurrentUserContext() {
-  try {
-    const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
-    const sessionCookie = cookies().get("session")?.value;
-    if (!sessionCookie) return null;
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const profSnap = await adminDb.collection("profiles").doc(decoded.uid).get();
-    const prof = profSnap.exists ? profSnap.data() : null;
-    return {
-      uid:         decoded.uid,
-      clanId:      (prof?.clanId         as string | null | undefined) ?? null,
-      displayName: (prof?.displayName    as string | undefined)         ?? "",
-      avatarUrl:   prof?.avatarUrl       as string | undefined,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export default async function ClansSection({ gameName }: GameSectionProps) {
@@ -72,7 +53,7 @@ export default async function ClansSection({ gameName }: GameSectionProps) {
               currentUid={me?.uid ?? null}
               currentClanId={me?.clanId ?? null}
               currentDisplayName={me?.displayName ?? ""}
-              currentAvatarUrl={me?.avatarUrl}
+              currentAvatarUrl={me?.avatarUrl ?? undefined}
             />
           ))}
         </div>

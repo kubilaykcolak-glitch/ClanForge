@@ -2,9 +2,11 @@
 // solid colour as the default so the page renders cleanly even before the
 // real banner image is uploaded to /public/games/<slug>/banner.webp.
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { GameDefinition } from "@/lib/games/types";
+import { LeagueBannerStatus } from "./LeagueBannerStatus";
 
 interface Props {
   game: GameDefinition;
@@ -44,7 +46,7 @@ export function GameHubBanner({ game }: Props) {
             >
               {game.shortName[0]}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1
                 className="font-display font-bold text-2xl sm:text-3xl"
                 style={{ color: "var(--text-primary)" }}
@@ -55,6 +57,17 @@ export function GameHubBanner({ game }: Props) {
                 {game.tagline}
               </p>
             </div>
+
+            {/* Persistent linked-account chip — only for LoL today. Wrapped in
+                Suspense so the banner paints immediately and the chip
+                streams in once the integration lookup resolves. */}
+            {game.slug === "league-of-legends" && (
+              <div className="ml-auto self-start mt-2">
+                <Suspense fallback={null}>
+                  <LeagueBannerStatus />
+                </Suspense>
+              </div>
+            )}
           </div>
         </div>
       </div>
