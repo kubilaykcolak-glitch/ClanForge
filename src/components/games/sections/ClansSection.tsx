@@ -4,7 +4,7 @@
 // game. For full search/sort, users follow "View all" out to /clans.
 
 import Link from "next/link";
-import { Plus, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
 import { getClanList, type ClanRow } from "@/lib/actions/clan-list.actions";
 import { ClanCard } from "@/components/clan/ClanCard";
 import { getCurrentUserContext } from "@/lib/games/current-user";
@@ -73,19 +73,13 @@ function SectionHeader({ gameName, count }: { gameName: string; count: number })
           {count > 0 ? `${count} public clans` : "No clans yet"}
         </p>
       </div>
-      <div className="flex items-center gap-2">
-        <Link
-          href="/clans"
-          className="text-xs font-medium underline-offset-2 hover:underline"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          View all →
-        </Link>
-        <Link href="/clans/create" className="arena-cta shrink-0">
-          <Plus size={14} />
-          Create
-        </Link>
-      </div>
+      <Link
+        href="/clans"
+        className="text-xs font-medium underline-offset-2 hover:underline"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        View all →
+      </Link>
     </div>
   );
 }
@@ -103,12 +97,19 @@ function EmptyState({ gameName }: { gameName: string }) {
       <p className="text-sm mb-1" style={{ color: "var(--text-secondary)" }}>
         No public clans focused on {gameName} yet
       </p>
-      <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
-        Build one and grow your roster.
+      <p className="text-xs mb-5 max-w-sm" style={{ color: "var(--text-muted)" }}>
+        Browse all clans or create one from the Clans tab.
       </p>
-      <Link href="/clans/create" className="arena-cta">
-        <Plus size={14} />
-        Create clan
+      <Link
+        href="/clans"
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold"
+        style={{
+          background: "var(--bg-elevated)",
+          border:     "1px solid var(--border-default)",
+          color:      "var(--text-primary)",
+        }}
+      >
+        Browse all clans
       </Link>
     </div>
   );
