@@ -12,6 +12,7 @@ import {
 } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/auth/audit-log";
 import { sendAdminAlert } from "@/lib/auth/discord-alert";
+import { resolveActor, resolveUserTarget } from "@/lib/auth/discord-formatting";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -125,13 +126,18 @@ export async function setUserRole(
       ip:         clientIp(),
     });
 
+    const [actor, target] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveUserTarget(targetUid),
+    ]);
     await sendAdminAlert({
       title: newRole === null ? "🔻 Role revoked" : `🔼 Role ${newRole} granted`,
-      body:  `<@${session.uid}> (${session.role ?? "?"}) changed <@${targetUid}> from \`${currentTargetRole ?? "user"}\` → \`${newRole ?? "user"}\``,
+      body:  `**${actor.label}** changed **${target.label}** from \`${currentTargetRole ?? "user"}\` → \`${newRole ?? "user"}\`.`,
       level: "critical",
       fields: [
-        { name: "Actor",  value: session.uid },
-        { name: "Target", value: `${userRecord.email ?? "(no email)"} (${targetUid})` },
+        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Target", value: `${target.label}${userRecord.email ? ` · ${userRecord.email}` : ""}\n\`${target.id}\`` },
+        { name: "Change", value: `\`${currentTargetRole ?? "user"}\` → \`${newRole ?? "user"}\`` },
         { name: "Reason", value: cleanedReason },
       ],
     });
@@ -171,10 +177,23 @@ async function logAndReject(
     // Only alert on validation failures that look like privilege escalation
     // attempts (a non-super_admin trying to grant super_admin, etc.).
     if (attemptedRole === "super_admin" || error.startsWith("Only a super_admin")) {
+      // Try to enrich the attempted-escalation alert too — same names, but
+      // fail open: if we can't look up names, fall back to the raw ids
+      // rather than skipping the alert entirely.
+      const [actorEnriched, targetEnriched] = await Promise.all([
+        resolveActor(actor, actorRole).catch(() => ({ label: actor, uid: actor })),
+        resolveUserTarget(targetUid).catch(() => ({ label: targetUid, id: targetUid })),
+      ]);
       await sendAdminAlert({
         title: "⚠ Role-change attempt rejected",
-        body:  `\`${actor}\` (${actorRole ?? "user"}) tried to set role \`${attemptedRole ?? "user"}\` on \`${targetUid}\` — denied: ${error}`,
+        body:  `**${actorEnriched.label}** tried to set role \`${attemptedRole ?? "user"}\` on **${targetEnriched.label}** — denied: ${error}`,
         level: "warn",
+        fields: [
+          { name: "Actor",         value: `${actorEnriched.label}\n\`${actorEnriched.uid}\`` },
+          { name: "Target",        value: `${targetEnriched.label}\n\`${targetEnriched.id}\`` },
+          { name: "Attempted",     value: `\`${attemptedRole ?? "user"}\`` },
+          { name: "Rejected with", value: error },
+        ],
       });
     }
   } catch (logErr) {

@@ -8,6 +8,11 @@ import {
 import type { Role } from "@/lib/auth/roles";
 import { writeAuditLog, type AuditTargetType } from "@/lib/auth/audit-log";
 import { sendAdminAlert } from "@/lib/auth/discord-alert";
+import {
+  resolveActor,
+  resolveTournamentTarget,
+  resolveParticipantTarget,
+} from "@/lib/auth/discord-formatting";
 import { requireStepUp } from "@/lib/auth/step-up";
 
 interface ActionResult<T = undefined> {
@@ -82,13 +87,20 @@ export async function forceFinalizeTournament(
       ip:         clientIp(),
     });
 
+    // Enrich the alert with display names so a casual look at #admin-alerts
+    // tells you who did what to which tournament, instead of opaque ids.
+    const [actor, tournament] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveTournamentTarget(tournamentId),
+    ]);
     await sendAdminAlert({
       title: "🏁 Tournament force-finalized",
-      body:  `\`${tournamentId}\` was force-completed by ${session.role}. Pending matches remain unfinalized — review individually if needed.`,
+      body:  `**${actor.label}** force-completed **${tournament.label}**. Pending matches remain unfinalized — review them individually if needed.`,
       level: "warn",
       fields: [
-        { name: "Actor",  value: session.uid },
-        { name: "Reason", value: cleanedReason },
+        { name: "Actor",      value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Tournament", value: tournament.label },
+        { name: "Reason",     value: cleanedReason },
       ],
     });
 
@@ -183,12 +195,17 @@ export async function forceCancelTournament(
       ip:         clientIp(),
     });
 
+    const [actor, tournament] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveTournamentTarget(tournamentId),
+    ]);
     await sendAdminAlert({
       title: "🛑 Tournament force-cancelled",
-      body:  `\`${tournamentId}\` was cancelled by ${session.role}.`,
+      body:  `**${actor.label}** cancelled **${tournament.label}**${refundedCount > 0 ? ` — ${refundedCount} paid participant${refundedCount === 1 ? "" : "s"} refunded` : ""}${failures > 0 ? `, ${failures} refund failure${failures === 1 ? "" : "s"}` : ""}.`,
       level: "critical",
       fields: [
-        { name: "Actor",         value: session.uid },
+        { name: "Actor",         value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Tournament",    value: tournament.label },
         { name: "Refunded",      value: String(refundedCount) },
         { name: "Refund errors", value: String(failures) },
         { name: "Reason",        value: cleanedReason },
@@ -272,14 +289,20 @@ export async function forceRefundParticipant(
       ip:         clientIp(),
     });
 
+    const [actor, ctx] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveParticipantTarget(tournamentId, participantUid),
+    ]);
     await sendAdminAlert({
       title: "💸 Force refund",
-      body:  `\`${participantUid}\` refunded from tournament \`${tournamentId}\` by ${session.role}`,
+      body:  `**${actor.label}** refunded **${ctx.user.label}** from **${ctx.tournament.label}**.`,
       level: "critical",
       fields: [
-        { name: "Actor",   value: session.uid },
-        { name: "Amount",  value: refundedAmount > 0 ? `${(refundedAmount / 100).toFixed(2)} (pence: ${refundedAmount})` : "free entry — no money" },
-        { name: "Reason",  value: cleanedReason },
+        { name: "Actor",       value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Participant", value: `${ctx.user.label}\n\`${ctx.user.id}\`` },
+        { name: "Tournament",  value: ctx.tournament.label },
+        { name: "Amount",      value: refundedAmount > 0 ? `£${(refundedAmount / 100).toFixed(2)}` : "Free entry (no money)" },
+        { name: "Reason",      value: cleanedReason },
       ],
     });
 

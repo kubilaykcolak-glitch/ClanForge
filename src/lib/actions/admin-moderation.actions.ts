@@ -9,6 +9,12 @@ import {
 import { meetsRole, type Role } from "@/lib/auth/roles";
 import { writeAuditLog, type AuditTargetType } from "@/lib/auth/audit-log";
 import { sendAdminAlert } from "@/lib/auth/discord-alert";
+import {
+  resolveActor,
+  resolveUserTarget,
+  resolveClanTarget,
+  resolveTournamentTarget,
+} from "@/lib/auth/discord-formatting";
 import { requireStepUp } from "@/lib/auth/step-up";
 
 interface ActionResult<T = undefined> {
@@ -99,13 +105,17 @@ export async function banUser(targetUid: string, reason: string): Promise<Action
       ip:         clientIp(),
     });
 
+    const [actor, target] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveUserTarget(targetUid),
+    ]);
     await sendAdminAlert({
       title: "🚫 User banned",
-      body:  `\`${userRecord.email ?? "(no email)"}\` (\`${targetUid}\`) was banned by ${session.role}`,
+      body:  `**${actor.label}** banned **${target.label}**${userRecord.email ? ` · ${userRecord.email}` : ""}.`,
       level: "critical",
       fields: [
-        { name: "Actor",  value: session.uid },
-        { name: "Target", value: targetUid },
+        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Target", value: `${target.label}\n\`${target.id}\`` },
         { name: "Reason", value: cleanedReason },
       ],
     });
@@ -159,12 +169,17 @@ export async function unbanUser(targetUid: string, reason: string): Promise<Acti
       ip:         clientIp(),
     });
 
+    const [actor, target] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveUserTarget(targetUid),
+    ]);
     await sendAdminAlert({
       title: "✅ User unbanned",
-      body:  `\`${userRecord.email ?? "(no email)"}\` (\`${targetUid}\`) was unbanned`,
+      body:  `**${actor.label}** unbanned **${target.label}**${userRecord.email ? ` · ${userRecord.email}` : ""}.`,
       level: "info",
       fields: [
-        { name: "Actor",  value: session.uid },
+        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Target", value: `${target.label}\n\`${target.id}\`` },
         { name: "Reason", value: cleanedReason },
       ],
     });
@@ -241,12 +256,18 @@ export async function forceUnlinkRiotAccount(
       ip:         clientIp(),
     });
 
+    const [actor, target] = await Promise.all([
+      resolveActor(session.uid, session.role),
+      resolveUserTarget(targetUid),
+    ]);
     await sendAdminAlert({
       title: "🔌 Riot integration force-unlinked",
-      body:  `\`${targetUid}\` had their League account force-unlinked by ${session.role}`,
+      body:  `**${actor.label}** force-unlinked the League integration of **${target.label}**.`,
       level: "warn",
       fields: [
-        { name: "Actor",  value: session.uid },
+        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Target", value: `${target.label}\n\`${target.id}\`` },
+        { name: "PUUID",  value: puuid ? `\`${puuid}\`` : "(unknown)" },
         { name: "Reason", value: cleanedReason },
       ],
     });
@@ -315,12 +336,28 @@ export async function hideContent(
       ip:         clientIp(),
     });
 
+    // Resolve a friendly label for the target so the embed reads "Spring
+    // Showdown" rather than the raw doc id. Clan posts encode the clan id +
+    // post id so we surface the clan; other types are direct doc refs.
+    const actor = await resolveActor(session.uid, session.role);
+    let targetLabel = targetPath;
+    if (targetType === "tournament") {
+      targetLabel = (await resolveTournamentTarget(targetPath)).label;
+    } else if (targetType === "clan") {
+      targetLabel = (await resolveClanTarget(targetPath)).label;
+    } else if (targetType === "post") {
+      const [clanId] = targetPath.split("/");
+      const clan = await resolveClanTarget(clanId);
+      targetLabel = `Post in ${clan.label}`;
+    }
+
     await sendAdminAlert({
-      title: `🙈 ${targetType} hidden`,
-      body:  `\`${targetPath}\` was hidden by ${session.role}`,
+      title: `🙈 ${targetType[0].toUpperCase() + targetType.slice(1)} hidden`,
+      body:  `**${actor.label}** hid ${targetType} **${targetLabel}**.`,
       level: "info",
       fields: [
-        { name: "Actor",  value: session.uid },
+        { name: "Actor",  value: `${actor.label}\n\`${actor.uid}\`` },
+        { name: "Target", value: `${targetLabel}\n\`${targetPath}\`` },
         { name: "Reason", value: cleanedReason },
       ],
     });
