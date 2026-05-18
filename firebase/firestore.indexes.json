@@ -163,33 +163,13 @@
     },
 
     // ── clan_points ───────────────────────────────────────────────────────────
-
-    // Weekly leaderboard
-    {
-      "collectionGroup": "clan_points",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "weeklyPoints", "order": "DESCENDING" }
-      ]
-    },
-
-    // Monthly leaderboard
-    {
-      "collectionGroup": "clan_points",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "monthlyPoints", "order": "DESCENDING" }
-      ]
-    },
-
-    // All-time leaderboard
-    {
-      "collectionGroup": "clan_points",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "totalPoints", "order": "DESCENDING" }
-      ]
-    },
+    //
+    // The weekly / monthly / totalPoints leaderboards used to live here as
+    // single-field composite-index declarations, but Firestore now rejects
+    // those at deploy time as "not necessary" — single-field indexes are
+    // auto-managed via the Firebase Console's Single Field Index controls.
+    // The leaderboard queries still work because Firestore creates the
+    // single-field indexes automatically (ASC and, when needed, DESC).
 
     // ── notifications (subcollection) ─────────────────────────────────────────
 
@@ -200,6 +180,22 @@
       "fields": [
         { "fieldPath": "read",      "order": "ASCENDING"  },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+
+    // ── posts (clan posts subcollection) ──────────────────────────────────────
+
+    // Clan announcement rate-limit query in createClanAnnouncement:
+    //   .where("isAnnouncement","==",true).where("createdAt",">=",windowStart)
+    // Needs the composite isAnnouncement + createdAt index. Per-clan scope
+    // (COLLECTION, not COLLECTION_GROUP) because the query lives under a
+    // specific /clans/{clanId}/posts collection.
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isAnnouncement", "order": "ASCENDING"  },
+        { "fieldPath": "createdAt",      "order": "ASCENDING"  }
       ]
     },
 
