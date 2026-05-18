@@ -16,15 +16,32 @@ import {
   LogOut,
   LogIn,
   UserPlus,
+  ScrollText,
+  Plug,
+  Calendar,
+  ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getInitials, clamp } from "@/lib/utils";
 import { getClanBorderStyle } from "@/lib/clan-levels";
 import type { Profile } from "@/types";
+import { meetsRole, type Role } from "@/lib/auth/roles";
 
 interface SidebarProps {
   profile:         Profile | null;
   isAuthenticated: boolean;
+  /** Role from the verified JWT claim (server-supplied). Null for regular
+   * users; "moderator" | "admin" | "super_admin" for elevated. When non-null
+   * the sidebar shows a discreet "Admin mode" toggle that swaps the nav
+   * between user-mode and admin-mode views.
+   *
+   * SECURITY: this prop is server-supplied from the verified session cookie
+   * — clients cannot inject or elevate it. Even if a non-admin somehow got
+   * userRole !== null and clicked the toggle, every /admin/* route runs its
+   * OWN role check in the admin layout (verifyAdminAccess), and every
+   * privileged server action calls requireRole(). The sidebar toggle is
+   * purely a UI affordance, not a security gate. */
+  userRole?:       Role | null;
 }
 
 interface NavItem {
@@ -53,15 +70,27 @@ async function handleSignOut() {
 function SidebarBody({
   profile,
   isAuthenticated,
+  userRole,
   onNavigate,
 }: {
   profile:         Profile | null;
   isAuthenticated: boolean;
+  userRole?:       Role | null;
   onNavigate?:     () => void;
 }) {
   const pathname = usePathname();
 
-  const navItems: NavItem[] = [
+  // Are we currently inside the admin area? Determines whether the toggle
+  // points "into" or "back out of" admin mode, and which nav we render.
+  const inAdminMode = pathname.startsWith("/admin");
+
+  // Defence-in-depth: even if a stale or forged prop somehow set userRole on
+  // a non-admin client, this client-side check still gates the toggle's
+  // visibility. The authoritative check is on the admin route itself.
+  const canSeeAdminToggle = isAuthenticated && meetsRole(userRole ?? null, "moderator");
+
+  // User-mode nav (the default).
+  const userNavItems: NavItem[] = [
     { href: "/dashboard",   label: "Dashboard",    icon: <LayoutDashboard size={18} /> },
     { href: profile?.username ? `/profile/${profile.username}` : "/dashboard/onboarding", label: "My Profile", icon: <User size={18} /> },
     {
@@ -75,6 +104,23 @@ function SidebarBody({
     { href: "/leaderboard", label: "Leaderboard",   icon: <Trophy size={18} /> },
     { href: "/lfg",         label: "LFG Board",     icon: <MessageSquare size={18} />, comingSoon: true },
   ];
+
+  // Admin-mode nav. Filtered server-side via the admin layout's role check
+  // anyway, but we also tier-gate here so a moderator doesn't see admin-only
+  // links they can't action.
+  const adminNavItems: NavItem[] = [
+    { href: "/admin",              label: "Overview",     icon: <LayoutDashboard size={18} /> },
+    ...(meetsRole(userRole ?? null, "admin") ? [
+      { href: "/admin/users",        label: "Users",        icon: <Users      size={18} /> },
+      { href: "/admin/tournaments",  label: "Tournaments",  icon: <Trophy     size={18} /> },
+      { href: "/admin/integrations", label: "Integrations", icon: <Plug       size={18} /> },
+      { href: "/admin/audit",        label: "Audit Log",    icon: <ScrollText size={18} /> },
+      { href: "/admin/challenges",   label: "Challenges",   icon: <Trophy     size={18} /> },
+      { href: "/admin/seasons",      label: "Seasons",      icon: <Calendar   size={18} /> },
+    ] : []),
+  ];
+
+  const navItems = inAdminMode ? adminNavItems : userNavItems;
 
   const { level, progress } = profile ? getLevel(profile.xp) : { level: 1, progress: 0 };
 
@@ -200,6 +246,56 @@ function SidebarBody({
         })}
       </nav>
 
+      {/* ── Admin mode toggle (role-gated) ────────────────────────────────
+          Only rendered when the SERVER-supplied userRole is at least
+          moderator. The pathname-based variant just decides which label
+          + destination to show — "Admin mode" → /admin, or "Back to user
+          view" → /dashboard. */}
+      {canSeeAdminToggle && (
+        <div className="mt-2 pt-2" style={{ borderTop: "1px dashed var(--border-subtle)" }}>
+          {inAdminMode ? (
+            <Link
+              href="/dashboard"
+              onClick={onNavigate}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
+              style={{ color: "var(--text-secondary)" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent";         e.currentTarget.style.color = "var(--text-secondary)"; }}
+            >
+              <ArrowLeft size={16} />
+              <span className="flex-1">Back to user view</span>
+            </Link>
+          ) : (
+            <Link
+              href="/admin"
+              onClick={onNavigate}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
+              style={{ color: "var(--text-muted)" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; e.currentTarget.style.color = "var(--danger)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent";          e.currentTarget.style.color = "var(--text-muted)"; }}
+              title={`Switch to admin view (you are signed in as ${userRole})`}
+            >
+              <Shield size={16} />
+              <span className="flex-1">Admin mode</span>
+              <span
+                className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{
+                  background: userRole === "super_admin" ? "rgba(239,68,68,0.15)"
+                    : userRole === "admin" ? "rgba(99,102,241,0.15)"
+                    : "rgba(34,197,94,0.15)",
+                  color: userRole === "super_admin" ? "var(--danger)"
+                    : userRole === "admin" ? "var(--accent)"
+                    : "var(--success)",
+                  border: "1px solid currentColor",
+                }}
+              >
+                {(userRole ?? "").replace("_", " ")}
+              </span>
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* ── Bottom section ── */}
       <div
         className="mt-4 pt-4 flex flex-col gap-0.5"
@@ -259,7 +355,7 @@ function SidebarBody({
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function Sidebar({ profile, isAuthenticated }: SidebarProps) {
+export function Sidebar({ profile, isAuthenticated, userRole }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -286,7 +382,7 @@ export function Sidebar({ profile, isAuthenticated }: SidebarProps) {
           borderRight: "1px solid var(--border-subtle)",
         }}
       >
-        <SidebarBody profile={profile} isAuthenticated={isAuthenticated} />
+        <SidebarBody profile={profile} isAuthenticated={isAuthenticated} userRole={userRole} />
       </aside>
 
       {/* ── Mobile sidebar overlay ── */}
@@ -322,6 +418,7 @@ export function Sidebar({ profile, isAuthenticated }: SidebarProps) {
             <SidebarBody
               profile={profile}
               isAuthenticated={isAuthenticated}
+              userRole={userRole}
               onNavigate={() => setMobileOpen(false)}
             />
           </aside>
