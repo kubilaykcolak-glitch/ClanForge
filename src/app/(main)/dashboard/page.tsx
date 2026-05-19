@@ -514,9 +514,20 @@ function ClanFeedSection({
             border:     "1px solid var(--border-subtle)",
           }}
         >
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            No posts yet. Be the first to post in your clan!
+          <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+            No posts yet. Be the first to post in your clan.
           </p>
+          <Link
+            href={`/clans/${clanSlug}`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+            style={{
+              background: "var(--bg-elevated)",
+              border:     "1px solid var(--border-default)",
+              color:      "var(--text-primary)",
+            }}
+          >
+            Go to your clan
+          </Link>
         </div>
       )}
     </div>

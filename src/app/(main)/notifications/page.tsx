@@ -92,16 +92,41 @@ export default async function NotificationsPage() {
       {/* ── List ── */}
       {notifs.length === 0 ? (
         <div
-          className="flex flex-col items-center justify-center rounded-2xl py-24 text-center"
+          className="flex flex-col items-center justify-center rounded-2xl py-16 px-6 text-center"
           style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
         >
           <Bell size={40} className="mb-4 opacity-20" style={{ color: "var(--text-muted)" }} />
           <p className="font-display font-semibold text-xl mb-2" style={{ color: "var(--text-primary)" }}>
             All clear
           </p>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            No notifications yet. Complete clan challenges to earn rewards and updates here.
+          <p className="text-sm max-w-md mb-6" style={{ color: "var(--text-muted)" }}>
+            You&rsquo;ll see updates here when your clan completes a challenge, levels up,
+            posts an announcement, or when a rival overtakes you on the leaderboard.
           </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{
+                background: "var(--bg-elevated)",
+                border:     "1px solid var(--border-default)",
+                color:      "var(--text-primary)",
+              }}
+            >
+              Open dashboard
+            </Link>
+            <Link
+              href="/tournaments"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{
+                background: "var(--bg-elevated)",
+                border:     "1px solid var(--border-default)",
+                color:      "var(--text-primary)",
+              }}
+            >
+              Browse tournaments
+            </Link>
+          </div>
         </div>
       ) : (
         <div
