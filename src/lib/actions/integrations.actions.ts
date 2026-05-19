@@ -20,10 +20,10 @@ import type {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-// Riot publishes Data Dragon versions at https://ddragon.leagueoflegends.com/api/versions.json
-// We snapshot a known-good version per refresh; clients build asset URLs from it.
-// Hardcoded for v1 — a future enhancement can fetch the latest at sync time.
-const DDRAGON_VERSION = "14.24.1";
+// Data Dragon version is fetched + cached by src/lib/riot/ddragon.ts
+// (24h TTL, falls back to a baseline on network failure). Snapshotted onto
+// each LeagueIntegration so the client can build deterministic asset URLs
+// without re-fetching the version list per page.
 
 const MANUAL_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;   // 5 minutes
 const AUTO_REFRESH_STALENESS_MS  = 6 * 60 * 60 * 1000; // 6 hours
@@ -72,11 +72,15 @@ async function buildLeagueSnapshot(
   puuid: string,
   region: LolPlatformRegion,
 ): Promise<LeagueSnapshot> {
-  // All three calls key off PUUID — fire them in parallel.
-  const [summoner, leagueEntries, masteries] = await Promise.all([
+  const { getDdragonVersion } = await import("@/lib/riot/ddragon");
+  // All four calls fire in parallel — three keyed by PUUID, plus the
+  // Data Dragon version resolver. The version call is essentially free
+  // after the first cache-warm (24h in-process cache).
+  const [summoner, leagueEntries, masteries, ddragonVersion] = await Promise.all([
     fetchSummonerByPuuid(puuid, region),
     fetchLeagueEntries(puuid, region).catch(() => []),
     fetchTopMastery(puuid, region, 3).catch(() => []),
+    getDdragonVersion(),
   ]);
 
   const solo = leagueEntries.find(e => e.queueType === "RANKED_SOLO_5x5");
@@ -92,7 +96,7 @@ async function buildLeagueSnapshot(
       level:      m.championLevel,
       points:     m.championPoints,
     })),
-    ddragonVersion: DDRAGON_VERSION,
+    ddragonVersion,
   };
 }
 
@@ -168,7 +172,11 @@ export async function startLeagueLinkVerification(
     }
 
     const { fetchSummonerByPuuid } = await import("@/lib/riot/client");
-    const summoner = await fetchSummonerByPuuid(account.puuid, region);
+    const { getDdragonVersion }    = await import("@/lib/riot/ddragon");
+    const [summoner, ddragonVersion] = await Promise.all([
+      fetchSummonerByPuuid(account.puuid, region),
+      getDdragonVersion(),
+    ]);
 
     const initialIconId = summoner.profileIconId ?? 0;
     const targetIconId  = pickTargetIcon(initialIconId);
@@ -197,7 +205,7 @@ export async function startLeagueLinkVerification(
         gameName:       account.gameName,
         tagLine:        account.tagLine,
         expiresAt:      expiresAt.toISOString(),
-        ddragonVersion: DDRAGON_VERSION,
+        ddragonVersion,
       },
     };
   } catch (err) {
