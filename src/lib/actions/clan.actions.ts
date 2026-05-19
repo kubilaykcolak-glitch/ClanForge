@@ -5,6 +5,7 @@ import type { Clan, ClanRole, Profile } from "@/types";
 import { getClanLevel, getClanBorderSlug } from "@/lib/clan-levels";
 import { getSessionUid, getSessionWithRole } from "./server-auth";
 import { meetsRole } from "@/lib/auth/roles";
+import { friendlyActionError } from "./_errors";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export async function createClan(
 
     return { success: true, data: { clanId, slug: data.slug } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to create clan";
+    const message = friendlyActionError(err, "Failed to create clan");
     console.error("[createClan]", err);
     return { success: false, error: message };
   }
@@ -189,7 +190,7 @@ export async function joinClan(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to join clan";
+    const message = friendlyActionError(err, "Failed to join clan");
     console.error("[joinClan]", err);
     return { success: false, error: message };
   }
@@ -235,7 +236,7 @@ export async function leaveClan(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to leave clan";
+    const message = friendlyActionError(err, "Failed to leave clan");
     console.error("[leaveClan]", err);
     return { success: false, error: message };
   }
@@ -299,7 +300,7 @@ export async function updateMemberRole(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to update member role";
+    const message = friendlyActionError(err, "Failed to update member role");
     console.error("[updateMemberRole]", err);
     return { success: false, error: message };
   }
@@ -365,7 +366,7 @@ export async function removeMember(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to remove member";
+    const message = friendlyActionError(err, "Failed to remove member");
     console.error("[removeMember]", err);
     return { success: false, error: message };
   }
@@ -436,7 +437,7 @@ export async function updateClanTag(
 
     return { success: true, data: { tag } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to update clan tag";
+    const message = friendlyActionError(err, "Failed to update clan tag");
     console.error("[updateClanTag]", err);
     return { success: false, error: message };
   }
@@ -531,7 +532,7 @@ export async function disbandClan(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to disband clan";
+    const message = friendlyActionError(err, "Failed to disband clan");
     console.error("[disbandClan]", err);
     return { success: false, error: message };
   }
@@ -598,7 +599,7 @@ export async function createPost(
 
     return { success: true, data: { postId: ref.id } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to create post";
+    const message = friendlyActionError(err, "Failed to create post");
     console.error("[createPost]", err);
     return { success: false, error: message };
   }
@@ -737,7 +738,7 @@ export async function createClanAnnouncement(
 
     return { success: true, data: { postId: postRef.id, notifiedCount } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to post announcement";
+    const message = friendlyActionError(err, "Failed to post announcement");
     console.error("[createClanAnnouncement]", err);
     return { success: false, error: message };
   }
@@ -785,7 +786,7 @@ export async function likePost(
     if (err instanceof Error && err.message === "Already liked") {
       return { success: false, error: "Already liked" };
     }
-    const message = err instanceof Error ? err.message : "Failed to like post";
+    const message = friendlyActionError(err, "Failed to like post");
     console.error("[likePost]", err);
     return { success: false, error: message };
   }
@@ -831,7 +832,7 @@ export async function unlikePost(
     if (err instanceof Error && err.message === "Not liked") {
       return { success: false, error: "Not liked" };
     }
-    const message = err instanceof Error ? err.message : "Failed to unlike post";
+    const message = friendlyActionError(err, "Failed to unlike post");
     console.error("[unlikePost]", err);
     return { success: false, error: message };
   }
@@ -879,7 +880,7 @@ export async function deletePost(
 
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to delete post";
+    const message = friendlyActionError(err, "Failed to delete post");
     console.error("[deletePost]", err);
     return { success: false, error: message };
   }

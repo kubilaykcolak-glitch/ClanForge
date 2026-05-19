@@ -9,6 +9,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import type { Profile } from "@/types";
 import { getSessionUid, requireRole } from "./server-auth";
+import { friendlyActionError } from "./_errors";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -146,7 +147,7 @@ export async function createCheckoutSession(
     return { success: true, data: { checkoutUrl: session.url } };
   } catch (err) {
     console.error("[createCheckoutSession]", err);
-    const message = err instanceof Error ? err.message : "Failed to start payment";
+    const message = friendlyActionError(err, "Failed to start payment");
     return { success: false, error: message };
   }
 }
@@ -248,7 +249,7 @@ export async function confirmPaidParticipant(
     return result;
   } catch (err) {
     console.error("[confirmPaidParticipant]", err);
-    const message = err instanceof Error ? err.message : "Failed to confirm payment";
+    const message = friendlyActionError(err, "Failed to confirm payment");
     return { success: false, error: message };
   }
 }
@@ -280,7 +281,7 @@ export async function refundLatePayment(
     return { success: true };
   } catch (err) {
     console.error("[refundLatePayment]", err);
-    const message = err instanceof Error ? err.message : "Failed to refund late payment";
+    const message = friendlyActionError(err, "Failed to refund late payment");
     return { success: false, error: message };
   }
 }
@@ -358,7 +359,7 @@ export async function withdrawPaidEntry(
     return { success: true };
   } catch (err) {
     console.error("[withdrawPaidEntry]", err);
-    const message = err instanceof Error ? err.message : "Withdrawal failed";
+    const message = friendlyActionError(err, "Withdrawal failed");
     return { success: false, error: message };
   }
 }
@@ -436,7 +437,7 @@ export async function cancelTournament(
     return { success: true, data: { refundedCount } };
   } catch (err) {
     console.error("[cancelTournament]", err);
-    const message = err instanceof Error ? err.message : "Cancellation failed";
+    const message = friendlyActionError(err, "Cancellation failed");
     return { success: false, error: message };
   }
 }
@@ -685,7 +686,7 @@ export async function finalizeTournament(
     return { success: true, data: { prizesCreated } };
   } catch (err) {
     console.error("[finalizeTournament]", err);
-    const message = err instanceof Error ? err.message : "Failed to finalize tournament";
+    const message = friendlyActionError(err, "Failed to finalize tournament");
     return { success: false, error: message };
   }
 }
@@ -731,7 +732,7 @@ export async function initiatePrizeClaim(
     return { success: true, data: { claimReference: prize.claimReference as string } };
   } catch (err) {
     console.error("[initiatePrizeClaim]", err);
-    const message = err instanceof Error ? err.message : "Could not start claim";
+    const message = friendlyActionError(err, "Could not start claim");
     return { success: false, error: message };
   }
 }
@@ -765,7 +766,7 @@ export async function markPrizePaid(
     return { success: true };
   } catch (err) {
     console.error("[markPrizePaid]", err);
-    const message = err instanceof Error ? err.message : "Could not mark prize paid";
+    const message = friendlyActionError(err, "Could not mark prize paid");
     return { success: false, error: message };
   }
 }
@@ -794,7 +795,7 @@ export async function expirePendingDraft(
     return { success: true };
   } catch (err) {
     console.error("[expirePendingDraft]", err);
-    const message = err instanceof Error ? err.message : "Failed to expire pending draft";
+    const message = friendlyActionError(err, "Failed to expire pending draft");
     return { success: false, error: message };
   }
 }

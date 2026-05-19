@@ -8,6 +8,7 @@ import {
 } from "@/lib/actions/server-auth";
 import { meetsRole, type Role } from "@/lib/auth/roles";
 import { writeAuditLog, type AuditTargetType } from "@/lib/auth/audit-log";
+import { friendlyActionError } from "./_errors";
 import { sendAdminAlert } from "@/lib/auth/discord-alert";
 import {
   resolveActor,
@@ -50,7 +51,7 @@ export async function banUser(targetUid: string, reason: string): Promise<Action
     requireStepUp(session.uid);
   } catch (err) {
     if (isStepUpRequired(err)) return { success: false, needsStepUp: true, error: "Re-authenticate to continue" };
-    return { success: false, error: err instanceof Error ? err.message : "Forbidden" };
+    return { success: false, error: friendlyActionError(err, "Forbidden") };
   }
 
   const cleanedReason = (reason ?? "").trim();
@@ -122,7 +123,7 @@ export async function banUser(targetUid: string, reason: string): Promise<Action
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Ban failed";
+    const msg = friendlyActionError(err, "Ban failed");
     return await logFailure(session, "user.ban", "user", targetUid, cleanedReason, msg);
   }
 }
@@ -136,7 +137,7 @@ export async function unbanUser(targetUid: string, reason: string): Promise<Acti
     requireStepUp(session.uid);
   } catch (err) {
     if (isStepUpRequired(err)) return { success: false, needsStepUp: true, error: "Re-authenticate to continue" };
-    return { success: false, error: err instanceof Error ? err.message : "Forbidden" };
+    return { success: false, error: friendlyActionError(err, "Forbidden") };
   }
 
   const cleanedReason = (reason ?? "").trim();
@@ -186,7 +187,7 @@ export async function unbanUser(targetUid: string, reason: string): Promise<Acti
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unban failed";
+    const msg = friendlyActionError(err, "Unban failed");
     return await logFailure(session, "user.unban", "user", targetUid, cleanedReason, msg);
   }
 }
@@ -211,7 +212,7 @@ export async function forceUnlinkRiotAccount(
     requireStepUp(session.uid);
   } catch (err) {
     if (isStepUpRequired(err)) return { success: false, needsStepUp: true, error: "Re-authenticate to continue" };
-    return { success: false, error: err instanceof Error ? err.message : "Forbidden" };
+    return { success: false, error: friendlyActionError(err, "Forbidden") };
   }
 
   const cleanedReason = (reason ?? "").trim();
@@ -274,7 +275,7 @@ export async function forceUnlinkRiotAccount(
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Force-unlink failed";
+    const msg = friendlyActionError(err, "Force-unlink failed");
     return await logFailure(session, "integration.force_unlink", "integration", targetUid, cleanedReason, msg);
   }
 }
@@ -299,7 +300,7 @@ export async function hideContent(
   try {
     session = await requireRole("moderator");
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Forbidden" };
+    return { success: false, error: friendlyActionError(err, "Forbidden") };
   }
 
   const cleanedReason = (reason ?? "").trim();
@@ -364,7 +365,7 @@ export async function hideContent(
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Hide failed";
+    const msg = friendlyActionError(err, "Hide failed");
     return await logFailure(session, "content.hide", targetType, targetPath, cleanedReason, msg);
   }
 }
@@ -380,7 +381,7 @@ export async function unhideContent(
   try {
     session = await requireRole("moderator");
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Forbidden" };
+    return { success: false, error: friendlyActionError(err, "Forbidden") };
   }
 
   const cleanedReason = (reason ?? "").trim();
@@ -413,7 +414,7 @@ export async function unhideContent(
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unhide failed";
+    const msg = friendlyActionError(err, "Unhide failed");
     return await logFailure(session, "content.unhide", targetType, targetPath, cleanedReason, msg);
   }
 }
