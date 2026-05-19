@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2, Settings } from "lucide-react";
 import { toast } from "sonner";
-import { joinClan, leaveClan } from "@/lib/clan-actions";
+import { joinClan, leaveClan } from "@/lib/actions/clan.actions";
 import { awardXp, checkClanJoinAllowed } from "@/lib/actions/xp.actions";
 import { CLAN_JOIN_COOLDOWN_HOURS } from "@/lib/xp";
 import type { ClanRole } from "@/types";
@@ -17,8 +17,8 @@ interface ClanActionsProps {
   currentRole:     ClanRole | null;   // null = not a member
   isPublic:        boolean;
   isRecruiting:    boolean;
-  displayName:     string;
-  avatarUrl?:      string;
+  // displayName / avatarUrl removed — joinClan now hydrates identity
+  // server-side from /profiles/{uid}.
 }
 
 const SLOW_THRESHOLD_MS = 8_000;
@@ -30,8 +30,6 @@ export function ClanActions({
   currentRole,
   isPublic,
   isRecruiting,
-  displayName,
-  avatarUrl,
 }: ClanActionsProps) {
   const router          = useRouter();
   const [busy, setBusy] = useState(false);
@@ -120,7 +118,12 @@ export function ClanActions({
       if (!confirm(confirmMsg)) return;
       setBusy(true);
       try {
-        await leaveClan(clanId, currentUid);
+        const res = await leaveClan(currentUid, clanId);
+        if (!res.success) {
+          toast.error(res.error ?? "Failed to leave clan");
+          setBusy(false);
+          return;
+        }
         toast.success("You left the clan");
         router.refresh();
       } catch {
@@ -164,7 +167,12 @@ export function ClanActions({
           return;
         }
 
-        await joinClan(clanId, currentUid, displayName, avatarUrl, "pending");
+        const res = await joinClan(currentUid, clanId, "pending");
+        if (!res.success) {
+          toast.error(res.error ?? "Failed to send request");
+          setBusy(false);
+          return;
+        }
         toast.success("Request sent! Waiting for approval.");
         router.refresh();
       } catch {
@@ -200,7 +208,12 @@ export function ClanActions({
         return;
       }
 
-      await joinClan(clanId, currentUid, displayName, avatarUrl, "member");
+      const res = await joinClan(currentUid, clanId, "member");
+      if (!res.success) {
+        toast.error(res.error ?? "Failed to join clan");
+        setBusy(false);
+        return;
+      }
       toast.success("Welcome to the clan! 🛡️");
 
       // Award XP for the join. Capped to once per clan by the awardXp rules.

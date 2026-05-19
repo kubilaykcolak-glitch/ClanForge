@@ -52,8 +52,6 @@ export default async function ClansSection({ gameName }: GameSectionProps) {
               clan={rowToClan(row)}
               currentUid={me?.uid ?? null}
               currentClanId={me?.clanId ?? null}
-              currentDisplayName={me?.displayName ?? ""}
-              currentAvatarUrl={me?.avatarUrl ?? undefined}
             />
           ))}
         </div>

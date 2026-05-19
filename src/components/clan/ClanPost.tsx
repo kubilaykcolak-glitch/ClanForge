@@ -5,7 +5,7 @@ import { Heart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ClanPost as ClanPostType } from "@/types";
 import { timeAgo, getInitials } from "@/lib/utils";
-import { likePost, unlikePost, deletePost } from "@/lib/clan-actions";
+import { likePost, unlikePost, deletePost } from "@/lib/actions/clan.actions";
 import { awardXp } from "@/lib/actions/xp.actions";
 
 interface ClanPostProps {
@@ -32,18 +32,20 @@ export function ClanPost({ post, clanId, currentUserId }: ClanPostProps) {
     setLikesCount(c => wasLiked ? c - 1 : c + 1);
 
     try {
-      if (wasLiked) {
-        await unlikePost(clanId, post.id, currentUserId);
-      } else {
-        await likePost(clanId, post.id, currentUserId);
+      const res = wasLiked
+        ? await unlikePost(currentUserId, clanId, post.id)
+        : await likePost(currentUserId, clanId, post.id);
 
-        // Reward the AUTHOR (not the liker) for receiving a like, except
-        // when the liker is the author (no self-rewards). Daily-capped to
-        // 20 per author; further likes still register on the post — they
-        // just don't earn the author more XP that day.
-        if (post.authorId && post.authorId !== currentUserId) {
-          await awardXp(post.authorId, "post_receive_like", post.id);
-        }
+      if (!res.success) {
+        throw new Error(res.error ?? "like failed");
+      }
+
+      // Reward the AUTHOR (not the liker) for receiving a like, except
+      // when the liker is the author (no self-rewards). Daily-capped to
+      // 20 per author; further likes still register on the post — they
+      // just don't earn the author more XP that day.
+      if (!wasLiked && post.authorId && post.authorId !== currentUserId) {
+        await awardXp(post.authorId, "post_receive_like", post.id);
       }
     } catch {
       // Revert on error
@@ -55,11 +57,20 @@ export function ClanPost({ post, clanId, currentUserId }: ClanPostProps) {
 
   const handleDelete = async () => {
     if (!post.id) return;
+    if (!currentUserId) {
+      toast.error("Sign in to delete posts");
+      return;
+    }
     if (!confirm("Delete this post?")) return;
 
     setDeleting(true);
     try {
-      await deletePost(clanId, post.id);
+      const res = await deletePost(currentUserId, clanId, post.id);
+      if (!res.success) {
+        toast.error(res.error ?? "Failed to delete post");
+        setDeleting(false);
+        return;
+      }
       toast.success("Post deleted");
     } catch {
       toast.error("Failed to delete post");

@@ -14,8 +14,6 @@ async function getPageData(): Promise<{
   ownClan:            Clan | null;
   currentUid:         string | null;
   currentClanId:      string | null;
-  currentDisplayName: string;
-  currentAvatarUrl:   string | undefined;
 }> {
   const { adminDb, adminAuth } = await import("@/lib/firebase/admin");
 
@@ -25,8 +23,6 @@ async function getPageData(): Promise<{
   let ownClan:            Clan | null   = null;
   let currentUid:         string | null = null;
   let currentClanId:      string | null = null;
-  let currentDisplayName: string        = "";
-  let currentAvatarUrl:   string | undefined;
 
   try {
     const cookieStore   = cookies();
@@ -39,8 +35,6 @@ async function getPageData(): Promise<{
       if (profileSnap.exists) {
         const pData        = profileSnap.data()!;
         currentClanId      = (pData.clanId      as string | null) ?? null;
-        currentDisplayName = (pData.displayName as string)        ?? "";
-        currentAvatarUrl   = pData.avatarUrl as string | undefined;
 
         // Surface private clan so owner/members can always find it.
         let candidateClanId = currentClanId;
@@ -83,8 +77,6 @@ async function getPageData(): Promise<{
     ownClan,
     currentUid,
     currentClanId,
-    currentDisplayName,
-    currentAvatarUrl,
   };
 }
 
@@ -97,8 +89,6 @@ export default async function ClansPage() {
     ownClan,
     currentUid,
     currentClanId,
-    currentDisplayName,
-    currentAvatarUrl,
   } = await getPageData();
 
   return (
@@ -184,8 +174,6 @@ export default async function ClansPage() {
         initialCursor={initialCursor}
         currentUid={currentUid}
         currentClanId={currentClanId}
-        currentDisplayName={currentDisplayName}
-        currentAvatarUrl={currentAvatarUrl}
       />
 
     </div>

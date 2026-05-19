@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Megaphone, Paperclip, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createPost } from "@/lib/clan-actions";
-import { createClanAnnouncement } from "@/lib/actions/clan.actions";
+import { createPost, createClanAnnouncement } from "@/lib/actions/clan.actions";
 import { getInitials } from "@/lib/utils";
 import { validateImageFile } from "@/lib/uploads";
 import { awardXp } from "@/lib/actions/xp.actions";
@@ -14,7 +13,8 @@ import { trackChallengeProgress } from "@/lib/actions/challenge.actions";
 interface ComposePostProps {
   clanId:            string;
   authorId:          string;
-  authorUsername:    string;
+  // authorUsername removed — createPost / createClanAnnouncement now
+  // hydrate the byline server-side from /profiles/{uid}.
   authorDisplayName: string;
   authorAvatarUrl?:  string;
   /** When true the compose box surfaces the "📣 Announcement" toggle.
@@ -31,7 +31,6 @@ const SLOW_THRESHOLD_MS = 8_000;
 export function ComposePost({
   clanId,
   authorId,
-  authorUsername,
   authorDisplayName,
   authorAvatarUrl,
   isLeader,
@@ -146,7 +145,12 @@ export function ComposePost({
         const notified = result.data?.notifiedCount ?? 0;
         toast.success(`📣 Announcement posted — ${notified} member${notified === 1 ? "" : "s"} notified`);
       } else {
-        await createPost(clanId, authorId, authorUsername, authorAvatarUrl, content.trim(), imageUrl);
+        const result = await createPost(authorId, clanId, content.trim(), imageUrl);
+        if (!result.success) {
+          setPostError(result.error ?? "Failed to publish post");
+          toast.error(result.error ?? "Failed to publish post");
+          return;
+        }
         toast.success("Post published!");
 
         // Daily-capped XP (1/day) for posting — only the first post each

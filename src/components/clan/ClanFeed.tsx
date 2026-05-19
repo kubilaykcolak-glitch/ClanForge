@@ -16,9 +16,9 @@ interface ClanFeedProps {
   /** Pass true when the current user is the clan leader. Unlocks the
    * "Announce" toggle in the compose box. */
   isLeader?:         boolean;
-  // Author info — only provided when isMember is true
+  // Author info — only provided when isMember is true. authorUsername
+  // removed; byline is now resolved server-side from /profiles/{uid}.
   authorId?:         string;
-  authorUsername?:   string;
   authorDisplayName?: string;
   authorAvatarUrl?:  string;
 }
@@ -31,7 +31,6 @@ export function ClanFeed({
   isMember,
   isLeader,
   authorId,
-  authorUsername,
   authorDisplayName,
   authorAvatarUrl,
 }: ClanFeedProps) {
@@ -54,11 +53,10 @@ export function ClanFeed({
   return (
     <div>
       {/* Compose box — only for members */}
-      {isMember && authorId && authorUsername && authorDisplayName && (
+      {isMember && authorId && authorDisplayName && (
         <ComposePost
           clanId={clanId}
           authorId={authorId}
-          authorUsername={authorUsername}
           authorDisplayName={authorDisplayName}
           authorAvatarUrl={authorAvatarUrl}
           isLeader={isLeader}

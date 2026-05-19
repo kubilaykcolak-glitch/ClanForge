@@ -40,8 +40,6 @@ interface ClansClientProps {
   initialCursor:      string | null;
   currentUid:         string | null;
   currentClanId:      string | null;
-  currentDisplayName: string;
-  currentAvatarUrl:   string | undefined;
 }
 
 export function ClansClient({
@@ -49,8 +47,6 @@ export function ClansClient({
   initialCursor,
   currentUid,
   currentClanId,
-  currentDisplayName,
-  currentAvatarUrl,
 }: ClansClientProps) {
   const [items,     setItems]     = useState<ClanRow[]>(initialItems);
   const [cursor,    setCursor]    = useState<string | null>(initialCursor);
@@ -173,8 +169,6 @@ export function ClansClient({
                 clan={rowToClan(row)}
                 currentUid={currentUid}
                 currentClanId={currentClanId}
-                currentDisplayName={currentDisplayName}
-                currentAvatarUrl={currentAvatarUrl}
               />
             ))}
           </div>

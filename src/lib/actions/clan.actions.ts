@@ -107,12 +107,24 @@ export async function createClan(
 // Guards: clan must exist, be public, and have room. Uses a transaction so
 // the memberCount increment and the guard read are atomic.
 
-// Identity hydrated from /profiles/{uid} inside the transaction below
-// so the member doc carries server-authoritative displayName /
-// avatarUrl (audit fix H2).
+// Identity hydrated from /profiles/{uid} inside the transaction so the
+// member doc carries server-authoritative displayName / avatarUrl (H2).
+//
+// Two modes:
+//   - "member": direct join. Used when the clan is public AND recruiting.
+//     Enforces clan-is-public, clan-is-recruiting, member-limit-not-full,
+//     duplicate-membership, and the 10h leave cooldown. Increments
+//     memberCount and stamps clan-denorm fields on the profile.
+//   - "pending": request-to-join. Used when the clan is private OR not
+//     currently recruiting. Skips the recruiting / member-limit checks
+//     (the leader will gate the actual join when they approve) but still
+//     blocks duplicates and the leave cooldown. Does NOT bump memberCount
+//     and does NOT stamp clan-denorm fields — those land when the leader
+//     approves and a separate action upgrades the pending doc to "member".
 export async function joinClan(
   uid: string,
   clanId: string,
+  mode: "member" | "pending" = "member",
 ): Promise<ActionResult> {
   try {
     const sessionUid = await getSessionUid();
@@ -134,15 +146,28 @@ export async function joinClan(
       if (!clanSnap.exists) throw new Error("Clan not found");
 
       const clan = clanSnap.data()!;
-      if (!clan.isPublic)                                throw new Error("This clan is private");
-      if (!clan.isRecruiting)                            throw new Error("This clan is not recruiting");
-      if ((clan.memberCount as number) >= (clan.memberLimit as number)) {
-        throw new Error("Clan is full");
+
+      // Recruiting + member-limit are only enforced on direct joins —
+      // pending requests are how users get into closed or full clans.
+      if (mode === "member") {
+        if (!clan.isPublic)     throw new Error("This clan is private");
+        if (!clan.isRecruiting) throw new Error("This clan is not recruiting");
+        if ((clan.memberCount as number) >= (clan.memberLimit as number)) {
+          throw new Error("Clan is full");
+        }
       }
-      if (memberSnap.exists) throw new Error("You are already a member of this clan");
+      if (memberSnap.exists) {
+        const existingRole = (memberSnap.data()!.role as string) ?? "";
+        throw new Error(
+          existingRole === "pending"
+            ? "You already have a pending request for this clan"
+            : "You are already a member of this clan",
+        );
+      }
 
       // ── 10-hour join cooldown (anti-grind) ─────────────────────────────────
-      // If the user left a clan recently they can't join another one yet.
+      // Applies to BOTH paths so a user can't dodge it by raising pending
+      // requests instead of direct joins.
       const { CLAN_JOIN_COOLDOWN_MS, CLAN_JOIN_COOLDOWN_HOURS } = await import("@/lib/xp");
       const lastLeaveAt = profileSnap.data()?.lastClanLeaveAt?.toDate?.() ?? null;
       if (lastLeaveAt && Date.now() - lastLeaveAt.getTime() < CLAN_JOIN_COOLDOWN_MS) {
@@ -160,32 +185,37 @@ export async function joinClan(
       const prof = profileSnap.data() as { displayName?: string; username?: string; avatarUrl?: string };
       tx.set(memberRef, {
         userId:      uid,
-        role:        "member",
+        role:        mode,
         joinedAt:    now,
-        // Server-resolved — caller args ignored to prevent spoofed bylines.
         displayName: prof.displayName ?? prof.username ?? "Member",
         avatarUrl:   prof.avatarUrl ?? null,
       });
-      tx.update(clanRef, { memberCount: FieldValue.increment(1) });
 
-      // Stamp clan-denorm fields + border perk based on current clan level.
-      const clanXp     = (clan.xp as number) ?? 0;
-      const clanLevel  = getClanLevel(clanXp).level;
-      const clanBorder = getClanBorderSlug(clanLevel);
+      if (mode === "member") {
+        tx.update(clanRef, { memberCount: FieldValue.increment(1) });
 
-      tx.update(profileRef, {
-        clanId,
-        clanTag:    (clan.clanTag as string | null) ?? null,
-        clanSlug:   clan.slug as string,
-        clanName:   clan.name as string,
-        clanBorder: clanBorder ?? null,
-      });
+        // Stamp clan-denorm fields + border perk based on current clan level.
+        const clanXp     = (clan.xp as number) ?? 0;
+        const clanLevel  = getClanLevel(clanXp).level;
+        const clanBorder = getClanBorderSlug(clanLevel);
+
+        tx.update(profileRef, {
+          clanId,
+          clanTag:    (clan.clanTag as string | null) ?? null,
+          clanSlug:   clan.slug as string,
+          clanName:   clan.name as string,
+          clanBorder: clanBorder ?? null,
+        });
+      }
     });
 
-    // Award clan XP for the new member joining (fire-and-forget)
-    import("@/lib/actions/clan-xp.actions")
-      .then(m => m.awardClanXp(clanId, "member_join", uid, uid))
-      .catch(() => {});
+    // Award clan XP only for confirmed joins (pending requests are
+    // approval-gated and shouldn't pre-award XP).
+    if (mode === "member") {
+      import("@/lib/actions/clan-xp.actions")
+        .then(m => m.awardClanXp(clanId, "member_join", uid, uid))
+        .catch(() => {});
+    }
 
     return { success: true };
   } catch (err) {

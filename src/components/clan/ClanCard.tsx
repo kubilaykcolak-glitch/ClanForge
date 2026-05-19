@@ -11,16 +11,14 @@ interface ClanCardProps {
   clan:               Clan;
   currentUid?:        string | null;
   currentClanId?:     string | null;
-  currentDisplayName?: string;
-  currentAvatarUrl?:  string;
+  // currentDisplayName / currentAvatarUrl removed — identity is now
+  // resolved server-side inside the joinClan action.
 }
 
 export function ClanCard({
   clan,
   currentUid        = null,
   currentClanId     = null,
-  currentDisplayName = "",
-  currentAvatarUrl,
 }: ClanCardProps) {
   const slug            = clan.slug ?? clan.id ?? "";
   const isAlreadyMember = currentClanId === clan.id;
@@ -123,8 +121,6 @@ export function ClanCard({
           isAlreadyMember={isAlreadyMember}
           isInAnotherClan={isInAnotherClan}
           currentUid={currentUid}
-          currentDisplayName={currentDisplayName}
-          currentAvatarUrl={currentAvatarUrl}
         />
       </div>
     </div>

@@ -151,7 +151,6 @@ export default async function ClanPage({
     currentRole,
     currentDisplayName,
     currentAvatarUrl,
-    currentUsername,
   } = data;
 
   const isMember = currentRole !== null && currentRole !== "pending";
@@ -297,8 +296,6 @@ export default async function ClanPage({
             currentRole={currentRole}
             isPublic={clan.isPublic}
             isRecruiting={clan.isRecruiting}
-            displayName={currentDisplayName}
-            avatarUrl={currentAvatarUrl}
           />
         </div>
       </div>
@@ -371,7 +368,6 @@ export default async function ClanPage({
             isMember={isMember}
             isLeader={currentRole === "leader"}
             authorId={currentUid ?? undefined}
-            authorUsername={currentUsername}
             authorDisplayName={currentDisplayName}
             authorAvatarUrl={currentAvatarUrl}
           />

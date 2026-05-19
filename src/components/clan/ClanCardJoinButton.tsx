@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { joinClan } from "@/lib/clan-actions";
+import { joinClan } from "@/lib/actions/clan.actions";
 import { awardXp, checkClanJoinAllowed } from "@/lib/actions/xp.actions";
 
 interface ClanCardJoinButtonProps {
@@ -17,8 +17,6 @@ interface ClanCardJoinButtonProps {
   /** user belongs to a different clan */
   isInAnotherClan:    boolean;
   currentUid:         string | null;
-  currentDisplayName: string;
-  currentAvatarUrl?:  string;
 }
 
 export function ClanCardJoinButton({
@@ -29,8 +27,6 @@ export function ClanCardJoinButton({
   isAlreadyMember,
   isInAnotherClan,
   currentUid,
-  currentDisplayName,
-  currentAvatarUrl,
 }: ClanCardJoinButtonProps) {
   const router        = useRouter();
   const [busy, setBusy] = useState(false);
@@ -112,7 +108,12 @@ export function ClanCardJoinButton({
         return;
       }
 
-      await joinClan(clanId, currentUid, currentDisplayName, currentAvatarUrl, role);
+      const joinResult = await joinClan(currentUid, clanId, role);
+      if (!joinResult.success) {
+        toast.error(joinResult.error ?? "Failed to join clan");
+        setBusy(false);
+        return;
+      }
       toast.success(isRecruiting ? "Welcome to the clan! 🛡️" : "Request sent! Waiting for approval.");
 
       if (isRecruiting) {
