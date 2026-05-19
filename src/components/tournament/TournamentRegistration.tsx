@@ -105,12 +105,7 @@ export function TournamentRegistration({
         // atomically AND the gated XP/mission/clan-XP grants. Replaces the
         // previous client-side write + parallel XP calls, which were
         // exploitable for register/withdraw XP farming on the same tournament.
-        const result = await registerForTournament(
-          currentUid,
-          tournamentId,
-          currentDisplayName,
-          currentAvatarUrl,
-        );
+        const result = await registerForTournament(currentUid, tournamentId);
         if (!result.success) {
           setOpError(result.error ?? "Registration failed");
           toast.error(result.error ?? "Registration failed");

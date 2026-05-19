@@ -5,7 +5,6 @@
 // challenges grow a `game` field (planned), swap to a where-filter and drop
 // the explanatory subtitle.
 
-import Link from "next/link";
 import { Target } from "lucide-react";
 import type { GameSectionProps } from "@/lib/games/types";
 

@@ -59,16 +59,13 @@ export async function createTournament(
 // Uses a transaction to guard all checks atomically.
 // Participant doc is keyed by uid for O(1) existence checks.
 
+// Identity (displayName / avatarUrl) on the participant doc is hydrated
+// server-side from /profiles/{uid} — see body. Args removed entirely
+// per audit fix H1; callers passing them would now be a type error
+// (preferred to silently-ignored args).
 export async function registerForTournament(
   uid: string,
   tournamentId: string,
-  // ─── Args kept for backward compat; values are IGNORED. ─────────────────
-  // displayName/avatarUrl are hydrated server-side from /profiles/{uid} so
-  // a malicious client can't forge an alternative identity on the
-  // participant doc (which is rendered to other users in the bracket and
-  // participant lists). See security-guidelines §1.3.
-  _displayName?: string,
-  _avatarUrl?: string,
 ): Promise<ActionResult> {
   try {
     const sessionUid = await getSessionUid();

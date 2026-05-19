@@ -1,7 +1,7 @@
 "use server";
 
 import { FieldValue } from "firebase-admin/firestore";
-import type { Clan, ClanRole, Profile } from "@/types";
+import type { Clan, ClanRole } from "@/types";
 import { getClanLevel, getClanBorderSlug } from "@/lib/clan-levels";
 import { getSessionUid, getSessionWithRole } from "./server-auth";
 import { meetsRole } from "@/lib/auth/roles";
@@ -31,12 +31,12 @@ function validateTag(raw: string): { tag: string } | { error: string } {
 // Atomic write: /clans/{id} + /clanSlugs/{slug} + /clans/{id}/members/{uid}
 // + /profiles/{uid} clan-denorm fields, all in one batch.
 
+// Identity for the leader's member doc is hydrated server-side from
+// /profiles/{uid} — see body. Caller-supplied profile arg removed per
+// audit fix H2.
 export async function createClan(
   uid: string,
   data: Omit<Clan, "id" | "ownerId" | "memberCount" | "xp" | "createdAt" | "updatedAt">,
-  // Kept for backward compat; IGNORED. Identity hydrated from /profiles/{uid}
-  // server-side so a malicious caller can't forge the member doc's name.
-  _profile?: Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult<{ clanId: string; slug: string }>> {
   try {
     const sessionUid = await getSessionUid();
@@ -107,13 +107,12 @@ export async function createClan(
 // Guards: clan must exist, be public, and have room. Uses a transaction so
 // the memberCount increment and the guard read are atomic.
 
+// Identity hydrated from /profiles/{uid} inside the transaction below
+// so the member doc carries server-authoritative displayName /
+// avatarUrl (audit fix H2).
 export async function joinClan(
   uid: string,
   clanId: string,
-  // Kept for backward compat; IGNORED. Identity hydrated from /profiles/{uid}
-  // inside the transaction so the member doc carries server-authoritative
-  // displayName / avatarUrl.
-  _profile?: Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult> {
   try {
     const sessionUid = await getSessionUid();
@@ -541,14 +540,13 @@ export async function disbandClan(
 // ── createPost ────────────────────────────────────────────────────────────────
 // Verifies the author is an active member (not pending) before writing.
 
+// Author identity hydrated from /profiles/{uid} below — a forged byline
+// can't appear on a clan post (audit fix H2).
 export async function createPost(
   uid: string,
   clanId: string,
   content: string,
   imageUrl: string | null,
-  // Kept for backward compat; IGNORED. Author identity is hydrated from
-  // /profiles/{uid} so a forged byline can't appear on a clan post.
-  _profile?: Pick<Profile, "username" | "avatarUrl">,
 ): Promise<ActionResult<{ postId: string }>> {
   try {
     const sessionUid = await getSessionUid();
@@ -620,16 +618,15 @@ export async function createPost(
 const ANNOUNCEMENT_DAILY_LIMIT      = 3;
 const ANNOUNCEMENT_WINDOW_MS        = 24 * 60 * 60 * 1000;
 
+// Announcements are high-trust (they fan out to every clan member's
+// inbox). Author identity is hydrated server-side from /profiles/{uid}
+// — a forged "📣 Posted by CEO" byline would otherwise be a phishing
+// primitive (audit fix H2).
 export async function createClanAnnouncement(
   uid: string,
   clanId: string,
   content: string,
   options: { pinnedUntil?: Date | null; imageUrl?: string | null },
-  // Kept for backward compat; IGNORED. Author identity hydrated from
-  // /profiles/{uid} server-side — announcements are high-trust (they
-  // fan out to every clan member's inbox) and a forged "📣 Posted by
-  // CEO" byline would be a phishing primitive.
-  _profile?: Pick<Profile, "username" | "avatarUrl" | "displayName">,
 ): Promise<ActionResult<{ postId: string; notifiedCount: number }>> {
   try {
     const sessionUid = await getSessionUid();

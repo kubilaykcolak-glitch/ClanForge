@@ -137,7 +137,6 @@ export function ComposePost({
           clanId,
           content.trim(),
           { imageUrl, pinnedUntil: null },
-          { username: authorUsername, avatarUrl: authorAvatarUrl, displayName: authorDisplayName },
         );
         if (!result.success) {
           setPostError(result.error ?? "Failed to post announcement");
