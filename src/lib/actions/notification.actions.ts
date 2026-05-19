@@ -127,20 +127,9 @@ export async function markAllNotificationsRead(uid: string): Promise<ActionResul
   }
 }
 
-// Internal server-only helper — called by other server actions (clan-xp, challenges, etc.)
-// No session check: the caller is trusted server-side code.
-export async function createNotification(
-  uid:   string,
-  notif: Omit<NotificationRow, "id" | "createdAt" | "read">,
-): Promise<ActionResult> {
-  try {
-    const { adminDb } = await import("@/lib/firebase/admin");
-    await adminDb
-      .collection("notifications").doc(uid)
-      .collection("items")
-      .add({ ...notif, read: false, createdAt: new Date() });
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to create notification" };
-  }
-}
+// NOTE: createNotification has moved to `src/lib/server/notifications.ts`
+// so it's not exported from a "use server" file. Anything exported here is a
+// public action endpoint reachable by any signed-in client — and we never
+// want a user to inject arbitrary inbox entries (with forged title / body /
+// href) into another user's account. Import from the new path inside other
+// server actions / webhook routes.

@@ -422,7 +422,7 @@ async function _sendLevelUpNotifications(clanId: string, newLevel: number): Prom
   try {
     const { adminDb }            = await import("@/lib/firebase/admin");
     const { CLAN_LEVELS }        = await import("@/lib/clan-levels");
-    const { createNotification } = await import("@/lib/actions/notification.actions");
+    const { createNotification } = await import("@/lib/server/notifications");
     const def = CLAN_LEVELS.find(d => d.level === newLevel);
     const tierName = def ? `${def.icon} ${def.name}` : `Level ${newLevel}`;
 

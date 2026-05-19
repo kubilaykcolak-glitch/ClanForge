@@ -655,7 +655,7 @@ export async function createClanAnnouncement(
     const clanName = (clanSnap.data() as { name?: string })?.name ?? "your clan";
     const clanSlug = (clanSnap.data() as { slug?: string })?.slug ?? clanId;
 
-    const { createNotification } = await import("@/lib/actions/notification.actions");
+    const { createNotification } = await import("@/lib/server/notifications");
 
     let notifiedCount = 0;
     await Promise.all(
