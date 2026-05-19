@@ -122,11 +122,112 @@ export interface CreateChallengeInput {
   createdBy:      string;
 }
 
+// ─── Numeric / temporal bounds (audit fix M1) ────────────────────────────────
+//
+// Even though createChallenge / updateChallenge are admin-only, the action
+// payload is still client-supplied JSON — typos, accidental decimals, or a
+// compromised admin shouldn't be able to mint absurd values (e.g. a
+// challenge with `memberXpReward: 1e9` that would propagate into every
+// contributor's XP via the once_per_target award rule). These are the
+// hard ceilings we accept — generous enough that no legitimate challenge
+// is rejected, low enough that a stray field stays a typo not a payload.
+
+const TARGET_VALUE_MAX    = 1_000_000;
+const POINT_VALUE_MAX     = 10_000;
+const MEMBER_XP_REWARD_MAX = 100_000;
+const CLAN_XP_REWARD_MAX   = 100_000;
+const TITLE_MAX_LEN       = 120;
+const DESCRIPTION_MAX_LEN = 2_000;
+
+function isNonNegativeInt(v: unknown, max: number): boolean {
+  return typeof v === "number" && Number.isFinite(v) && Number.isInteger(v) && v >= 0 && v <= max;
+}
+
+/**
+ * Validate the numeric / temporal / length fields shared by create + update.
+ * Pass `partial: true` from updateChallenge so missing fields are skipped
+ * (the action only touches supplied keys); create passes false to require
+ * every field be present and within bounds.
+ */
+function validateChallengeFields(
+  input: Partial<CreateChallengeInput>,
+  opts:  { partial: boolean },
+): string | null {
+  if (input.title !== undefined) {
+    const t = input.title.trim();
+    if (t.length === 0)               return "Title is required";
+    if (t.length > TITLE_MAX_LEN)     return `Title must be ${TITLE_MAX_LEN} characters or fewer`;
+  } else if (!opts.partial) {
+    return "Title is required";
+  }
+
+  if (input.description !== undefined) {
+    if (input.description.length > DESCRIPTION_MAX_LEN) {
+      return `Description must be ${DESCRIPTION_MAX_LEN} characters or fewer`;
+    }
+  }
+
+  if (input.targetValue !== undefined) {
+    if (!isNonNegativeInt(input.targetValue, TARGET_VALUE_MAX) || input.targetValue < 1) {
+      return `Target must be an integer between 1 and ${TARGET_VALUE_MAX}`;
+    }
+  } else if (!opts.partial) {
+    return "Target is required";
+  }
+
+  if (input.pointValue !== undefined) {
+    if (!isNonNegativeInt(input.pointValue, POINT_VALUE_MAX)) {
+      return `Points must be an integer between 0 and ${POINT_VALUE_MAX}`;
+    }
+  } else if (!opts.partial) {
+    return "Points are required";
+  }
+
+  if (input.memberXpReward !== undefined) {
+    if (!isNonNegativeInt(input.memberXpReward, MEMBER_XP_REWARD_MAX)) {
+      return `Member XP reward must be an integer between 0 and ${MEMBER_XP_REWARD_MAX}`;
+    }
+  } else if (!opts.partial) {
+    return "Member XP reward is required";
+  }
+
+  if (input.clanXpReward !== undefined) {
+    if (!isNonNegativeInt(input.clanXpReward, CLAN_XP_REWARD_MAX)) {
+      return `Clan XP reward must be an integer between 0 and ${CLAN_XP_REWARD_MAX}`;
+    }
+  } else if (!opts.partial) {
+    return "Clan XP reward is required";
+  }
+
+  // Date checks. If only one side of the window is being updated, fall
+  // back to "no cross-field check" — the caller is presumed to be moving
+  // a single boundary deliberately.
+  if (input.startAt !== undefined && input.endAt !== undefined) {
+    if (!(input.startAt instanceof Date) || !(input.endAt instanceof Date)) {
+      return "Start and end must be valid dates";
+    }
+    if (isNaN(input.startAt.getTime()) || isNaN(input.endAt.getTime())) {
+      return "Start and end must be valid dates";
+    }
+    if (input.endAt.getTime() <= input.startAt.getTime()) {
+      return "End must be after start";
+    }
+  }
+
+  return null;
+}
+
 export async function createChallenge(
   input: CreateChallengeInput,
 ): Promise<ActionResult<{ id: string }>> {
   try {
     await getAdminUid();
+
+    const validationError = validateChallengeFields(input, { partial: false });
+    if (validationError) {
+      return { success: false, error: validationError };
+    }
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const now = new Date();
     const status: ChallengeStatus =
@@ -192,11 +293,34 @@ export async function updateChallenge(
 ): Promise<ActionResult> {
   try {
     await getAdminUid();
+
+    const validationError = validateChallengeFields(input, { partial: true });
+    if (validationError) {
+      return { success: false, error: validationError };
+    }
+
     const { adminDb } = await import("@/lib/firebase/admin");
 
     const ref = adminDb.collection("challenges").doc(challengeId);
     const snap = await ref.get();
     if (!snap.exists) return { success: false, error: "Challenge not found" };
+
+    // Cross-field date check when only ONE side of the window is being
+    // updated: compare the new value against the existing other side.
+    // The shared validator already covers the both-supplied case.
+    const existing = snap.data() as { startAt?: { toDate?: () => Date }; endAt?: { toDate?: () => Date } };
+    const existingStart = existing.startAt?.toDate?.();
+    const existingEnd   = existing.endAt?.toDate?.();
+    if (input.startAt !== undefined && input.endAt === undefined && existingEnd) {
+      if (input.startAt.getTime() >= existingEnd.getTime()) {
+        return { success: false, error: "Start must be before the existing end date" };
+      }
+    }
+    if (input.endAt !== undefined && input.startAt === undefined && existingStart) {
+      if (input.endAt.getTime() <= existingStart.getTime()) {
+        return { success: false, error: "End must be after the existing start date" };
+      }
+    }
 
     // Build the patch object explicitly so we only touch supplied fields
     // (rather than overwriting absent ones with `undefined`). Optional
