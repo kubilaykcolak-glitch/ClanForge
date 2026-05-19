@@ -25,9 +25,13 @@ export async function POST(req: NextRequest) {
     const { verifyWebhookSignature } = await import("@/lib/stripe");
     event = verifyWebhookSignature(rawBody, signature);
   } catch (err) {
+    // Log the real error server-side for diagnostics, but respond opaquely
+    // so a probing caller can't enumerate signing-secret / timestamp /
+    // formatting details from the response body (audit fix M5). Stripe's
+    // own error strings have historically echoed header values back.
     const message = err instanceof Error ? err.message : "Signature verification failed";
     console.error("[stripe webhook] signature verify failed:", message);
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: "Signature verification failed" }, { status: 400 });
   }
 
   // Run all event handling inside the webhook AsyncLocalStorage context so
