@@ -459,9 +459,22 @@ export default function ProfileEditPage() {
       let avatarUrl: string | null = null;
       if (avatarFile) avatarUrl = await uploadAvatar();
 
+      // Username changes have to go through the server action so the
+      // /usernames/{name} reservation is updated atomically with the
+      // profile field — the client SDK can no longer write that doc
+      // directly (audit fix L2). Non-username fields still update via the
+      // client SDK, gated by the Firestore profile-update field allowlist.
+      if (values.username !== originalUsername) {
+        const { claimUsername } = await import("@/lib/actions/username.actions");
+        const claim = await claimUsername(values.username);
+        if (!claim.success) {
+          toast.error(claim.error ?? "Couldn't update username");
+          return;
+        }
+      }
+
       const payload: Record<string, unknown> = {
         displayName:  values.displayName,
-        username:     values.username,
         bio:          values.bio    ?? "",
         country:      values.country ?? "",
         steamUrl:     values.steamUrl     ?? "",

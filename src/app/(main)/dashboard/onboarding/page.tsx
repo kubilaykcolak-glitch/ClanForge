@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import {
   doc,
   getDoc,
+  setDoc,
   updateDoc,
   writeBatch,
   collection,
@@ -608,9 +609,17 @@ function UsernameSetup({
 
     setSaving(true);
     try {
-      const batch = writeBatch(db);
-      batch.set(doc(db, "profiles", uid), {
-        username,
+      // Two-step onboarding write (audit fix L2):
+      //   1. Client SDK creates /profiles/{uid} WITHOUT the username field.
+      //      The Firestore profile-create rule allows this so long as the
+      //      privileged-default fields (isAdmin, xp, etc.) are pinned.
+      //   2. Server action claimUsername reserves /usernames/{name} and
+      //      stamps profiles.username inside a transaction so a user can't
+      //      squat multiple username docs from the client.
+      // The previous flow did both writes in a client-side batch, which let
+      // anyone create unlimited /usernames/{...} docs (their uid as owner)
+      // bypassing the one-per-user uniqueness contract.
+      await setDoc(doc(db, "profiles", uid), {
         displayName:   displayName.trim() || username,
         avatarUrl:     null,
         bio:           "",
@@ -624,8 +633,14 @@ function UsernameSetup({
         createdAt:     new Date(),
         updatedAt:     new Date(),
       });
-      batch.set(doc(db, "usernames", username), { uid });
-      await batch.commit();
+
+      const { claimUsername } = await import("@/lib/actions/username.actions");
+      const claim = await claimUsername(username);
+      if (!claim.success) {
+        toast.error(claim.error ?? "Couldn't reserve that username");
+        setSaving(false);
+        return;
+      }
 
       // Welcome XP. once_global — runs only the first time this fires.
       const xp = await awardXp(uid, "onboarding_complete");

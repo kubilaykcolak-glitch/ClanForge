@@ -25,9 +25,12 @@ interface ActionResult<T = undefined> {
 //
 // Adding a new user-editable field is intentionally TWO edits (here AND in
 // firestore.rules `isProfileFieldAllowed`) so we never forget the rule side.
+// `username` is intentionally NOT in this allowlist. It must flow through
+// `claimUsername` (username.actions.ts), which updates the field AND the
+// /usernames/{slug} reservation atomically. A direct write here would
+// leave the two records out of sync.
 type WriteableProfileKey =
   | "displayName"
-  | "username"
   | "bio"
   | "country"
   | "steamUrl"
@@ -43,7 +46,6 @@ type WriteableProfileKey =
 
 const WRITEABLE_KEYS: ReadonlySet<WriteableProfileKey> = new Set<WriteableProfileKey>([
   "displayName",
-  "username",
   "bio",
   "country",
   "steamUrl",

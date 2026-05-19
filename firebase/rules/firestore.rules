@@ -69,8 +69,11 @@ service cloud.firestore {
 
     function isProfileFieldAllowed(keys) {
       return keys.hasOnly([
-        // Identity
-        'displayName', 'username',
+        // Identity. Note: `username` is NOT here — it must go through the
+        // claimUsername server action which updates the field AND the
+        // /usernames/{slug} reservation atomically (audit fix L2). The
+        // server action uses Admin SDK and bypasses this rule.
+        'displayName',
         // Bio fields
         'bio', 'country',
         // External handles
@@ -191,19 +194,28 @@ service cloud.firestore {
     }
 
     // ─── /usernames/{username} ────────────────────────────────────────────────
+    // Server-only writes. claimUsername (username.actions.ts) handles
+    // create / rename in a single transaction that also updates
+    // profiles/{uid}.username, so the two stay in sync. Previously a single
+    // signed-in user could repeatedly create different /usernames/{...}
+    // docs (the rule only checked the doc's `uid` matched the caller) and
+    // squat unlimited handles (audit finding L2).
 
     match /usernames/{username} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     // ─── /clanSlugs/{slug} ───────────────────────────────────────────────────
+    // Server-only writes. createClan / disbandClan write these via Admin SDK
+    // inside a batched commit so the slug-doc + clan-doc + member-doc all
+    // succeed or fail together. Allowing client writes (`allow create: if
+    // isSignedIn()` previously) let any user squat arbitrary clan slugs
+    // outside the legitimate clan-creation flow (audit finding L1).
 
     match /clanSlugs/{slug} {
       allow read: if true;
-      allow create: if isSignedIn();
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     // ─── /clans/{clanId} ─────────────────────────────────────────────────────
