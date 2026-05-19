@@ -82,9 +82,11 @@ export async function finaliseTournamentMatch(input: FinaliseInput): Promise<Fin
   // the caller) run inside a trusted-server context so the recently-added
   // same-uid guard on trackMissionProgress / trackClanMissionProgress
   // permits them. The boundary is safe: finaliseTournamentMatch is reached
-  // only through reportMatchResult (participant role-gated upstream),
-  // adminFinalizeMatch (admin/creator role-gated), or the Riot/Stripe
-  // webhook handlers (already in webhook context).
+  // only through confirmMatchResult (opponent confirms — participant
+  // role-gated upstream), adminFinalizeMatch (admin/creator role-gated),
+  // or the Riot/Stripe webhook handlers (already in webhook context).
+  // reportMatchResult no longer reaches finalise directly — H4 routes it
+  // through pending_confirmation so a single party cannot finalise.
   const { runInTrustedServerContext } = await import("@/lib/webhook-context");
   await runInTrustedServerContext(async () => {
     try {

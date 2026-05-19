@@ -267,11 +267,24 @@ export async function withdrawFromTournament(
 }
 
 // ── reportMatchResult ─────────────────────────────────────────────────────────
-// Either participant may submit the result. The auth + participant validation
-// lives here; the actual finalisation + XP / mission / bracket-advancement
-// chain runs through the shared finaliseTournamentMatch helper so every
-// result entry point (manual, Riot callback, admin override, simulate) ends
-// up doing identical downstream work.
+// Manual-report entry on non-LoL tournaments. Per audit fix H4, a single
+// participant CAN NO LONGER finalise the match on their own — the loser
+// could otherwise claim victory by being first to report.
+//
+// Behaviour now:
+//   - First report puts the match into `pending_confirmation` with the
+//     claimed winner + scores stamped on the doc. The OPPONENT must then
+//     call confirmMatchResult to finalise OR disputeMatch to send it to
+//     the admin queue. A 24h deadline is recorded for future auto-dispute
+//     (lazy or cron — see CONFIRMATION_WINDOW_MS below).
+//   - The reporter may overwrite their own pending claim (re-submitting
+//     corrects a typo) up until the opponent acts.
+//
+// LoL tournaments are NOT touched by this path — they auto-finalise via
+// the Riot tournament-V5 callback, which calls finaliseTournamentMatch
+// directly. The Riot callback bypasses any pending_confirmation state.
+
+const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function reportMatchResult(
   uid: string,
@@ -280,7 +293,7 @@ export async function reportMatchResult(
   scoreA: number,
   scoreB: number,
   winnerId: string,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ awaitingConfirmation: boolean }>> {
   try {
     const sessionUid = await getSessionUid();
     if (sessionUid !== uid) return { success: false, error: "Forbidden" };
@@ -309,14 +322,87 @@ export async function reportMatchResult(
     if (match.status === "complete") {
       return { success: false, error: "This match has already been completed" };
     }
+    if (match.status === "disputed") {
+      return { success: false, error: "This match is disputed — an admin needs to resolve it" };
+    }
 
+    // Sanity check on numeric inputs.
+    if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB) || scoreA < 0 || scoreB < 0 || scoreA > 99 || scoreB > 99) {
+      return { success: false, error: "Invalid score" };
+    }
+
+    const now = new Date();
+
+    // Manual-report path → stage as pending_confirmation. Finalisation
+    // happens only when the OPPONENT calls confirmMatchResult. If the
+    // reporter is overwriting their own prior claim, that's allowed
+    // (correcting a typo) up to the deadline.
+    await matchRef.update({
+      status:               "pending_confirmation",
+      reportedBy:           uid,
+      reportedAt:           now,
+      reportedWinnerId:     winnerId,
+      reportedScoreA:       scoreA,
+      reportedScoreB:       scoreB,
+      confirmationDeadline: new Date(now.getTime() + CONFIRMATION_WINDOW_MS),
+    });
+
+    return { success: true, data: { awaitingConfirmation: true } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to report result";
+    console.error("[reportMatchResult]", err);
+    return { success: false, error: message };
+  }
+}
+
+// ── confirmMatchResult ───────────────────────────────────────────────────────
+// The OPPONENT (i.e. not the original reporter) accepts the claimed result.
+// This is what actually finalises the match and fans out XP / clan-XP /
+// mission progress / bracket advancement via finaliseTournamentMatch.
+
+export async function confirmMatchResult(
+  tournamentId: string,
+  matchId:      string,
+): Promise<ActionResult> {
+  try {
+    const sessionUid = await getSessionUid();
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    const matchRef = adminDb
+      .collection("tournaments").doc(tournamentId)
+      .collection("matches").doc(matchId);
+    const matchSnap = await matchRef.get();
+    if (!matchSnap.exists) {
+      return { success: false, error: "Match not found" };
+    }
+
+    const match = matchSnap.data()!;
+    if (match.status !== "pending_confirmation") {
+      return { success: false, error: "Nothing to confirm — no result pending on this match" };
+    }
+    if (match.participantAId !== sessionUid && match.participantBId !== sessionUid) {
+      return { success: false, error: "You are not a participant in this match" };
+    }
+    if (match.reportedBy === sessionUid) {
+      return { success: false, error: "Your opponent has to confirm — you submitted this result" };
+    }
+
+    const reportedWinnerId = match.reportedWinnerId as string | undefined;
+    const reportedScoreA   = match.reportedScoreA   as number | undefined;
+    const reportedScoreB   = match.reportedScoreB   as number | undefined;
+    if (!reportedWinnerId || reportedScoreA === undefined || reportedScoreB === undefined) {
+      return { success: false, error: "Reported result is malformed — please dispute and let an admin resolve" };
+    }
+
+    // Finalisation runs through the shared core so XP / missions / bracket
+    // advancement all happen exactly as they do on the Riot / admin paths.
     const { finaliseTournamentMatch } = await import("@/lib/actions/_match-result-core");
     const fin = await finaliseTournamentMatch({
       tournamentId,
       matchId,
-      winnerId,
-      scoreA,
-      scoreB,
+      winnerId:     reportedWinnerId,
+      scoreA:       reportedScoreA,
+      scoreB:       reportedScoreB,
       resultSource: "manual",
     });
     if (!fin.success) {
@@ -324,8 +410,8 @@ export async function reportMatchResult(
     }
     return { success: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to report match result";
-    console.error("[reportMatchResult]", err);
+    const message = err instanceof Error ? err.message : "Failed to confirm match result";
+    console.error("[confirmMatchResult]", err);
     return { success: false, error: message };
   }
 }
