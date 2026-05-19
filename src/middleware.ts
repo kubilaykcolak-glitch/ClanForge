@@ -14,18 +14,25 @@ import { NextRequest, NextResponse } from "next/server";
 
 const SESSION_COOKIE_NAME = "session";
 
-// Paths always accessible without a session
-const PUBLIC_EXACT = new Set(["/", "/terms", "/privacy"]);
+// Paths always accessible without a session.
+// /about is included so the landing-page footer link works for visitors
+// who haven't signed up yet (audit finding H6 — previously bounced to
+// /login?from=/about). /forgot-password is the password-reset entry the
+// login page links to (audit finding H5).
+const PUBLIC_EXACT = new Set(["/", "/terms", "/privacy", "/about"]);
 const PUBLIC_PREFIXES = [
   "/login",
   "/register",
+  "/forgot-password",
   "/api/",
   "/_next/",
   "/favicon.ico",
   "/fonts/",
 ];
 
-// Auth pages: redirect authenticated users away to /dashboard
+// Auth pages: redirect authenticated users away to /dashboard.
+// /forgot-password isn't here on purpose — signed-in users may still want
+// to use it (e.g. to reset their password without first signing out).
 const AUTH_PREFIXES = ["/login", "/register"];
 
 function isPublic(pathname: string): boolean {

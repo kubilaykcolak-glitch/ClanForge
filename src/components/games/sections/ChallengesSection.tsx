@@ -133,13 +133,6 @@ function EmptyState() {
       <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
         Check back soon.
       </p>
-      <Link
-        href="/admin/challenges"
-        className="text-[11px] mt-4 underline-offset-2 hover:underline"
-        style={{ color: "var(--text-muted)" }}
-      >
-        Admin: create a challenge
-      </Link>
     </div>
   );
 }

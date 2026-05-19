@@ -160,7 +160,11 @@ export function Navbar({ profile, isAuthenticated = false, uid }: NavbarProps) {
                     }}
                   >
                     <DropdownLink
-                      href={`/profile/${profile?.username ?? "me"}`}
+                      // Pre-onboarding users have no username yet — sending
+                      // them to /profile/me would 404. Mirror the Sidebar
+                      // and route them to the onboarding flow until they
+                      // pick a handle (audit finding L3).
+                      href={profile?.username ? `/profile/${profile.username}` : "/dashboard/onboarding"}
                       icon={<User size={15} />}
                       label="My Profile"
                       onClick={() => setDropdownOpen(false)}

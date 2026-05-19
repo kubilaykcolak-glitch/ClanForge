@@ -14,7 +14,18 @@ import PlayerCard from "./PlayerCard";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // Dates are serialised to ms timestamps when crossing the RSC boundary.
-export type PlayerRow = Omit<Profile, "createdAt" | "updatedAt"> & {
+//
+// Privileged / moderation fields are stripped here BEFORE the row reaches
+// the public response — `isAdmin` would otherwise tell anyone browsing the
+// players directory which accounts are platform staff, and the banned*
+// fields would expose moderation history. Strip in both the type AND the
+// `mapDoc` mapper (audit finding H8).
+export type PlayerRow = Omit<
+  Profile,
+  "createdAt" | "updatedAt"
+  | "isAdmin"
+  | "bannedAt" | "bannedBy" | "bannedReason"
+> & {
   id:        string;
   createdAt: number;
   updatedAt: number;

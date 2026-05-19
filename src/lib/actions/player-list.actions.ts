@@ -63,7 +63,8 @@ function mapDoc(d: FirebaseFirestore.QueryDocumentSnapshot): PlayerRow {
     tournamentsPlayed: (data.tournamentsPlayed  as number)        ?? 0,
     tournamentsWon:    (data.tournamentsWon     as number)        ?? 0,
     isVerified:        (data.isVerified         as boolean)       ?? false,
-    isAdmin:           (data.isAdmin            as boolean)       ?? false,
+    // isAdmin / bannedAt / bannedBy / bannedReason intentionally omitted —
+    // see PlayerRow comment in PlayersClient.tsx (audit finding H8).
     isPrivate:         (data.isPrivate          as boolean)       ?? false,
     clanId:            (data.clanId             as string | null) ?? null,
     clanTag:           (data.clanTag            as string | null) ?? null,

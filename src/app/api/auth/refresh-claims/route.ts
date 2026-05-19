@@ -38,18 +38,20 @@ export async function POST(req: NextRequest) {
     // calling browser.
     const existingCookie = cookies().get(SESSION_COOKIE_NAME)?.value;
     if (!existingCookie) {
-      return NextResponse.json({ error: "No active session" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const existing = await adminAuth.verifySessionCookie(existingCookie, true);
     if (existing.uid !== fresh.uid) {
-      return NextResponse.json({ error: "Token uid mismatch" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Belt-and-braces ban gate — even if the session cookie is still alive,
-    // refuse to refresh it for a disabled user.
+    // refuse to refresh it for a disabled user. Response stays opaque to
+    // avoid leaking account status to anyone probing this endpoint
+    // (audit finding M8).
     const userRecord = await adminAuth.getUser(fresh.uid).catch(() => null);
     if (!userRecord || userRecord.disabled) {
-      return NextResponse.json({ error: "Account suspended" }, { status: 403 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const sessionCookie = await adminAuth.createSessionCookie(body.idToken, {

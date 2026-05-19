@@ -24,9 +24,13 @@ export async function POST(request: NextRequest) {
     // belt-and-braces gate: even a brief race in which the user has a fresh
     // ID token from before the ban gets caught here. Reads the auth record
     // server-side rather than trusting the JWT.
+    //
+    // Response is intentionally opaque ("Unauthorized") rather than
+    // "Account suspended" so an attacker can't enumerate which accounts
+    // are banned via this endpoint (audit finding M8).
     const userRecord = await adminAuth.getUser(decoded.uid).catch(() => null);
     if (!userRecord || userRecord.disabled) {
-      return NextResponse.json({ error: "Account suspended" }, { status: 403 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Create a session cookie valid for 5 days
