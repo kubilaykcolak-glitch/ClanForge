@@ -72,9 +72,10 @@ export const GAMES: Record<GameSlug, GameDefinition> = {
       matchmakingSection,
       clansSection,
       challengesSection,
-      // ── Hidden until LoL data-module spec ships ──
+      // ── Spec #2a (My Profile) is live; Ladder and Live Now stay hidden
+      //    until their own follow-ups land. ──
+      { slug: "profile",  label: "My Profile",  icon: Activity, status: "live",   loader: () => import("@/components/games/sections/LeagueProfileSection") },
       { slug: "ladder",   label: "Ladder",      icon: Trophy,   status: "hidden", loader: hiddenLoader },
-      { slug: "profile",  label: "My Profile",  icon: Activity, status: "hidden", loader: hiddenLoader },
       { slug: "live-now", label: "Live Now",    icon: Swords,   status: "hidden", loader: hiddenLoader },
     ],
   },

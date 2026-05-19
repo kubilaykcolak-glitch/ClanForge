@@ -100,6 +100,17 @@ service cloud.firestore {
         allow read:                if isOwner(userId);
         allow create, update, delete: if false;
       }
+
+      // ─── /profiles/{userId}/match_history/{matchId} ────────────────────────
+      // Cached per-match summaries fetched from Riot's match-v5 API by the
+      // server-side ingest. OWNER-ONLY read for v1 — we'll widen to public
+      // when the spec adds a "show on public profile" toggle. ALL writes go
+      // through Admin SDK from the ingest action; client writes blocked so
+      // a user can't forge a match win or boosted KDA.
+      match /match_history/{matchId} {
+        allow read:                if isOwner(userId);
+        allow create, update, delete: if false;
+      }
     }
 
     // ─── /league_account_owners/{puuid} ───────────────────────────────────────

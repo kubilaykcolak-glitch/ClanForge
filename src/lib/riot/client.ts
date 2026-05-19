@@ -97,4 +97,84 @@ export async function fetchTopMastery(
   return riotFetch<RiotChampionMastery[]>(url);
 }
 
+// ─── match-v5 (regional routing) ─────────────────────────────────────────────
+
+export async function fetchMatchIdsByPuuid(
+  puuid: string,
+  region: LolPlatformRegion,
+  opts: { count?: number; start?: number; queue?: number; type?: string } = {},
+): Promise<string[]> {
+  const q = new URLSearchParams();
+  q.set("count", String(opts.count ?? 20));
+  if (opts.start !== undefined) q.set("start", String(opts.start));
+  if (opts.queue !== undefined) q.set("queue", String(opts.queue));
+  if (opts.type)                q.set("type",  opts.type);
+  const url = `${regionalHost(region)}/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?${q.toString()}`;
+  return riotFetch<string[]>(url);
+}
+
+// Subset of the match-v5 `/matches/{matchId}` shape — we only persist the
+// fields the UI actually renders. Anything we don't list here is discarded
+// at the boundary, keeping our cached docs lean.
+export interface RiotMatchParticipant {
+  puuid:                 string;
+  riotIdGameName?:       string;
+  riotIdTagline?:        string;
+  summonerName?:         string;
+  championId:            number;
+  championName:          string;
+  champLevel:            number;
+  teamId:                number;
+  teamPosition?:         string;
+  kills:                 number;
+  deaths:                number;
+  assists:               number;
+  totalMinionsKilled:    number;
+  neutralMinionsKilled:  number;
+  win:                   boolean;
+  summoner1Id:           number;
+  summoner2Id:           number;
+  item0:                 number;
+  item1:                 number;
+  item2:                 number;
+  item3:                 number;
+  item4:                 number;
+  item5:                 number;
+  item6:                 number;
+  doubleKills:           number;
+  tripleKills:           number;
+  quadraKills:           number;
+  pentaKills:            number;
+  visionScore:           number;
+  goldEarned:            number;
+  totalDamageDealtToChampions: number;
+}
+
+export interface RiotMatchInfo {
+  gameId:        number;
+  gameCreation:  number; // ms epoch
+  gameStartTimestamp?: number;
+  gameDuration:  number; // seconds (or ms — depends on patch; account for both)
+  gameMode:      string;
+  gameType:      string;
+  gameVersion:   string;
+  queueId:       number;
+  mapId:         number;
+  platformId:    string;
+  participants:  RiotMatchParticipant[];
+}
+
+export interface RiotMatch {
+  metadata: { matchId: string; dataVersion: string; participants: string[] };
+  info:     RiotMatchInfo;
+}
+
+export async function fetchMatchById(
+  matchId: string,
+  region: LolPlatformRegion,
+): Promise<RiotMatch> {
+  const url = `${regionalHost(region)}/lol/match/v5/matches/${encodeURIComponent(matchId)}`;
+  return riotFetch<RiotMatch>(url);
+}
+
 export { RiotApiError };
