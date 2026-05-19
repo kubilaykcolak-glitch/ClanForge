@@ -71,9 +71,12 @@ async function getPageData(username: string) {
     createdAt: (d.data()?.createdAt?.toDate?.() ?? new Date()) as Date,
   }));
 
-  // Linked-game integrations. Firestore Timestamps are serialised so the
-  // client component receives plain Date objects (matches existing pattern
-  // used for gameRecords above).
+  // Linked-game integrations. Build the object EXPLICITLY rather than
+  // spreading `data` — any Firestore Timestamp instance left on the doc
+  // (e.g. an admin-only field added at some point) would leak across the
+  // RSC boundary and trip Next.js's "Only plain objects can be passed to
+  // Client Components" error. Spread was the cause of the production
+  // digest 1194392244 crash.
   const integrations: LeagueIntegration[] = integrationsSnap.docs
     .filter(d => d.id === "league" && d.exists)
     .map(d => {
@@ -83,11 +86,17 @@ async function getPageData(username: string) {
           : (v as { toDate?: () => Date } | undefined)?.toDate?.()
           ?? new Date();
       return {
-        ...(data as Omit<LeagueIntegration, "linkedAt" | "lastSyncAt" | "lastManualRefreshAt">),
+        provider:            "league",
         linkedAt:            toDate(data.linkedAt),
         lastSyncAt:          toDate(data.lastSyncAt),
-        lastManualRefreshAt: data.lastManualRefreshAt ? toDate(data.lastManualRefreshAt) : undefined,
-      } as LeagueIntegration;
+        lastManualRefreshAt: data.lastManualRefreshAt
+          ? toDate(data.lastManualRefreshAt)
+          : undefined,
+        // These are nested plain objects of primitives in the schema —
+        // safe to pass through as-is.
+        account:             data.account  as LeagueIntegration["account"],
+        snapshot:            data.snapshot as LeagueIntegration["snapshot"],
+      };
     });
 
   // ── Clan data ──────────────────────────────────────────────────────────────

@@ -250,5 +250,25 @@
     }
 
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    // Collection-group equality query on participants.userId used by:
+    //   - admin.actions.ts (admin user-view: "what tournaments has this
+    //     user joined")
+    //   - tournament-list.actions.ts getMyActiveTournamentsForGame (the
+    //     LoL hub Overview's "Your tournaments" block)
+    // Firestore does NOT auto-create COLLECTION_GROUP scope on
+    // single-field indexes — without this override the queries throw
+    // FAILED_PRECONDITION at runtime. We also explicitly keep the
+    // COLLECTION scope entries here because declaring `indexes` replaces
+    // auto-managed single-field indexes.
+    {
+      "collectionGroup": "participants",
+      "fieldPath":       "userId",
+      "indexes": [
+        { "order": "ASCENDING",  "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING",  "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
 }
