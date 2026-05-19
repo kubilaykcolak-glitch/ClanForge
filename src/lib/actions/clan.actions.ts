@@ -33,13 +33,24 @@ function validateTag(raw: string): { tag: string } | { error: string } {
 export async function createClan(
   uid: string,
   data: Omit<Clan, "id" | "ownerId" | "memberCount" | "xp" | "createdAt" | "updatedAt">,
-  profile: Pick<Profile, "displayName" | "avatarUrl">,
+  // Kept for backward compat; IGNORED. Identity hydrated from /profiles/{uid}
+  // server-side so a malicious caller can't forge the member doc's name.
+  _profile?: Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult<{ clanId: string; slug: string }>> {
   try {
     const sessionUid = await getSessionUid();
     if (sessionUid !== uid) return { success: false, error: "Forbidden" };
 
     const { adminDb } = await import("@/lib/firebase/admin");
+
+    // Read the caller's profile so we use server-authoritative identity on
+    // the member doc (clan members are rendered to anyone visiting the clan
+    // page — a forged displayName would otherwise show up there).
+    const profileSnap = await adminDb.collection("profiles").doc(uid).get();
+    if (!profileSnap.exists) {
+      return { success: false, error: "Profile not found — complete onboarding first" };
+    }
+    const prof = profileSnap.data() as { displayName?: string; username?: string; avatarUrl?: string };
 
     // Reserve a Firestore-generated ID before the batch so we can reference it.
     const clanRef = adminDb.collection("clans").doc();
@@ -68,8 +79,8 @@ export async function createClan(
         userId:      uid,
         role:        "leader",
         joinedAt:    now,
-        displayName: profile.displayName,
-        avatarUrl:   profile.avatarUrl ?? null,
+        displayName: prof.displayName ?? prof.username ?? "Member",
+        avatarUrl:   prof.avatarUrl ?? null,
       },
     );
 
@@ -98,7 +109,10 @@ export async function createClan(
 export async function joinClan(
   uid: string,
   clanId: string,
-  profile: Pick<Profile, "displayName" | "avatarUrl">,
+  // Kept for backward compat; IGNORED. Identity hydrated from /profiles/{uid}
+  // inside the transaction so the member doc carries server-authoritative
+  // displayName / avatarUrl.
+  _profile?: Pick<Profile, "displayName" | "avatarUrl">,
 ): Promise<ActionResult> {
   try {
     const sessionUid = await getSessionUid();
@@ -143,12 +157,14 @@ export async function joinClan(
 
       const now = new Date();
 
+      const prof = profileSnap.data() as { displayName?: string; username?: string; avatarUrl?: string };
       tx.set(memberRef, {
         userId:      uid,
         role:        "member",
         joinedAt:    now,
-        displayName: profile.displayName,
-        avatarUrl:   profile.avatarUrl ?? null,
+        // Server-resolved — caller args ignored to prevent spoofed bylines.
+        displayName: prof.displayName ?? prof.username ?? "Member",
+        avatarUrl:   prof.avatarUrl ?? null,
       });
       tx.update(clanRef, { memberCount: FieldValue.increment(1) });
 
@@ -513,7 +529,9 @@ export async function createPost(
   clanId: string,
   content: string,
   imageUrl: string | null,
-  profile: Pick<Profile, "username" | "avatarUrl">,
+  // Kept for backward compat; IGNORED. Author identity is hydrated from
+  // /profiles/{uid} so a forged byline can't appear on a clan post.
+  _profile?: Pick<Profile, "username" | "avatarUrl">,
 ): Promise<ActionResult<{ postId: string }>> {
   try {
     const sessionUid = await getSessionUid();
@@ -528,13 +546,11 @@ export async function createPost(
 
     const { adminDb } = await import("@/lib/firebase/admin");
 
-    // Verify membership
-    const memberSnap = await adminDb
-      .collection("clans")
-      .doc(clanId)
-      .collection("members")
-      .doc(uid)
-      .get();
+    // Verify membership AND fetch profile in parallel.
+    const [memberSnap, profileSnap] = await Promise.all([
+      adminDb.collection("clans").doc(clanId).collection("members").doc(uid).get(),
+      adminDb.collection("profiles").doc(uid).get(),
+    ]);
 
     if (!memberSnap.exists) {
       return { success: false, error: "You must be a clan member to post" };
@@ -543,11 +559,16 @@ export async function createPost(
     if (memberRole === "pending") {
       return { success: false, error: "Your membership is pending approval" };
     }
+    if (!profileSnap.exists) {
+      return { success: false, error: "Profile not found" };
+    }
+    const prof = profileSnap.data() as { username?: string; avatarUrl?: string };
 
     const ref = await adminDb.collection("clans").doc(clanId).collection("posts").add({
       authorId:        uid,
-      authorUsername:  profile.username,
-      authorAvatarUrl: profile.avatarUrl ?? null,
+      // Server-resolved — byline cannot be spoofed.
+      authorUsername:  prof.username ?? "user",
+      authorAvatarUrl: prof.avatarUrl ?? null,
       content:         content.trim(),
       imageUrl:        imageUrl ?? null,
       likesCount:      0,
@@ -587,7 +608,11 @@ export async function createClanAnnouncement(
   clanId: string,
   content: string,
   options: { pinnedUntil?: Date | null; imageUrl?: string | null },
-  profile: Pick<Profile, "username" | "avatarUrl" | "displayName">,
+  // Kept for backward compat; IGNORED. Author identity hydrated from
+  // /profiles/{uid} server-side — announcements are high-trust (they
+  // fan out to every clan member's inbox) and a forged "📣 Posted by
+  // CEO" byline would be a phishing primitive.
+  _profile?: Pick<Profile, "username" | "avatarUrl" | "displayName">,
 ): Promise<ActionResult<{ postId: string; notifiedCount: number }>> {
   try {
     const sessionUid = await getSessionUid();
@@ -602,17 +627,21 @@ export async function createClanAnnouncement(
 
     const { adminDb } = await import("@/lib/firebase/admin");
 
-    // Verify the caller is the leader of this clan.
-    const memberSnap = await adminDb
-      .collection("clans").doc(clanId)
-      .collection("members").doc(uid)
-      .get();
+    // Verify leader + load profile in parallel.
+    const [memberSnap, profileSnap] = await Promise.all([
+      adminDb.collection("clans").doc(clanId).collection("members").doc(uid).get(),
+      adminDb.collection("profiles").doc(uid).get(),
+    ]);
     if (!memberSnap.exists) {
       return { success: false, error: "You are not a member of this clan" };
     }
     if ((memberSnap.data() as { role?: string }).role !== "leader") {
       return { success: false, error: "Only the clan leader can post announcements" };
     }
+    if (!profileSnap.exists) {
+      return { success: false, error: "Profile not found" };
+    }
+    const prof = profileSnap.data() as { username?: string; displayName?: string; avatarUrl?: string };
 
     // Rate-limit: count announcements in the last 24h.
     const windowStart = new Date(Date.now() - ANNOUNCEMENT_WINDOW_MS);
@@ -628,11 +657,11 @@ export async function createClanAnnouncement(
       };
     }
 
-    // Write the post.
+    // Write the post — server-resolved byline only.
     const postRef = await adminDb.collection("clans").doc(clanId).collection("posts").add({
       authorId:        uid,
-      authorUsername:  profile.username,
-      authorAvatarUrl: profile.avatarUrl ?? null,
+      authorUsername:  prof.username ?? "leader",
+      authorAvatarUrl: prof.avatarUrl ?? null,
       content:         content.trim(),
       imageUrl:        options.imageUrl ?? null,
       likesCount:      0,
@@ -666,7 +695,7 @@ export async function createClanAnnouncement(
           try {
             await createNotification(d.id, {
               type:        "clan_announcement",
-              title:       `📣 ${profile.displayName ?? profile.username} posted an announcement`,
+              title:       `📣 ${prof.displayName ?? prof.username ?? "Your clan leader"} posted an announcement`,
               body:        content.trim().slice(0, 140),
               href:        `/clans/${clanSlug}#post-${postRef.id}`,
               clanId,

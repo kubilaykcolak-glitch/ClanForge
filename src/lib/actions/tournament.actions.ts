@@ -61,8 +61,13 @@ export async function createTournament(
 export async function registerForTournament(
   uid: string,
   tournamentId: string,
-  displayName: string,
-  avatarUrl?: string,
+  // ─── Args kept for backward compat; values are IGNORED. ─────────────────
+  // displayName/avatarUrl are hydrated server-side from /profiles/{uid} so
+  // a malicious client can't forge an alternative identity on the
+  // participant doc (which is rendered to other users in the bracket and
+  // participant lists). See security-guidelines §1.3.
+  _displayName?: string,
+  _avatarUrl?: string,
 ): Promise<ActionResult> {
   try {
     const sessionUid = await getSessionUid();
@@ -77,13 +82,16 @@ export async function registerForTournament(
         .doc(tournamentId)
         .collection("participants")
         .doc(uid);
+      const profileRef     = adminDb.collection("profiles").doc(uid);
 
-      const [tournSnap, participantSnap] = await Promise.all([
+      const [tournSnap, participantSnap, profileSnap] = await Promise.all([
         tx.get(tournRef),
         tx.get(participantRef),
+        tx.get(profileRef),
       ]);
 
       if (!tournSnap.exists) throw new Error("Tournament not found");
+      if (!profileSnap.exists) throw new Error("Profile not found — complete onboarding first");
 
       const tourn = tournSnap.data()!;
       if (tourn.status !== "open") {
@@ -159,11 +167,13 @@ export async function registerForTournament(
       }
 
       const seed = (tourn.participantCount as number) + 1;
+      const prof = profileSnap.data() as { displayName?: string; username?: string; avatarUrl?: string };
 
       tx.set(participantRef, {
         userId:       uid,
-        displayName:  displayName,
-        avatarUrl:    avatarUrl ?? null,
+        // Server-resolved identity — cannot be spoofed by the caller.
+        displayName:  prof.displayName ?? prof.username ?? "Player",
+        avatarUrl:    prof.avatarUrl ?? null,
         seed,
         status:       "registered",
         registeredAt: new Date(),

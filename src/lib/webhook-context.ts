@@ -30,7 +30,24 @@ export function runInWebhookContext<T>(fn: () => Promise<T>): Promise<T> {
   return _store.run(true, fn);
 }
 
-/** True when the current async context was started by a webhook handler. */
+/**
+ * Alias of `runInWebhookContext` that reads better at non-webhook trusted
+ * server-to-server callsites — e.g. the match-result finaliser advancing
+ * the winner's missions after a result is confirmed. Same underlying flag;
+ * the rename is purely for code-search clarity.
+ *
+ * Only safe to use inside server code that has ALREADY validated the
+ * upstream action's authorisation. Never call from a code path reachable
+ * via a `"use server"` export without an explicit auth gate first.
+ */
+export function runInTrustedServerContext<T>(fn: () => Promise<T>): Promise<T> {
+  return _store.run(true, fn);
+}
+
+/** True when the current async context was started by a webhook handler
+ *  OR a trusted server-to-server invocation. Mission/XP helpers use this
+ *  to allow cross-user advancement only from these gates — outside of them
+ *  they enforce same-uid. */
 export function inWebhookContext(): boolean {
   return _store.getStore() === true;
 }

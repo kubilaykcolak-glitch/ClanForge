@@ -78,46 +78,53 @@ export async function finaliseTournamentMatch(input: FinaliseInput): Promise<Fin
   });
 
   // ── XP + missions ───────────────────────────────────────────────────────
-  // All await'd so caller's session/webhook context propagates correctly.
-  // Each in its own try so one failure doesn't block the rest — the same
-  // pattern reportMatchResult already uses.
-  try {
-    const { awardXp } = await import("@/lib/actions/xp.actions");
-    await awardXp(input.winnerId, "tournament_match_win", input.matchId);
-  } catch (err) {
-    console.error("[finaliseTournamentMatch→awardXp]", err);
-  }
-
-  try {
-    const { awardClanXpForMember } = await import("@/lib/actions/clan-xp.actions");
-    await awardClanXpForMember(input.winnerId, "tournament_win", input.matchId);
-  } catch (err) {
-    console.error("[finaliseTournamentMatch→awardClanXpForMember]", err);
-  }
-
-  try {
-    const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
-    await trackMissionProgress(input.winnerId, "tournament_match_win");
-  } catch (err) {
-    console.error("[finaliseTournamentMatch→trackMissionProgress]", err);
-  }
-
-  try {
-    const cm = await import("@/lib/actions/clan-missions.actions");
-    await cm.trackClanMissionProgress("tournament_match_win", input.winnerId);
-
-    const winsSnap = await adminDb
-      .collection("tournaments").doc(input.tournamentId)
-      .collection("matches")
-      .where("winnerId", "==", input.winnerId)
-      .where("status",  "==", "complete")
-      .get();
-    if (winsSnap.size === 3) {
-      await cm.trackClanMissionProgress("tournament_solo_streak", input.winnerId);
+  // All cross-user side-effects (the winner is often a different uid than
+  // the caller) run inside a trusted-server context so the recently-added
+  // same-uid guard on trackMissionProgress / trackClanMissionProgress
+  // permits them. The boundary is safe: finaliseTournamentMatch is reached
+  // only through reportMatchResult (participant role-gated upstream),
+  // adminFinalizeMatch (admin/creator role-gated), or the Riot/Stripe
+  // webhook handlers (already in webhook context).
+  const { runInTrustedServerContext } = await import("@/lib/webhook-context");
+  await runInTrustedServerContext(async () => {
+    try {
+      const { awardXp } = await import("@/lib/actions/xp.actions");
+      await awardXp(input.winnerId, "tournament_match_win", input.matchId);
+    } catch (err) {
+      console.error("[finaliseTournamentMatch→awardXp]", err);
     }
-  } catch (err) {
-    console.error("[finaliseTournamentMatch→clan-missions]", err);
-  }
+
+    try {
+      const { awardClanXpForMember } = await import("@/lib/actions/clan-xp.actions");
+      await awardClanXpForMember(input.winnerId, "tournament_win", input.matchId);
+    } catch (err) {
+      console.error("[finaliseTournamentMatch→awardClanXpForMember]", err);
+    }
+
+    try {
+      const { trackMissionProgress } = await import("@/lib/actions/missions.actions");
+      await trackMissionProgress(input.winnerId, "tournament_match_win");
+    } catch (err) {
+      console.error("[finaliseTournamentMatch→trackMissionProgress]", err);
+    }
+
+    try {
+      const cm = await import("@/lib/actions/clan-missions.actions");
+      await cm.trackClanMissionProgress("tournament_match_win", input.winnerId);
+
+      const winsSnap = await adminDb
+        .collection("tournaments").doc(input.tournamentId)
+        .collection("matches")
+        .where("winnerId", "==", input.winnerId)
+        .where("status",  "==", "complete")
+        .get();
+      if (winsSnap.size === 3) {
+        await cm.trackClanMissionProgress("tournament_solo_streak", input.winnerId);
+      }
+    } catch (err) {
+      console.error("[finaliseTournamentMatch→clan-missions]", err);
+    }
+  });
 
   // ── Bracket advancement ────────────────────────────────────────────────
   // If finishing this match completes the current round, lazy-create the

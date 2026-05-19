@@ -42,7 +42,8 @@ import {
   type ClanMissionCadence,
   type ClanMissionTemplate,
 } from "@/lib/clan-missions";
-import { getSessionUid, requireAuthContext } from "./server-auth";
+import { getSessionUid } from "./server-auth";
+import { inWebhookContext } from "@/lib/webhook-context";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -278,9 +279,13 @@ export async function trackClanMissionProgress(
   if (!contributorUid) return;
 
   try {
-    // Auth-exists gate (§1.6): signed-in user OR webhook context. See
-    // trackMissionProgress for the same reasoning.
-    await requireAuthContext();
+    // Same-uid OR trusted-server-context guard. See trackMissionProgress
+    // for the reasoning — prevents any signed-in user from advancing
+    // another user's clan-mission contribution counters.
+    if (!inWebhookContext()) {
+      const sessionUid = await getSessionUid();
+      if (sessionUid !== contributorUid) return;
+    }
     if (!isClanMissionAction(action)) return;
 
     const { adminDb } = await import("@/lib/firebase/admin");

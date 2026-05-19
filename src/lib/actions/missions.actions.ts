@@ -38,7 +38,8 @@ import {
   type MissionCadence,
   type MissionTemplate,
 } from "@/lib/missions";
-import { getSessionUid, requireAuthContext } from "./server-auth";
+import { getSessionUid } from "./server-auth";
+import { inWebhookContext } from "@/lib/webhook-context";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -265,14 +266,19 @@ export async function trackMissionProgress(
   if (!uid) return;
 
   try {
-    // Auth-exists gate (§1.6): signed-in user OR verified webhook context.
-    // Server actions like reportMatchResult call this on the WINNER's uid,
-    // not the caller's, in a user session. The webhook context is for
-    // confirmPaidParticipant firing from the Stripe handler — without this
-    // bypass, paid tournament registration would never advance the
-    // tournament_register mission. The MissionAction enum is the allowlist
-    // for what can be tracked, so a stray call can only fire a known action.
-    await requireAuthContext();
+    // Cross-user mission advancement is the dangerous shape — without a
+    // same-uid check, any signed-in user could POST this action with a
+    // victim's uid and farm/spam mission progress on their behalf.
+    //
+    // Rule: caller must be the SAME user as `uid`, OR be running inside a
+    // trusted server context (Stripe webhook, Riot tournament webhook, or
+    // the match-result finaliser, which all wrap their bodies in
+    // `runInWebhookContext` / `runInTrustedServerContext`). The MissionAction
+    // enum is the allowlist of what can be tracked at all.
+    if (!inWebhookContext()) {
+      const sessionUid = await getSessionUid();
+      if (sessionUid !== uid) return;
+    }
 
     if (!isMissionAction(action)) return;
 

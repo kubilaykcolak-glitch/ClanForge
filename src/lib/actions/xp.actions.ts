@@ -16,7 +16,8 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { CLAN_JOIN_COOLDOWN_MS, XP_RULES, type XpReason } from "@/lib/xp";
-import { getSessionUid, requireAuthContext } from "./server-auth";
+import { getSessionUid } from "./server-auth";
+import { inWebhookContext } from "@/lib/webhook-context";
 
 export interface AwardResult {
   awarded:        number;       // 0 if capped or dedupe'd
@@ -43,15 +44,17 @@ export async function awardXp(
   targetId?: string,
 ): Promise<ActionResult<AwardResult>> {
   try {
-    // Auth-exists gate: caller must be a signed-in user OR running inside a
-    // verified webhook context (Stripe). The function is also called from
-    // server actions that award XP to other users (e.g. reportMatchResult
-    // awarding XP to the match winner, finalizeTournament awarding placement
-    // XP) — those flows do have a session. The webhook context bypass exists
-    // specifically for confirmPaidParticipant fired from the Stripe handler,
-    // where there is no session cookie. The XP rule caps/dedup provide the
-    // second layer of defence against abuse.
-    await requireAuthContext();
+    // Same-uid OR trusted-server-context guard. Cross-user XP awards (e.g.
+    // match-result core awarding the winner) MUST run inside
+    // `runInTrustedServerContext` / `runInWebhookContext` — those wrappers
+    // are only entered from authorisation-gated callers (the Stripe
+    // webhook, the Riot tournament webhook, the match-result finaliser).
+    // Outside those wrappers, an XP award can only target the caller's
+    // own uid — so a direct POST of awardXp(victimUid, ...) is a no-op.
+    if (!inWebhookContext()) {
+      const sessionUid = await getSessionUid();
+      if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+    }
 
     const rule = XP_RULES[reason];
     if (!rule) return { success: false, error: `Unknown XP reason: ${reason}` };

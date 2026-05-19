@@ -8,7 +8,8 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { getClanLevel, getClanBorderSlug, CLAN_LEVELS } from "@/lib/clan-levels";
-import { requireAuthContext } from "./server-auth";
+import { getSessionUid } from "./server-auth";
+import { inWebhookContext } from "@/lib/webhook-context";
 
 // ── XP rule definitions ───────────────────────────────────────────────────────
 
@@ -99,11 +100,15 @@ export async function awardClanXp(
   }
 
   try {
-    // Auth-exists gate: signed-in user OR verified webhook context. Same
-    // reasoning as awardXp — cross-user awards happen from server actions
-    // that do have a session; the webhook bypass is for confirmPaidParticipant
-    // firing from Stripe's signed payload where no session cookie exists.
-    await requireAuthContext();
+    // Same-uid (contributor) OR trusted-server-context guard. Mirrors
+    // awardXp: cross-user awards must run inside runInTrustedServerContext
+    // or runInWebhookContext. A direct POST with another uid is a no-op.
+    if (!inWebhookContext()) {
+      const sessionUid = await getSessionUid();
+      if (sessionUid !== contributorUid) {
+        return { success: false, error: "Forbidden" };
+      }
+    }
 
     const { adminDb } = await import("@/lib/firebase/admin");
     const rule = CLAN_XP_RULES[reason];
@@ -336,8 +341,13 @@ export async function awardClanXpForMember(
 ): Promise<void> {
   if (!uid) return;
   try {
-    // Auth-exists gate: signed-in user OR verified webhook context.
-    await requireAuthContext();
+    // Same-uid OR trusted-server context. awardClanXp below enforces the
+    // same guard; we duplicate it here to short-circuit the profile read
+    // when the request is unauthorised in the first place.
+    if (!inWebhookContext()) {
+      const sessionUid = await getSessionUid();
+      if (sessionUid !== uid) return;
+    }
 
     const { adminDb } = await import("@/lib/firebase/admin");
     const profileSnap = await adminDb.collection("profiles").doc(uid).get();
