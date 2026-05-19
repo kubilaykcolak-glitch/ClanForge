@@ -15,10 +15,16 @@ import {
   getMyActiveTournamentsForGame,
   type TournamentRow,
 } from "@/lib/actions/tournament-list.actions";
+import {
+  getMyRecentMatches,
+  ingestRecentMatchesIfStale,
+} from "@/lib/actions/match-history.actions";
 import { TournamentCard } from "@/components/tournament/TournamentCard";
 import { LinkedGameCard } from "@/components/profile/LinkedGameCard";
+import { LeagueStatsOverview } from "./LeagueStatsOverview";
 import { getLiveSections, getGame } from "@/lib/games/registry";
 import { getCurrentLeagueIntegration, getCurrentUserContext } from "@/lib/games/current-user";
+import { deriveStats } from "@/lib/riot/match-stats";
 import type { Tournament } from "@/types";
 import type { GameSectionProps } from "@/lib/games/types";
 
@@ -44,6 +50,20 @@ export default async function OverviewSection({ gameSlug, gameName }: GameSectio
   ]);
   const myActive = mineRes.success ? (mineRes.data ?? []) : [];
   const liveSections = game ? getLiveSections(game).filter(s => s.slug !== "overview") : [];
+
+  // LoL-only: pull the cached match history so we can show the W/L + KDA
+  // + top-champs + role bars summary alongside the linked-account card.
+  // Triggers the same hourly stale-ingest as the My Profile section so
+  // visiting Overview keeps the cache warm even if the user doesn't open
+  // the dedicated profile tab.
+  let leagueStats = null as ReturnType<typeof deriveStats> | null;
+  if (isLeague && viewer && leagueIntegration) {
+    void ingestRecentMatchesIfStale(viewer.uid);
+    const matches = await getMyRecentMatches(viewer.uid, 20);
+    if (matches.length > 0) {
+      leagueStats = deriveStats(matches, leagueIntegration.account.puuid);
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -111,6 +131,31 @@ export default async function OverviewSection({ gameSlug, gameName }: GameSectio
           <YourStatusCard gameSlug={gameSlug} gameName={gameName} />
         )}
       </section>
+
+      {/* ── Block 2b (LoL only): Recent stats overview ──────────────
+          Shown when the viewer has a linked Riot account AND we have at
+          least one cached match. Renders the same W/L ring + KDA + top
+          champions + preferred-role bars block as the My Profile
+          section. Acts as a quick-glance summary so a user can stay on
+          Overview to see their form. Header links into My Profile for
+          the per-match drill-down. */}
+      {isLeague && leagueStats && (
+        <section>
+          <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
+            <h2 className="font-display font-bold text-lg" style={{ color: "var(--text-primary)" }}>
+              Recent form
+            </h2>
+            <Link
+              href={`/games/${gameSlug}/profile`}
+              className="text-xs font-medium underline-offset-2 hover:underline"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Full match history →
+            </Link>
+          </div>
+          <LeagueStatsOverview stats={leagueStats} />
+        </section>
+      )}
 
       {/* ── Block 3: Quick-link tiles to other sections ────────────── */}
       {liveSections.length > 0 && (

@@ -23,6 +23,8 @@ import {
   summonerSpellIconUrl,
   timeAgoCompact,
 } from "@/lib/riot/assets";
+import { deriveStats } from "@/lib/riot/match-stats";
+import { LeagueStatsOverview } from "./LeagueStatsOverview";
 import { RefreshMatchHistoryButton } from "./RefreshMatchHistoryButton";
 import type { MatchSummaryDoc } from "@/types/match-history";
 
@@ -39,103 +41,9 @@ const TAB_DEFS: Array<{ key: QueueFilter; label: string; queueIds: number[] | nu
 
 // ─── Derived stats over a filtered match set ─────────────────────────────────
 
-interface DerivedStats {
-  total:        number;
-  wins:         number;
-  losses:       number;
-  winPct:       number;
-  avgKills:     number;
-  avgDeaths:    number;
-  avgAssists:   number;
-  kda:          number;
-  pKill:        number;        // average across matches
-  topChamps:    Array<{ championId: number; championName: string; games: number; wins: number; winPct: number }>;
-  roles:        Array<{ key: string; label: string; games: number; pct: number }>;
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  TOP:     "Top",
-  JUNGLE:  "Jungle",
-  MIDDLE:  "Mid",
-  BOTTOM:  "Bot",
-  UTILITY: "Support",
-};
-
-function deriveStats(
-  matches:    MatchSummaryDoc[],
-  viewerPuuid: string,
-): DerivedStats {
-  let wins = 0, losses = 0;
-  let totalK = 0, totalD = 0, totalA = 0;
-  let totalPKillNum = 0;
-  let pKillSamples  = 0;
-
-  const champAgg = new Map<number, { name: string; games: number; wins: number }>();
-  const roleAgg  = new Map<string, number>();
-
-  for (const m of matches) {
-    const me = m.participants.find(p => p.puuid === viewerPuuid);
-    if (!me) continue;
-    if (me.win) wins++; else losses++;
-    totalK += me.kills;
-    totalD += me.deaths;
-    totalA += me.assists;
-
-    const teamKills = m.participants
-      .filter(p => p.teamId === me.teamId)
-      .reduce((s, p) => s + p.kills, 0);
-    if (teamKills > 0) {
-      totalPKillNum += (me.kills + me.assists) / teamKills;
-      pKillSamples++;
-    }
-
-    const c = champAgg.get(me.championId) ?? { name: me.championName, games: 0, wins: 0 };
-    c.games++;
-    if (me.win) c.wins++;
-    champAgg.set(me.championId, c);
-
-    if (me.teamPosition && me.teamPosition.length > 0) {
-      roleAgg.set(me.teamPosition, (roleAgg.get(me.teamPosition) ?? 0) + 1);
-    }
-  }
-
-  const total  = wins + losses;
-  const winPct = total > 0 ? Math.round((wins / total) * 100) : 0;
-  const kda    = totalD === 0 ? totalK + totalA : (totalK + totalA) / totalD;
-
-  const topChamps = Array.from(champAgg.entries())
-    .map(([championId, v]) => ({
-      championId,
-      championName: v.name,
-      games:        v.games,
-      wins:         v.wins,
-      winPct:       v.games > 0 ? Math.round((v.wins / v.games) * 100) : 0,
-    }))
-    .sort((a, b) => b.games - a.games || b.winPct - a.winPct)
-    .slice(0, 5);
-
-  const roleTotal = Array.from(roleAgg.values()).reduce((s, v) => s + v, 0);
-  const roles = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"].map(key => {
-    const games = roleAgg.get(key) ?? 0;
-    return {
-      key,
-      label: ROLE_LABELS[key] ?? key,
-      games,
-      pct: roleTotal > 0 ? Math.round((games / roleTotal) * 100) : 0,
-    };
-  });
-
-  return {
-    total, wins, losses, winPct,
-    avgKills:   total > 0 ? totalK / total : 0,
-    avgDeaths:  total > 0 ? totalD / total : 0,
-    avgAssists: total > 0 ? totalA / total : 0,
-    kda,
-    pKill:      pKillSamples > 0 ? Math.round((totalPKillNum / pKillSamples) * 100) : 0,
-    topChamps,
-    roles,
-  };
-}
+// `deriveStats` + `DerivedStats` live in @/lib/riot/match-stats so the LoL
+// hub Overview card can reuse the same aggregation. The presentational
+// `LeagueStatsOverview` lives in its own file and is rendered below.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -225,7 +133,7 @@ export function LeagueMatchesClient({
       </div>
 
       {/* ── Stats overview ────────────────────────────────────────────── */}
-      <StatsOverview stats={stats} />
+      <LeagueStatsOverview stats={stats} />
 
       {/* ── Match list ────────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
@@ -238,155 +146,6 @@ export function LeagueMatchesClient({
         </div>
       )}
     </section>
-  );
-}
-
-// ─── Stats overview block ────────────────────────────────────────────────────
-
-function StatsOverview({ stats }: { stats: DerivedStats }) {
-  if (stats.total === 0) {
-    return (
-      <div
-        className="rounded-xl py-6 px-4 text-center"
-        style={{
-          background: "var(--bg-surface)",
-          border:     "1px solid var(--border-subtle)",
-        }}
-      >
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          No games match this filter.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-6"
-      style={{
-        background: "var(--bg-surface)",
-        border:     "1px solid var(--border-subtle)",
-      }}
-    >
-      {/* W/L + KDA pillar */}
-      <div className="flex items-center gap-4">
-        <WinRateRing winPct={stats.winPct} />
-        <div>
-          <p className="text-sm font-display font-bold" style={{ color: "var(--text-primary)" }}>
-            {stats.wins}W <span style={{ color: "var(--text-muted)" }}>·</span> {stats.losses}L
-          </p>
-          <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            {stats.avgKills.toFixed(1)} / <span style={{ color: "var(--danger)" }}>{stats.avgDeaths.toFixed(1)}</span> / {stats.avgAssists.toFixed(1)}
-          </p>
-          <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
-            <strong style={{ color: "var(--text-primary)" }}>{stats.kda.toFixed(2)} KDA</strong>
-            <span className="opacity-60"> · P/Kill {stats.pKill}%</span>
-          </p>
-        </div>
-      </div>
-
-      {/* Top champions pillar */}
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-          Top champions
-        </p>
-        {stats.topChamps.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>—</p>
-        ) : (
-          <div className="space-y-1.5">
-            {stats.topChamps.slice(0, 3).map(c => (
-              <div key={c.championId} className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded overflow-hidden shrink-0" style={{ background: "var(--bg-overlay)" }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={championIconUrl(c.championId)} alt={c.championName} className="w-full h-full object-cover" />
-                </div>
-                <div className="flex-1 min-w-0 text-[11px]">
-                  <p className="font-semibold truncate" style={{ color: "var(--text-primary)" }}>
-                    {c.championName}
-                  </p>
-                  <p style={{ color: "var(--text-muted)" }}>
-                    {c.wins}W {c.games - c.wins}L
-                    <span style={{ color: c.winPct >= 50 ? "var(--success)" : "var(--danger)" }}> · {c.winPct}%</span>
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Role distribution pillar */}
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-          Preferred role
-        </p>
-        <div className="space-y-1.5">
-          {stats.roles.map(r => (
-            <div key={r.key} className="flex items-center gap-2 text-[11px]">
-              <span className="w-12 shrink-0" style={{ color: "var(--text-muted)" }}>{r.label}</span>
-              <div
-                className="flex-1 h-2 rounded-full overflow-hidden"
-                style={{ background: "var(--bg-overlay)" }}
-              >
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${r.pct}%`, background: "var(--accent)" }}
-                />
-              </div>
-              <span className="w-8 text-right shrink-0" style={{ color: "var(--text-secondary)" }}>
-                {r.pct}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// SVG win-rate ring — small, no dep on chart libs.
-function WinRateRing({ winPct }: { winPct: number }) {
-  const size   = 64;
-  const stroke = 7;
-  const radius = (size - stroke) / 2;
-  const circ   = 2 * Math.PI * radius;
-  const offset = circ * (1 - winPct / 100);
-  const colour = winPct >= 50 ? "var(--success)" : "var(--danger)";
-
-  return (
-    <svg width={size} height={size} className="shrink-0">
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke="var(--bg-overlay)"
-        strokeWidth={stroke}
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={colour}
-        strokeWidth={stroke}
-        strokeDasharray={circ}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-      />
-      <text
-        x="50%"
-        y="50%"
-        textAnchor="middle"
-        dy="0.35em"
-        fontSize={14}
-        fontWeight={700}
-        fill="var(--text-primary)"
-      >
-        {winPct}%
-      </text>
-    </svg>
   );
 }
 
