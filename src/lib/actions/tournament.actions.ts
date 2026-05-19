@@ -2,7 +2,8 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import type { Tournament } from "@/types";
-import { getSessionUid } from "./server-auth";
+import { getSessionUid, getSessionWithRole } from "./server-auth";
+import { meetsRole } from "@/lib/auth/roles";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -499,9 +500,10 @@ export async function generateBracket(
     const tourn = tournSnap.data()!;
 
     if (tourn.creatorId !== uid) {
-      // Also allow platform admins
-      const profileSnap = await adminDb.collection("profiles").doc(uid).get();
-      if (!profileSnap.data()?.isAdmin) {
+      // Also allow platform admins. Role read from the verified JWT
+      // custom claim — never the spoofable profiles.isAdmin mirror.
+      const session = await getSessionWithRole();
+      if (!meetsRole(session.role, "admin")) {
         return { success: false, error: "Only the tournament creator can generate the bracket" };
       }
     }
@@ -625,10 +627,11 @@ export async function lockTournament(
 
     const tourn = tournSnap.data()!;
 
-    // Authorise: creator OR admin
+    // Authorise: creator OR admin. JWT-claim role, not the spoofable
+    // profiles.isAdmin mirror.
     if (tourn.creatorId !== uid) {
-      const profileSnap = await adminDb.collection("profiles").doc(uid).get();
-      if (!profileSnap.data()?.isAdmin) {
+      const session = await getSessionWithRole();
+      if (!meetsRole(session.role, "admin")) {
         return { success: false, error: "Only the tournament creator or an admin can lock this tournament" };
       }
     }

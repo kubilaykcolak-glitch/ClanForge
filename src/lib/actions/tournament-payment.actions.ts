@@ -385,18 +385,22 @@ export async function cancelTournament(
     const tournamentRef  = adminDb.collection("tournaments").doc(tournamentId);
     const participantsCol = tournamentRef.collection("participants");
 
-    const [tSnap, profileSnap] = await Promise.all([
-      tournamentRef.get(),
-      adminDb.collection("profiles").doc(uid).get(),
-    ]);
-
+    const tSnap = await tournamentRef.get();
     if (!tSnap.exists) return { success: false, error: "Tournament not found" };
 
     const tournament = tSnap.data()!;
     const isCreator  = tournament.creatorId === uid;
-    const isAdmin    = (profileSnap.data()?.isAdmin as boolean) === true;
+    // Role from the verified JWT custom claim — never the spoofable
+    // profiles.isAdmin mirror.
+    let isStaff = false;
+    if (!isCreator) {
+      const { getSessionWithRole } = await import("./server-auth");
+      const { meetsRole } = await import("@/lib/auth/roles");
+      const session = await getSessionWithRole();
+      isStaff = meetsRole(session.role, "admin");
+    }
 
-    if (!isCreator && !isAdmin) {
+    if (!isCreator && !isStaff) {
       return { success: false, error: "Only the tournament creator or a platform admin can cancel" };
     }
     if (tournament.status === "cancelled") {
@@ -463,9 +467,8 @@ export async function finalizeTournament(
     const tournamentRef = adminDb.collection("tournaments").doc(tournamentId);
     const prizesCol     = tournamentRef.collection("prizes");
 
-    const [tSnap, profileSnap, participantsSnap] = await Promise.all([
+    const [tSnap, participantsSnap] = await Promise.all([
       tournamentRef.get(),
-      adminDb.collection("profiles").doc(uid).get(),
       // Fetch participants to validate that every declared winner actually
       // entered the tournament. Prevents prize assignment to arbitrary UIDs.
       tournamentRef.collection("participants").get(),
@@ -475,8 +478,15 @@ export async function finalizeTournament(
 
     const tournament = tSnap.data()!;
     const isCreator  = tournament.creatorId === uid;
-    const isAdmin    = (profileSnap.data()?.isAdmin as boolean) === true;
-    if (!isCreator && !isAdmin) {
+    // JWT-claim role, not profiles.isAdmin mirror.
+    let isStaff = false;
+    if (!isCreator) {
+      const { getSessionWithRole } = await import("./server-auth");
+      const { meetsRole } = await import("@/lib/auth/roles");
+      const session = await getSessionWithRole();
+      isStaff = meetsRole(session.role, "admin");
+    }
+    if (!isCreator && !isStaff) {
       return { success: false, error: "Only the tournament creator or a platform admin can finalize" };
     }
     if (tournament.status === "complete") {
