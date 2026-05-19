@@ -447,6 +447,15 @@ export async function updateClanTag(
 // clears clan-denorm fields from every member's profile in a single batch.
 // Max members is 100, so ops = (100 × 2) + 2 = 202 — within Firestore's 500-op limit.
 
+// Firestore transactions are capped at 500 ops. Each member costs 2
+// writes (delete member doc + clear profile's clan fields) and the
+// trailing cleanup adds 3 (clan + slug + nameKey). Reserve headroom and
+// refuse to disband clans above this size — large-clan unwind would
+// need a paginated background job (not built today). Leader-side, this
+// matches the documented memberLimit ceiling, so legitimate disbands
+// always fit.
+const DISBAND_MAX_MEMBERS = 200;
+
 export async function disbandClan(
   uid: string,
   clanId: string,
@@ -457,61 +466,68 @@ export async function disbandClan(
 
     const { adminDb } = await import("@/lib/firebase/admin");
 
-    // Verify caller is the leader
-    const leaderSnap = await adminDb
-      .collection("clans")
-      .doc(clanId)
-      .collection("members")
-      .doc(uid)
-      .get();
+    // Wrap the whole unwind in a transaction so a concurrent joinClan
+    // can't slip in a new member between our member-list read and the
+    // final delete — that race previously left a stranded
+    // /profiles/{newUid}.clanId pointing at a deleted clan (audit fix L6).
+    //
+    // joinClan also reads /clans/{clanId} inside its own tx, so the two
+    // transactions serialise: whichever finishes second sees the other's
+    // write (or in disband's case, the deleted clan doc) and either
+    // retries with up-to-date state or aborts cleanly.
+    await adminDb.runTransaction(async tx => {
+      const clanRef   = adminDb.collection("clans").doc(clanId);
+      const leaderRef = adminDb.collection("clans").doc(clanId).collection("members").doc(uid);
 
-    if (!leaderSnap.exists) {
-      return { success: false, error: "You are not a member of this clan" };
-    }
-    if ((leaderSnap.data()!.role as ClanRole) !== "leader") {
-      return { success: false, error: "Only the clan leader can disband the clan" };
-    }
+      const [clanSnap, leaderSnap] = await Promise.all([
+        tx.get(clanRef),
+        tx.get(leaderRef),
+      ]);
 
-    // Fetch clan doc for slug + nameKey
-    const clanSnap = await adminDb.collection("clans").doc(clanId).get();
-    if (!clanSnap.exists) {
-      return { success: false, error: "Clan not found" };
-    }
-    const clanData = clanSnap.data()!;
-    const slug    = clanData.slug as string;
-    const nameKey = (clanData.nameKey as string | undefined) ?? null;
+      if (!leaderSnap.exists) {
+        throw new Error("You are not a member of this clan");
+      }
+      if ((leaderSnap.data()!.role as ClanRole) !== "leader") {
+        throw new Error("Only the clan leader can disband the clan");
+      }
+      if (!clanSnap.exists) {
+        throw new Error("Clan not found");
+      }
 
-    // Fetch all members
-    const membersSnap = await adminDb
-      .collection("clans")
-      .doc(clanId)
-      .collection("members")
-      .get();
+      const clanData = clanSnap.data()!;
+      const slug    = clanData.slug as string;
+      const nameKey = (clanData.nameKey as string | undefined) ?? null;
 
-    const batch = adminDb.batch();
-
-    // Delete each member doc and clear their profile's clan fields
-    for (const memberDoc of membersSnap.docs) {
-      batch.delete(
-        adminDb.collection("clans").doc(clanId).collection("members").doc(memberDoc.id),
+      // Read all members inside the tx — locks them against concurrent
+      // writes. A racing joinClan would conflict on either /clans/{id}
+      // or this collection query and retry / abort.
+      const membersSnap = await tx.get(
+        adminDb.collection("clans").doc(clanId).collection("members"),
       );
-      batch.update(adminDb.collection("profiles").doc(memberDoc.id), {
-        clanId:   null,
-        clanTag:  null,
-        clanSlug: null,
-        clanName: null,
-      });
-    }
 
-    // Delete clanSlugs entry, the name-uniqueness index entry, and the
-    // clan doc itself.
-    batch.delete(adminDb.collection("clanSlugs").doc(slug));
-    if (nameKey) {
-      batch.delete(adminDb.collection("clanNameKeys").doc(nameKey));
-    }
-    batch.delete(adminDb.collection("clans").doc(clanId));
+      if (membersSnap.size > DISBAND_MAX_MEMBERS) {
+        throw new Error(
+          `This clan has ${membersSnap.size} members — too large to disband atomically. ` +
+          `Contact support for assistance.`,
+        );
+      }
 
-    await batch.commit();
+      for (const memberDoc of membersSnap.docs) {
+        tx.delete(memberDoc.ref);
+        tx.update(adminDb.collection("profiles").doc(memberDoc.id), {
+          clanId:   null,
+          clanTag:  null,
+          clanSlug: null,
+          clanName: null,
+        });
+      }
+
+      tx.delete(adminDb.collection("clanSlugs").doc(slug));
+      if (nameKey) {
+        tx.delete(adminDb.collection("clanNameKeys").doc(nameKey));
+      }
+      tx.delete(clanRef);
+    });
 
     return { success: true };
   } catch (err) {
