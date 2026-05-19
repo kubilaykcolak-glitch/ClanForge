@@ -152,6 +152,12 @@ export default function CreateClanPage() {
     memberLimit:  30,
   });
 
+  // Inline field errors for the two required text inputs (audit fix M10).
+  // Populated on a failed submit attempt; cleared as the user types so the
+  // message disappears once they're fixing it. The form-wide toast is now
+  // a fallback for unexpected errors only.
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; gameFocus?: string }>({});
+
   // Slug
   const [slug, setSlug]                   = useState("");
   const [slugStatus, setSlugStatus]       = useState<"idle" | "checking" | "available" | "taken">("idle");
@@ -253,8 +259,18 @@ export default function CreateClanPage() {
   }, [form.name]);
 
   // ── Helpers ──
-  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
+    // Clear any inline error on the field being edited.
+    if (key === "name" || key === "gameFocus") {
+      setFieldErrors(prev => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key as "name" | "gameFocus"];
+        return next;
+      });
+    }
+  };
 
   const toggleTag = (tag: string) =>
     setField("tags", form.tags.includes(tag)
@@ -284,14 +300,26 @@ export default function CreateClanPage() {
     e.preventDefault();
     if (!uid) return;
 
-    // Validation
+    // Inline-error validation. Collect every problem first so the user
+    // sees ALL of them at once instead of fixing one and getting nudged
+    // about the next on the next submit (audit fix M10).
+    const errs: typeof fieldErrors = {};
     if (!form.name.trim() || form.name.length < 3) {
-      toast.error("Clan name must be at least 3 characters"); return;
+      errs.name = "Clan name must be at least 3 characters";
     }
     if (!form.gameFocus) {
-      toast.error("Select a primary game"); return;
+      errs.gameFocus = "Select a primary game";
     }
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      return;
+    }
+
     if (!slug || slugStatus === "taken") {
+      // This one isn't a "field validity" issue — slug is derived from
+      // name and reflects external uniqueness, so it stays on the inline
+      // slug-status row right next to the name input. Toast is the right
+      // affordance to draw the eye back.
       toast.error("Choose a different clan name — that slug is taken"); return;
     }
 
@@ -457,15 +485,21 @@ export default function CreateClanPage() {
               onChange={e => setField("name", e.target.value)}
               placeholder="Epic Gamers United"
               maxLength={30}
+              aria-invalid={!!fieldErrors.name}
               className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
               style={{
                 background: "var(--bg-elevated)",
-                border: "1px solid var(--border-default)",
+                border: `1px solid ${fieldErrors.name ? "var(--danger)" : "var(--border-default)"}`,
                 color: "var(--text-primary)",
               }}
               onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
-              onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = fieldErrors.name ? "var(--danger)" : "var(--border-default)"; }}
             />
+            {fieldErrors.name && (
+              <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>
+                {fieldErrors.name}
+              </p>
+            )}
 
             {/* Slug preview + availability */}
             {slug && (
@@ -533,15 +567,30 @@ export default function CreateClanPage() {
                 setField("gameFocus", "");
               }}
               placeholder="Search games…"
+              aria-invalid={!!fieldErrors.gameFocus}
               className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
               style={{
                 background: "var(--bg-elevated)",
-                border: `1px solid ${form.gameFocus ? "var(--success)" : "var(--border-default)"}`,
+                border: `1px solid ${
+                  fieldErrors.gameFocus ? "var(--danger)"
+                  : form.gameFocus     ? "var(--success)"
+                                       : "var(--border-default)"
+                }`,
                 color: "var(--text-primary)",
               }}
               onFocus={e => { e.currentTarget.style.borderColor = "var(--accent)"; }}
-              onBlur={e => { e.currentTarget.style.borderColor = form.gameFocus ? "var(--success)" : "var(--border-default)"; }}
+              onBlur={e => {
+                e.currentTarget.style.borderColor =
+                  fieldErrors.gameFocus ? "var(--danger)"
+                  : form.gameFocus      ? "var(--success)"
+                                        : "var(--border-default)";
+              }}
             />
+            {fieldErrors.gameFocus && (
+              <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>
+                {fieldErrors.gameFocus}
+              </p>
+            )}
 
             {/* Dropdown */}
             {gameQuery && !form.gameFocus && (
