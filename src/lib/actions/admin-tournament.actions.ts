@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { clientIp } from "./_client-ip";
 import {
   getSessionWithRole,
   requireRole,
@@ -20,13 +20,6 @@ interface ActionResult<T = undefined> {
   data?:   T;
   error?:  string;
   needsStepUp?: boolean;
-}
-
-function clientIp(): string | null {
-  const h = headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? h.get("x-real-ip")
-    ?? null;
 }
 
 function isStepUpRequired(err: unknown): boolean {

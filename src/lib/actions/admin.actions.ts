@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { clientIp } from "./_client-ip";
 import {
   getSessionWithRole,
   getSuperAdminUid,
@@ -18,13 +18,6 @@ interface ActionResult<T = undefined> {
   success: boolean;
   data?:   T;
   error?:  string;
-}
-
-function clientIp(): string | null {
-  const h = headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? h.get("x-real-ip")
-    ?? null;
 }
 
 // ─── setUserRole ──────────────────────────────────────────────────────────────

@@ -314,6 +314,12 @@ export async function reportMatchResult(
 
     const match = matchSnap.data()!;
 
+    // BYE matches are auto-completed by the bracket-advancement logic.
+    // Reject any manual report against them — there's no opponent to confirm
+    // with and the auto-finalise will overwrite anyway (audit fix L8).
+    if (match.participantAId === "BYE" || match.participantBId === "BYE") {
+      return { success: false, error: "BYE matches advance automatically" };
+    }
     if (match.participantAId !== uid && match.participantBId !== uid) {
       return { success: false, error: "You are not a participant in this match" };
     }
@@ -455,6 +461,9 @@ export async function disputeMatch(
     }
 
     const match = matchSnap.data()!;
+    if (match.participantAId === "BYE" || match.participantBId === "BYE") {
+      return { success: false, error: "BYE matches advance automatically and can't be disputed" };
+    }
     if (match.participantAId !== uid && match.participantBId !== uid) {
       return { success: false, error: "You are not a participant in this match" };
     }

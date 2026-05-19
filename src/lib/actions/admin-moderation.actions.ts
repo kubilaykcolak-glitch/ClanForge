@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { clientIp } from "./_client-ip";
 import { FieldValue } from "firebase-admin/firestore";
 import {
   getSessionWithRole,
@@ -25,13 +25,6 @@ interface ActionResult<T = undefined> {
   /** Sent when the action needs the user to re-authenticate before
    * proceeding. Clients catch this and open the password modal. */
   needsStepUp?: boolean;
-}
-
-function clientIp(): string | null {
-  const h = headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? h.get("x-real-ip")
-    ?? null;
 }
 
 function isStepUpRequired(err: unknown): boolean {
