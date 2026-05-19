@@ -3,7 +3,8 @@
 import { FieldValue } from "firebase-admin/firestore";
 import type { Clan, ClanRole, Profile } from "@/types";
 import { getClanLevel, getClanBorderSlug } from "@/lib/clan-levels";
-import { getSessionUid } from "./server-auth";
+import { getSessionUid, getSessionWithRole } from "./server-auth";
+import { meetsRole } from "@/lib/auth/roles";
 
 // ── Response shape ────────────────────────────────────────────────────────────
 
@@ -811,19 +812,21 @@ export async function deletePost(
       .collection("posts")
       .doc(postId);
 
-    const [postSnap, profileSnap] = await Promise.all([
-      postRef.get(),
-      adminDb.collection("profiles").doc(uid).get(),
-    ]);
-
+    const postSnap = await postRef.get();
     if (!postSnap.exists) {
       return { success: false, error: "Post not found" };
     }
 
     const isAuthor = (postSnap.data()!.authorId as string) === uid;
-    const isAdmin  = (profileSnap.data()?.isAdmin as boolean) === true;
+    // Moderator-tier role from the verified JWT claim — never the
+    // spoofable profiles.isAdmin mirror.
+    let isStaff = false;
+    if (!isAuthor) {
+      const session = await getSessionWithRole();
+      isStaff = meetsRole(session.role, "moderator");
+    }
 
-    if (!isAuthor && !isAdmin) {
+    if (!isAuthor && !isStaff) {
       return { success: false, error: "You do not have permission to delete this post" };
     }
 

@@ -8,7 +8,7 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import type { Profile } from "@/types";
-import { getSessionUid } from "./server-auth";
+import { getSessionUid, requireRole } from "./server-auth";
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -736,17 +736,13 @@ export async function markPrizePaid(
   prizeId:       string,
 ): Promise<ActionResult> {
   try {
-    // Verify session first — the caller must be the adminUid they claim.
-    // Then re-verify isAdmin from the database so neither check can be bypassed.
-    const sessionUid = await getSessionUid();
-    if (sessionUid !== adminUid) return { success: false, error: "Forbidden" };
+    // Verify session + admin role from the verified JWT claim. Both the
+    // adminUid arg and the legacy profiles.isAdmin mirror were spoofable
+    // pre-fix; only the custom claim is trustworthy.
+    const session = await requireRole("admin");
+    if (session.uid !== adminUid) return { success: false, error: "Forbidden" };
 
     const { adminDb } = await import("@/lib/firebase/admin");
-
-    const profileSnap = await adminDb.collection("profiles").doc(adminUid).get();
-    if ((profileSnap.data()?.isAdmin as boolean) !== true) {
-      return { success: false, error: "Admin permission required" };
-    }
 
     await adminDb
       .collection("tournaments").doc(tournamentId)

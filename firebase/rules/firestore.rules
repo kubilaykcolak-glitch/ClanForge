@@ -52,11 +52,63 @@ service cloud.firestore {
     }
 
     // ─── /profiles/{userId} ───────────────────────────────────────────────────
-    // Any authenticated user can read; only the owner can write.
+    // Any authenticated user can read.
+    //
+    // Writes are split per-operation:
+    //  - `create` is server-only (the registration flow writes through the
+    //    Admin SDK with the canonical defaults — including isAdmin=false, xp=0,
+    //    etc. — so we never trust a client to seed those fields).
+    //  - `update` is owner-only AND restricted to a hard allowlist of cosmetic
+    //    / identity fields. ALL privileged fields (isAdmin, xp, isVerified,
+    //    bannedAt/By/Reason, tournamentsPlayed/Won, badges, title, clan*,
+    //    isPrivate, lastClanLeaveAt) are server-only — they live behind admin
+    //    server actions or system-side denormalisation. Before this allowlist
+    //    a user could `updateDoc(/profiles/me, { isAdmin: true })` directly
+    //    and elevate themselves.
+    //  - `delete` is server-only (account-deletion flow).
+
+    function isProfileFieldAllowed(keys) {
+      return keys.hasOnly([
+        // Identity
+        'displayName', 'username',
+        // Bio fields
+        'bio', 'country',
+        // External handles
+        'steamUrl', 'xboxGamertag', 'psnId', 'discordTag', 'twitchUrl',
+        // Cosmetic
+        'avatarUrl', 'bannerUrl', 'backgroundId', 'backgroundImageUrl', 'accentColour',
+        // Timestamp
+        'updatedAt'
+      ]);
+    }
+
+    // Profile-creation guard. The onboarding flow writes the initial doc
+    // from the client; this rule pins the privilege/state fields to their
+    // safe defaults so an attacker can't seed `isAdmin: true` on first write.
+    function isSafeInitialProfile() {
+      let d = request.resource.data;
+      return d.isAdmin == false
+          && d.isVerified == false
+          && d.xp == 0
+          && d.tournamentsPlayed == 0
+          && d.tournamentsWon == 0
+          // Moderation fields must not be present on first write.
+          && !('bannedAt'     in d)
+          && !('bannedBy'     in d)
+          && !('bannedReason' in d)
+          // Badges and title are awarded server-side; the doc starts empty.
+          && !('badges' in d)
+          && !('title'  in d);
+    }
 
     match /profiles/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isOwner(userId);
+      allow read:   if isSignedIn();
+      allow create: if isOwner(userId) && isSafeInitialProfile();
+      allow update: if isOwner(userId)
+                       && isProfileFieldAllowed(
+                            request.resource.data.diff(resource.data).affectedKeys()
+                          );
+      allow delete: if false;
 
       // ─── /profiles/{userId}/gameRecords/{recordId} ─────────────────────────
 

@@ -1,6 +1,7 @@
 "use server";
 
-import { getSessionUid, getAdminUid } from "@/lib/actions/server-auth";
+import { getSessionUid, getAdminUid, getSessionWithRole } from "@/lib/actions/server-auth";
+import { meetsRole } from "@/lib/auth/roles";
 import {
   registerProvider,
   registerTournament,
@@ -277,10 +278,11 @@ export async function regenerateMatchCode(
     }
 
     const tourn = tournSnap.data() as { creatorId?: string };
-    // Authorise: creator OR platform admin
+    // Authorise: creator OR platform admin. Role comes from the verified
+    // JWT custom claim — never the spoofable profiles.isAdmin mirror.
     if (tourn.creatorId !== sessionUid) {
-      const profileSnap = await adminDb.collection("profiles").doc(sessionUid).get();
-      if (!profileSnap.data()?.isAdmin) {
+      const session = await getSessionWithRole();
+      if (!meetsRole(session.role, "admin")) {
         return { success: false, error: "Only the tournament creator or an admin can regenerate codes" };
       }
     }
@@ -375,9 +377,11 @@ export async function adminFinalizeMatch(
     if (!tournSnap.exists) return { success: false, error: "Tournament not found" };
 
     const tourn = tournSnap.data() as { creatorId?: string };
+    // Authorise: creator OR platform admin. JWT-claim role, not the
+    // spoofable profiles.isAdmin mirror.
     if (tourn.creatorId !== sessionUid) {
-      const profileSnap = await adminDb.collection("profiles").doc(sessionUid).get();
-      if (!profileSnap.data()?.isAdmin) {
+      const session = await getSessionWithRole();
+      if (!meetsRole(session.role, "admin")) {
         return { success: false, error: "Only the tournament creator or an admin can override results" };
       }
     }

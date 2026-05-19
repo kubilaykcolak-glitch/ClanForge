@@ -11,8 +11,57 @@ interface ActionResult<T = undefined> {
   error?: string;
 }
 
+// ─── Field allowlist ─────────────────────────────────────────────────────────
+//
+// The shape of `Profile` includes privileged fields (isAdmin, xp, isVerified,
+// banned*, tournamentsPlayed/Won) that must NEVER be writable from a
+// `"use server"` endpoint reachable over the network — anything reachable via
+// the RSC action body protocol is effectively a public mutation surface.
+//
+// We declare a hard allowlist and filter incoming `data` against it. Anything
+// outside the allowlist is silently dropped so old/forged client payloads
+// can't elevate state. The same allowlist is mirrored in Firestore rules so
+// the direct-client-SDK write path can't be used to bypass either layer.
+//
+// Adding a new user-editable field is intentionally TWO edits (here AND in
+// firestore.rules `isProfileFieldAllowed`) so we never forget the rule side.
+type WriteableProfileKey =
+  | "displayName"
+  | "username"
+  | "bio"
+  | "country"
+  | "steamUrl"
+  | "xboxGamertag"
+  | "psnId"
+  | "discordTag"
+  | "twitchUrl"
+  | "avatarUrl"
+  | "bannerUrl"
+  | "backgroundId"
+  | "backgroundImageUrl"
+  | "accentColour";
+
+const WRITEABLE_KEYS: ReadonlySet<WriteableProfileKey> = new Set<WriteableProfileKey>([
+  "displayName",
+  "username",
+  "bio",
+  "country",
+  "steamUrl",
+  "xboxGamertag",
+  "psnId",
+  "discordTag",
+  "twitchUrl",
+  "avatarUrl",
+  "bannerUrl",
+  "backgroundId",
+  "backgroundImageUrl",
+  "accentColour",
+]);
+
 // ── updateProfile ─────────────────────────────────────────────────────────────
 // Merges `data` into /profiles/{uid}. The caller must be authenticated as uid.
+// Only the WRITEABLE_KEYS allowlist is honoured — privileged fields supplied
+// by a forged client are dropped before the Firestore write.
 
 export async function updateProfile(
   uid: string,
@@ -22,9 +71,22 @@ export async function updateProfile(
     const sessionUid = await getSessionUid();
     if (sessionUid !== uid) return { success: false, error: "Forbidden" };
 
+    // Filter the caller payload down to the allowlist. Anything else is
+    // silently dropped so stale client builds don't error out, but no
+    // privileged field ever reaches the doc.
+    const filtered: Record<string, unknown> = {};
+    for (const key of Object.keys(data) as Array<keyof typeof data>) {
+      if ((WRITEABLE_KEYS as Set<string>).has(key as string)) {
+        filtered[key as string] = (data as Record<string, unknown>)[key as string];
+      }
+    }
+    if (Object.keys(filtered).length === 0) {
+      return { success: true };
+    }
+
     const { adminDb } = await import("@/lib/firebase/admin");
     await adminDb.collection("profiles").doc(uid).update({
-      ...data,
+      ...filtered,
       updatedAt: new Date(),
     });
 
