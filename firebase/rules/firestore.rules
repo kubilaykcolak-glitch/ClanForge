@@ -315,10 +315,16 @@ service cloud.firestore {
         // rank / paywall guards. All participant docs now flow through the
         // server action via Admin SDK.
         allow create: if false;
-        // Creator can update result/status but NOT payment fields.
+        // Creator updates are restricted to a positive allowlist of fields.
+        // Previously this was a negative list ("not paymentStatus / paidAmount /
+        // stripeSessionId") which silently let new fields slip through — a
+        // creator could rewrite seeds, status, dispute fields, custom keys,
+        // anything not specifically blocklisted (audit finding M2). The
+        // allowlist covers the legit operational fields the bracket UI
+        // touches and nothing else.
         allow update: if isTournamentCreator(tournamentId) &&
-          !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['paymentStatus', 'paidAmount', 'stripeSessionId']);
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'seed', 'displayName', 'avatarUrl']);
         allow delete: if isTournamentCreator(tournamentId);
       }
 
@@ -327,7 +333,15 @@ service cloud.firestore {
       match /matches/{matchId} {
         allow read: if isSignedIn();
         allow create: if isTournamentCreator(tournamentId);
-        allow update: if isTournamentCreator(tournamentId) || isMatchParticipant(tournamentId, matchId);
+        // ONLY the creator can flip match fields from the client. The old
+        // rule also allowed `isMatchParticipant` updates, which meant
+        // either participant could client-side-write
+        // `{ status:'complete', winnerId:my_uid }` directly and bypass
+        // reportMatchResult's dispute / opponent-confirmation flow entirely
+        // (audit finding M3). All participant-driven changes now flow
+        // through the disputeMatch / reportMatchResult server actions via
+        // Admin SDK, which gates winnerId to a real participant uid.
+        allow update: if isTournamentCreator(tournamentId);
         allow delete: if isTournamentCreator(tournamentId);
       }
     }

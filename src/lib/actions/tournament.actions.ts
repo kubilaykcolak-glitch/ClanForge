@@ -343,8 +343,15 @@ export async function disputeMatch(
     const sessionUid = await getSessionUid();
     if (sessionUid !== uid) return { success: false, error: "Forbidden" };
 
-    if (!reason.trim()) {
+    const trimmed = reason.trim();
+    if (!trimmed) {
       return { success: false, error: "Dispute reason is required" };
+    }
+    // Bound the reason length — without a cap a participant could write
+    // an enormous payload that bloats every match doc and inflates every
+    // subsequent read (audit finding L7).
+    if (trimmed.length > 500) {
+      return { success: false, error: "Dispute reason must be 500 characters or fewer" };
     }
 
     const { adminDb } = await import("@/lib/firebase/admin");
@@ -367,7 +374,7 @@ export async function disputeMatch(
 
     await matchRef.update({
       status:        "disputed",
-      disputeReason: reason.trim(),
+      disputeReason: trimmed,
       disputedBy:    uid,
       disputedAt:    new Date(),
     });
