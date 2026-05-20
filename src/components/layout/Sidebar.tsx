@@ -162,14 +162,20 @@ function GamesNavGroup({
                       3. Coloured shortName tile fallback for any future
                          game that hasn't shipped art yet. */}
                 {g.logoIconSrc ? (
+                  // Square slot for tall/square icon marks (e.g. LoL "L"),
+                  // wider slot for wordmark-shaped marks (e.g. AR's stripes
+                  // + "ARC Raiders" lockup). Both render via object-contain
+                  // so the original aspect ratio is preserved.
                   <span
-                    className="relative w-5 h-5 shrink-0 flex items-center justify-center"
+                    className={`relative h-5 shrink-0 flex items-center justify-center ${
+                      g.slug === "arc-raiders" ? "w-9" : "w-5"
+                    }`}
                     aria-hidden
                   >
                     <Image
                       src={g.logoIconSrc}
                       alt=""
-                      width={40}
+                      width={120}
                       height={40}
                       unoptimized
                       style={{

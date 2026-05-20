@@ -72,6 +72,7 @@ export const GAMES_META: Record<GameSlug, GameMeta> = {
     shortName:   "Arc Raiders",
     bannerSrc:   "/games/arc-raiders/banner.webp",
     logoSrc:     "/games/arc-raiders/logo.webp",
+    logoIconSrc: "/games/arc-raiders/icon.webp",
     accentColor: "#f59e0b",
     tagline:     "Squad up, raid the surface, and stay off the bounty list.",
     theme: {
