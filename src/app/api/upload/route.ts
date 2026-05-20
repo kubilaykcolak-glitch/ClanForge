@@ -218,7 +218,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: downloadUrl });
   } catch (err) {
     console.error("[api/upload] error:", err);
-    // Don't leak internal error text to clients — keep the response opaque.
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    // Surface a brief reason in the response. Stack traces / private keys
+    // never go through `err.message`; the GCS / Admin SDK errors that DO
+    // surface here are operational (bucket-not-found, missing-env, body-
+    // too-large, IAM-not-granted) — exactly the things that would
+    // otherwise leave clients staring at a generic 500 with no recourse.
+    const message = err instanceof Error ? err.message : "Upload failed";
+    return NextResponse.json(
+      { error: message.slice(0, 240) },
+      { status: 500 },
+    );
   }
 }
