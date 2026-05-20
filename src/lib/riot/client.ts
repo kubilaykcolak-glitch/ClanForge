@@ -177,4 +177,42 @@ export async function fetchMatchById(
   return riotFetch<RiotMatch>(url);
 }
 
+// ─── spectator-v5 ────────────────────────────────────────────────────────────
+// Returns the active game for a puuid, or null if the player is not currently
+// in a game. 404 is the documented "not in game" signal; we swallow it.
+
+export interface RiotActiveGameParticipant {
+  puuid:         string;
+  riotId?:       string;
+  championId:    number;
+  teamId:        number;
+  spell1Id:      number;
+  spell2Id:      number;
+}
+
+export interface RiotActiveGame {
+  gameId:         number;
+  gameMode:       string;
+  gameType:       string;
+  gameQueueConfigId: number;
+  mapId:          number;
+  gameStartTime:  number; // ms epoch (0 while in champ select)
+  gameLength:     number; // seconds
+  platformId:     string;
+  participants:   RiotActiveGameParticipant[];
+}
+
+export async function fetchActiveGameByPuuid(
+  puuid: string,
+  region: LolPlatformRegion,
+): Promise<RiotActiveGame | null> {
+  const url = `${platformHost(region)}/lol/spectator/v5/active-games/by-summoner/${encodeURIComponent(puuid)}`;
+  try {
+    return await riotFetch<RiotActiveGame>(url);
+  } catch (err) {
+    if (err instanceof RiotApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export { RiotApiError };

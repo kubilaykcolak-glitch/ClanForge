@@ -76,7 +76,7 @@ export const GAMES: Record<GameSlug, GameDefinition> = {
       //    until their own follow-ups land. ──
       { slug: "profile",  label: "My Profile",  icon: Activity, status: "live",   loader: () => import("@/components/games/sections/LeagueProfileSection") },
       { slug: "ladder",   label: "Ladder",      icon: Trophy,   status: "live",   loader: () => import("@/components/games/sections/LeagueLadderSection") },
-      { slug: "live-now", label: "Live Now",    icon: Swords,   status: "hidden", loader: hiddenLoader },
+      { slug: "live-now", label: "Live Now",    icon: Swords,   status: "live",   loader: () => import("@/components/games/sections/LeagueLiveNowSection") },
     ],
   },
   "arc-raiders": {
