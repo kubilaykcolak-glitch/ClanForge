@@ -7,29 +7,25 @@ import { isRole, meetsRole, type Role } from "@/lib/auth/roles";
 //
 // Authoritative role check for every /admin/* route. Runs server-side at
 // render time so a non-admin can never reach these pages even if they craft
-// the URL manually or bypass the sidebar toggle. We read the role straight
-// from the verified session-cookie JWT claim (tamper-proof, signed); fall
-// back to the legacy profiles.isAdmin field during the migration window.
+// the URL manually or bypass the sidebar toggle. Reads the role straight
+// from the verified session-cookie JWT claim (tamper-proof, signed) —
+// `profiles.isAdmin` is no longer trusted (legacy fallback removed in #8
+// after every admin was verified to hold the matching custom claim).
 //
 // This redirects rather than 403'ing so a user who hit the route while their
 // session is stale lands somewhere useful instead of an error page.
 
 async function verifyAdminAccess(): Promise<Role> {
-  const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
+  const { adminAuth } = await import("@/lib/firebase/admin");
   try {
     const sessionCookie = cookies().get("session")?.value;
     if (!sessionCookie) redirect("/login?from=/admin");
 
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     const claimRole = decoded.role;
-    if (isRole(claimRole)) {
-      if (!meetsRole(claimRole, "moderator")) redirect("/dashboard");
+    if (isRole(claimRole) && meetsRole(claimRole, "moderator")) {
       return claimRole;
     }
-
-    // Legacy fallback for users not yet migrated to custom claims.
-    const snap = await adminDb.collection("profiles").doc(decoded.uid).get();
-    if (snap.exists && snap.data()?.isAdmin) return "admin";
     redirect("/dashboard");
   } catch {
     redirect("/login?from=/admin");

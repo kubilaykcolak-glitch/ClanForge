@@ -87,12 +87,13 @@ export const GAMES: Record<GameSlug, GameDefinition> = {
       matchmakingSection,
       clansSection,
       challengesSection,
-      // ── Hidden until Arc Raiders content + wanted specs ship ──
+      // ── Wanted still hidden — needs design discussion before ship ──
       { slug: "wanted",    label: "Wanted",      icon: Crosshair,      status: "hidden", loader: hiddenLoader },
-      { slug: "guides",    label: "Guides",      icon: FileText,       status: "hidden", loader: hiddenLoader },
-      { slug: "items",     label: "Items",       icon: Sword,          status: "hidden", loader: hiddenLoader },
-      { slug: "locations", label: "Locations",   icon: MapPin,         status: "hidden", loader: hiddenLoader },
-      { slug: "updates",   label: "Updates",     icon: Newspaper,      status: "hidden", loader: hiddenLoader },
+      // ── Content sections live (admin authors via /admin/game-content) ──
+      { slug: "guides",    label: "Guides",      icon: FileText,       status: "live",   loader: () => import("@/components/games/sections/ArcRaidersGuidesSection") },
+      { slug: "items",     label: "Items",       icon: Sword,          status: "live",   loader: () => import("@/components/games/sections/ArcRaidersItemsSection") },
+      { slug: "locations", label: "Locations",   icon: MapPin,         status: "live",   loader: () => import("@/components/games/sections/ArcRaidersLocationsSection") },
+      { slug: "updates",   label: "Updates",     icon: Newspaper,      status: "live",   loader: () => import("@/components/games/sections/ArcRaidersUpdatesSection") },
     ],
   },
 };

@@ -357,5 +357,16 @@ service cloud.firestore {
         allow delete: if isTournamentCreator(tournamentId);
       }
     }
+
+    // ─── /game_content/{contentId} ────────────────────────────────────────────
+    // Public reads (Arc Raiders Guides / Items / Locations / Updates hub
+    // sections render published content for unauthenticated visitors).
+    // ALL writes are server-only — game-content.actions.ts gates them behind
+    // the custom-claim role check.
+
+    match /game_content/{contentId} {
+      allow read: if true;
+      allow write: if false;
+    }
   }
 }

@@ -247,6 +247,32 @@
         { "fieldPath": "isPrivate", "order": "ASCENDING"  },
         { "fieldPath": "xp",       "order": "DESCENDING" }
       ]
+    },
+
+    // ── game_content ─────────────────────────────────────────────────────────
+
+    // Public hub list query: gameSlug + type + status + publishedAt desc
+    // (listPublishedContent in game-content.actions.ts).
+    {
+      "collectionGroup": "game_content",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "gameSlug",    "order": "ASCENDING"  },
+        { "fieldPath": "type",        "order": "ASCENDING"  },
+        { "fieldPath": "status",      "order": "ASCENDING"  },
+        { "fieldPath": "publishedAt", "order": "DESCENDING" }
+      ]
+    },
+
+    // Slug-uniqueness probe in uniqueSlug(): gameSlug + type + slug
+    {
+      "collectionGroup": "game_content",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "gameSlug", "order": "ASCENDING" },
+        { "fieldPath": "type",     "order": "ASCENDING" },
+        { "fieldPath": "slug",     "order": "ASCENDING" }
+      ]
     }
 
   ],
