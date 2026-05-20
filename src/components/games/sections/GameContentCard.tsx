@@ -25,17 +25,37 @@ export function GameContentCard({ item }: { item: GameContent }) {
     return (
       <article
         id={`content-${item.slug}`}
-        className="rounded-xl overflow-hidden scroll-mt-24 flex"
+        className="rounded-xl overflow-hidden scroll-mt-24 flex items-start"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
       >
-        {/* Image rail — square on items, slightly wider on locations */}
+        {/*
+          Image rail.
+          - Items are transparent PNG weapons/gear from the wiki with varied
+            aspect ratios — use object-contain on a fixed square so the whole
+            item is visible (no zoom/crop) and rail height doesn't follow the
+            tall info column.
+          - Locations are landscape screenshots — object-cover on a wider box
+            looks correct.
+        */}
         <div
-          className={`shrink-0 overflow-hidden ${item.type === "items" ? "w-24 sm:w-28" : "w-32 sm:w-40"}`}
+          className={`shrink-0 overflow-hidden ${
+            item.type === "items"
+              ? "w-24 sm:w-28 aspect-square sticky top-0 p-2 flex items-center justify-center"
+              : "w-32 sm:w-40 self-stretch"
+          }`}
           style={{ background: "var(--bg-overlay)" }}
         >
           {item.heroImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.heroImageUrl} alt="" className="w-full h-full object-cover" />
+            <img
+              src={item.heroImageUrl}
+              alt=""
+              className={
+                item.type === "items"
+                  ? "max-w-full max-h-full object-contain"
+                  : "w-full h-full object-cover"
+              }
+            />
           ) : (
             <ImagePlaceholder type={item.type} />
           )}
