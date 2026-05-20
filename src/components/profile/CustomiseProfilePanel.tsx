@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { Check, X } from "lucide-react";
 import { storage } from "@/lib/firebase/client";
@@ -22,18 +22,31 @@ const ACCENT_COLOURS = [
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+export interface AppearanceValues {
+  bannerUrl:          string | null;
+  backgroundId:       string;
+  backgroundImageUrl: string | null;
+  accentColour:       string;
+}
+
 interface CustomiseProfilePanelProps {
   uid:                       string;
   currentBannerUrl:          string | null;
   currentBackgroundId:       string | null;
   currentBackgroundImageUrl: string | null;
   currentAccentColour:       string | null;
-  onSave: (data: {
-    bannerUrl:          string | null;
-    backgroundId:       string;
-    backgroundImageUrl: string | null;
-    accentColour:       string;
-  }) => void;
+  /** Legacy: invoked by the local "Save Appearance" button. Optional now —
+   *  when the panel is embedded inside a parent form (e.g. /profile/edit)
+   *  the parent's main "Save Changes" button is the canonical save flow and
+   *  this can be omitted. */
+  onSave?: (data: AppearanceValues) => void;
+  /** Fires on every internal change so a parent form can keep its own copy
+   *  of the appearance state in sync without polling. Use together with
+   *  `hideSaveButton` to fully integrate into a parent save flow. */
+  onValuesChange?: (data: AppearanceValues) => void;
+  /** When true, the panel's own "Save Appearance" button is not rendered —
+   *  saving is the parent's responsibility. */
+  hideSaveButton?: boolean;
 }
 
 // ── Section heading ────────────────────────────────────────────────────────────
@@ -65,12 +78,57 @@ export default function CustomiseProfilePanel({
   currentBackgroundImageUrl,
   currentAccentColour,
   onSave,
+  onValuesChange,
+  hideSaveButton = false,
 }: CustomiseProfilePanelProps) {
   // ── Local state ─────────────────────────────────────────────────────────────
+  // Internal state mirrors the controlled values from props. We re-sync via a
+  // useEffect below whenever the parent supplies new values (e.g. when the
+  // Firestore profile finishes loading async — without this, useState's
+  // first-run-only init left the form showing defaults forever).
   const [bannerUrl,          setBannerUrl]          = useState<string | null>(currentBannerUrl);
   const [backgroundId,       setBackgroundId]       = useState(currentBackgroundId ?? "none");
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(currentBackgroundImageUrl);
   const [accentColour,       setAccentColour]       = useState(currentAccentColour ?? "#6366f1");
+
+  // Re-sync from props if they change after mount. Guarded equality checks so
+  // we don't trample in-progress local edits — only adopt the prop value when
+  // it differs from our last-known seed.
+  const seededRef = useRef({
+    bannerUrl:          currentBannerUrl,
+    backgroundId:       currentBackgroundId,
+    backgroundImageUrl: currentBackgroundImageUrl,
+    accentColour:       currentAccentColour,
+  });
+  useEffect(() => {
+    if (seededRef.current.bannerUrl !== currentBannerUrl) {
+      setBannerUrl(currentBannerUrl);
+      seededRef.current.bannerUrl = currentBannerUrl;
+    }
+    if (seededRef.current.backgroundId !== currentBackgroundId) {
+      setBackgroundId(currentBackgroundId ?? "none");
+      seededRef.current.backgroundId = currentBackgroundId;
+    }
+    if (seededRef.current.backgroundImageUrl !== currentBackgroundImageUrl) {
+      setBackgroundImageUrl(currentBackgroundImageUrl);
+      seededRef.current.backgroundImageUrl = currentBackgroundImageUrl;
+    }
+    if (seededRef.current.accentColour !== currentAccentColour) {
+      setAccentColour(currentAccentColour ?? "#6366f1");
+      seededRef.current.accentColour = currentAccentColour;
+    }
+  }, [currentBannerUrl, currentBackgroundId, currentBackgroundImageUrl, currentAccentColour]);
+
+  // Fire onValuesChange whenever any of the four controlled values shift so
+  // a parent form can capture the latest snapshot without an imperative poke.
+  useEffect(() => {
+    onValuesChange?.({ bannerUrl, backgroundId, backgroundImageUrl, accentColour });
+    // We intentionally exclude onValuesChange from deps — callers commonly
+    // pass an inline arrow function, which would otherwise re-fire on every
+    // render and create an infinite loop. The four primitive values are the
+    // canonical change signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bannerUrl, backgroundId, backgroundImageUrl, accentColour]);
 
   // Independent upload state per slot so banner and bg image don't share UI
   const [bannerProgress,  setBannerProgress]  = useState<number | null>(null);
@@ -692,6 +750,9 @@ export default function CustomiseProfilePanel({
       </div>
 
       {/* ── Save button ───────────────────────────────────────────────────── */}
+      {/* Hidden when embedded in a parent form (see hideSaveButton prop) so
+          the parent's unified "Save Changes" is the only save affordance. */}
+      {!hideSaveButton && onSave && (
       <button
         type="button"
         disabled={isUploading}
@@ -720,6 +781,7 @@ export default function CustomiseProfilePanel({
       >
         Save Appearance
       </button>
+      )}
     </div>
   );
 }

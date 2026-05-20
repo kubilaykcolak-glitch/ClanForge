@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Bell, X, CheckCheck } from "lucide-react";
 import { useNotifications } from "@/lib/firebase/hooks";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notification.actions";
@@ -48,9 +49,21 @@ export function NotificationBell({ uid, initialUnreadCount = 0 }: Props) {
     setOpen(false);
   };
 
+  // Routes that render their own bottom-fixed sticky bar — lift the bell so
+  // it doesn't sit on top of the page's primary CTA (e.g. /profile/edit's
+  // "Save Changes" button).
+  const pathname = usePathname();
+  const overSticky = pathname?.startsWith("/profile/edit") ?? false;
+
   return (
-    // Fixed to bottom-right corner, above footer-level z-index
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+    // Fixed to bottom-right corner, above footer-level z-index. Bottom offset
+    // lifts when a sticky save bar is rendered by the page so the two CTAs
+    // don't overlap.
+    <div
+      className={`fixed right-6 z-50 flex flex-col items-end gap-3 ${
+        overSticky ? "bottom-28" : "bottom-6"
+      }`}
+    >
 
       {/* ── Floating panel ── */}
       {open && (

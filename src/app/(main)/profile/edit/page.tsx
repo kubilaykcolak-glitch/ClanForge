@@ -310,6 +310,15 @@ export default function ProfileEditPage() {
   const [profileBgId,         setProfileBgId]         = useState<string | null>(null);
   const [profileBgImageUrl,   setProfileBgImageUrl]   = useState<string | null>(null);
   const [profileAccentColour, setProfileAccentColour] = useState<string | null>(null);
+  // Pending appearance edits — refreshed by CustomiseProfilePanel via its
+  // onValuesChange callback. Kept in a ref (not state) so we don't trigger
+  // re-renders for every click in the panel; the value is read at save time.
+  const pendingAppearanceRef = useRef<{
+    bannerUrl:          string | null;
+    backgroundId:       string;
+    backgroundImageUrl: string | null;
+    accentColour:       string;
+  } | null>(null);
   const [isPrivate,           setIsPrivate]           = useState(false);
   const fileRef                             = useRef<HTMLInputElement>(null);
   const debounceRef                         = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -486,11 +495,31 @@ export default function ProfileEditPage() {
       };
       if (avatarUrl) payload.avatarUrl = avatarUrl;
 
+      // Roll the latest appearance edits into the same write so the unified
+      // "Save Changes" button persists everything atomically. The ref is set
+      // by CustomiseProfilePanel via onValuesChange on every internal edit.
+      const appearance = pendingAppearanceRef.current;
+      if (appearance) {
+        payload.bannerUrl          = appearance.bannerUrl;
+        payload.backgroundId       = appearance.backgroundId;
+        payload.backgroundImageUrl = appearance.backgroundImageUrl;
+        payload.accentColour       = appearance.accentColour;
+      }
+
       await updateDoc(doc(db, "profiles", uid), payload);
 
       toast.success("Profile saved!");
       setOriginalUsername(values.username);
       setValue("username", values.username);
+
+      // Mirror saved appearance back into the page state so subsequent
+      // re-renders / mini-previews reflect the persisted truth.
+      if (appearance) {
+        setProfileBannerUrl(appearance.bannerUrl);
+        setProfileBgId(appearance.backgroundId);
+        setProfileBgImageUrl(appearance.backgroundImageUrl);
+        setProfileAccentColour(appearance.accentColour);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save";
       toast.error(msg);
@@ -498,31 +527,10 @@ export default function ProfileEditPage() {
   };
 
   // ── Appearance save ──────────────────────────────────────────────────────
-
-  const handleAppearanceSave = async (data: {
-    bannerUrl:          string | null;
-    backgroundId:       string;
-    backgroundImageUrl: string | null;
-    accentColour:       string;
-  }) => {
-    if (!uid) return;
-    try {
-      await updateDoc(doc(db, "profiles", uid), {
-        bannerUrl:          data.bannerUrl,
-        backgroundId:       data.backgroundId,
-        backgroundImageUrl: data.backgroundImageUrl,
-        accentColour:       data.accentColour,
-        updatedAt:          new Date(),
-      });
-      setProfileBannerUrl(data.bannerUrl);
-      setProfileBgId(data.backgroundId);
-      setProfileBgImageUrl(data.backgroundImageUrl);
-      setProfileAccentColour(data.accentColour);
-      toast.success("Appearance saved!");
-    } catch {
-      toast.error("Failed to save appearance");
-    }
-  };
+  // Appearance is no longer a separate save flow — it's batched into the main
+  // onSave above via pendingAppearanceRef. The panel emits its values up via
+  // onValuesChange (see render), we stash them in the ref, and the unified
+  // "Save Changes" button persists everything atomically.
 
   // ── Privacy toggle ───────────────────────────────────────────────────────
 
@@ -880,7 +888,10 @@ export default function ProfileEditPage() {
             currentBackgroundId={profileBgId}
             currentBackgroundImageUrl={profileBgImageUrl}
             currentAccentColour={profileAccentColour}
-            onSave={handleAppearanceSave}
+            hideSaveButton
+            onValuesChange={(v) => {
+              pendingAppearanceRef.current = v;
+            }}
           />
         </Section>
 
