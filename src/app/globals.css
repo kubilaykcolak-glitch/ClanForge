@@ -89,11 +89,15 @@
 
 html {
   scroll-behavior: smooth;
+  /* Base background lives on <html> only. <body> and the layout root are
+     kept transparent so profile background layers rendered with z-index:-1
+     can paint between <html> and the rest of the page (sidebar / main /
+     footer), making the appearance setting truly sit behind ALL UI. */
   background: var(--bg-base);
 }
 
 body {
-  background: var(--bg-base);
+  background: transparent;
   color: var(--text-primary);
   font-family: 'DM Sans', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -156,11 +160,19 @@ h1, h2, h3, h4, h5, h6 {
 /* ─── Profile animated backgrounds ───────────────────────────────────────── */
 /*
  * Each variant uses a ::before pseudo-element so the animation layer sits
- * behind all page content without affecting stacking contexts.
+ * behind ALL page content (sidebar, main, footer) globally.
+ *
+ * How the stacking works:
+ *   - <html> paints the base background.
+ *   - <body> and the layout root are intentionally transparent (see globals
+ *     top + (main)/layout.tsx).
+ *   - The ::before is `position: fixed; inset: 0; z-index: -1`. Because the
+ *     profile-bg-* wrapper is NOT an isolated stacking context, that -1
+ *     escapes to the root context and paints between <html> and the rest
+ *     of the page chrome — so the appearance sits behind nav + footer + UI
+ *     across the whole viewport, no sidebar-offset hack needed.
  *
  * Usage: add the .profile-bg-{id} class to the profile page wrapper div.
- * The wrapper must have `position: relative; isolation: isolate` so that
- * z-index: -1 on ::before is scoped correctly.
  */
 
 /* -- Aurora ---------------------------------------------------------------- */
@@ -171,8 +183,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-aurora {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-aurora::before {
   content: "";
@@ -201,8 +214,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-ember {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-ember::before {
   content: "";
@@ -228,8 +242,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-ocean {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-ocean::before {
   content: "";
@@ -257,8 +272,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-void {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-void::before {
   content: "";
@@ -286,8 +302,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-grid {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-grid::before {
   content: "";
@@ -309,8 +326,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-pulse {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-pulse::before {
   content: "";
@@ -335,8 +353,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .profile-bg-rain {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-rain::before {
   content: "";
@@ -360,8 +379,9 @@ h1, h2, h3, h4, h5, h6 {
 /* The wrapper sets the image via the --profile-bg-image CSS custom property,
    e.g. style={{ "--profile-bg-image": `url(${url})` }}. */
 .profile-bg-image {
-  position: relative;
-  isolation: isolate;
+  /* No `isolation: isolate` here — see top-of-section comment: the ::before
+     is meant to escape this wrapper's stacking context and paint behind the
+     entire layout (sidebar/footer/nav included). */
 }
 .profile-bg-image::before {
   content: "";
@@ -399,21 +419,10 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* -- Layer offset for app chrome ------------------------------------------- */
-/* The background and scrim layers must not cover the left sidebar (240px
-   wide on desktop). On mobile the sidebar collapses into a drawer that has
-   its own backdrop, so 0 is correct there. */
-@media (min-width: 768px) {
-  .profile-bg-aurora::before, .profile-bg-aurora::after,
-  .profile-bg-ember::before,  .profile-bg-ember::after,
-  .profile-bg-ocean::before,  .profile-bg-ocean::after,
-  .profile-bg-void::before,   .profile-bg-void::after,
-  .profile-bg-grid::before,   .profile-bg-grid::after,
-  .profile-bg-pulse::before,  .profile-bg-pulse::after,
-  .profile-bg-rain::before,   .profile-bg-rain::after,
-  .profile-bg-image::before,  .profile-bg-image::after {
-    left: 240px; /* matches Sidebar w-60 (= 15rem = 240px) */
-  }
-}
+/* No longer needed — the background now escapes to the root stacking context
+   and is painted behind the sidebar / footer / nav directly, so no horizontal
+   offset is required. Kept as a marker so future contributors don't re-add
+   the offset hack. */
 
 /* Hover-accent border — used in Server Components where onMouseEnter is not allowed */
 .hover-accent-border {

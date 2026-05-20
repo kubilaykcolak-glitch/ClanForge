@@ -70,10 +70,11 @@ export default async function MainLayout({
 
   return (
     <>
-      <div
-        className="min-h-screen flex flex-col"
-        style={{ background: "var(--bg-base)" }}
-      >
+      {/* Layout root is transparent on purpose — <html> paints the base
+          background. This lets profile-background layers (rendered with
+          z-index:-1) sit BEHIND the sidebar/main/footer chrome instead of
+          being clipped by their parent stacking context. */}
+      <div className="min-h-screen flex flex-col">
         <div className="flex flex-1">
           <Sidebar profile={profile} isAuthenticated={isAuthenticated} userRole={userRole} />
 
