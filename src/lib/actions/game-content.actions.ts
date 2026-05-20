@@ -293,6 +293,24 @@ export async function deleteGameContent(id: string): Promise<ActionResult> {
 
 // ─── Read helpers (used by RSC sections + admin page) ────────────────────────
 
+// Rarity-aware ordering for the items tab. Wiki-sourced weapons carry a
+// "Rarity" stat (Common → Legendary); we want the list to read low → high
+// rather than newest-first. Anything without a recognised rarity is sorted
+// last and falls back to publishedAt-desc as a tiebreaker.
+const RARITY_ORDER: Record<string, number> = {
+  common:    1,
+  uncommon:  2,
+  rare:      3,
+  epic:      4,
+  legendary: 5,
+};
+
+function rarityRank(item: GameContent): number {
+  const stat = item.stats?.find(s => s.label.toLowerCase() === "rarity");
+  if (!stat) return 99;
+  return RARITY_ORDER[stat.value.trim().toLowerCase()] ?? 99;
+}
+
 export async function listPublishedContent(gameSlug: GameSlug, type: GameContentType): Promise<GameContent[]> {
   try {
     const { adminDb } = await import("@/lib/firebase/admin");
@@ -304,7 +322,20 @@ export async function listPublishedContent(gameSlug: GameSlug, type: GameContent
       .limit(50)
       .get();
 
-    return snap.docs.map(d => hydrate(d.id, d.data()));
+    const items = snap.docs.map(d => hydrate(d.id, d.data()));
+
+    if (type === "items") {
+      items.sort((a, b) => {
+        const r = rarityRank(a) - rarityRank(b);
+        if (r !== 0) return r;
+        // Tiebreaker: newest first (matches the Firestore order).
+        const am = (a.publishedAt ?? a.updatedAt).getTime();
+        const bm = (b.publishedAt ?? b.updatedAt).getTime();
+        return bm - am;
+      });
+    }
+
+    return items;
   } catch (err) {
     console.error("[listPublishedContent]", err);
     return [];
