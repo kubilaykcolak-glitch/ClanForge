@@ -11,6 +11,10 @@ interface LinkedGameCardProps {
   uid: string;
   isOwner: boolean;
   integration: LeagueIntegration;
+  /** When true, omit the outer rounded surface + border so the card can be
+   *  composed inside a larger container (e.g. the LoL hub Overview merges
+   *  this card with the Recent Form summary under one border). */
+  embedded?: boolean;
 }
 
 // ─── LinkedGameCard ───────────────────────────────────────────────────────────
@@ -19,7 +23,7 @@ interface LinkedGameCardProps {
 // Designed to be the canonical shape for future game integrations (Valorant,
 // TFT, …) — provider-specific bits live in this file's render only.
 
-export function LinkedGameCard({ uid, isOwner, integration }: LinkedGameCardProps) {
+export function LinkedGameCard({ uid, isOwner, integration, embedded = false }: LinkedGameCardProps) {
   const [pending, startTransition] = useTransition();
   const [lastSync, setLastSync] = useState<Date>(() => coerceDate(integration.lastSyncAt));
 
@@ -44,11 +48,19 @@ export function LinkedGameCard({ uid, isOwner, integration }: LinkedGameCardProp
 
   return (
     <div
-      className="relative rounded-xl p-5 flex flex-col gap-3"
-      style={{
-        background: "var(--bg-elevated)",
-        border:     "1px solid var(--border-default)",
-      }}
+      className={
+        embedded
+          ? "relative flex flex-col gap-3"
+          : "relative rounded-xl p-5 flex flex-col gap-3"
+      }
+      style={
+        embedded
+          ? undefined
+          : {
+              background: "var(--bg-elevated)",
+              border:     "1px solid var(--border-default)",
+            }
+      }
     >
       {/* ── Header: game name + verified pill ──────────────────────────────── */}
       <div className="flex items-start justify-between gap-2">

@@ -116,35 +116,18 @@ export default async function OverviewSection({ gameSlug, gameName }: GameSectio
         )}
       </section>
 
-      {/* ── Block 2: Your status card (game-specific) ──────────────── */}
+      {/* ── Block 2: Your status + (LoL only) recent form ──────────
+          For linked LoL viewers we merge the linked-account card and the
+          recent-form summary into one bordered container so the two
+          stop reading as separate "Your status" / "Recent form" sections
+          stacked on top of each other. A subtle divider keeps the two
+          blocks visually distinct without doubling the chrome. */}
       <section>
-        <h2 className="font-display font-bold text-lg mb-4" style={{ color: "var(--text-primary)" }}>
-          Your status
-        </h2>
-        {isLeague && leagueIntegration && viewer ? (
-          <LinkedGameCard
-            uid={viewer.uid}
-            isOwner={true}
-            integration={leagueIntegration}
-          />
-        ) : (
-          <YourStatusCard gameSlug={gameSlug} gameName={gameName} />
-        )}
-      </section>
-
-      {/* ── Block 2b (LoL only): Recent stats overview ──────────────
-          Shown when the viewer has a linked Riot account AND we have at
-          least one cached match. Renders the same W/L ring + KDA + top
-          champions + preferred-role bars block as the My Profile
-          section. Acts as a quick-glance summary so a user can stay on
-          Overview to see their form. Header links into My Profile for
-          the per-match drill-down. */}
-      {isLeague && leagueStats && (
-        <section>
-          <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
-            <h2 className="font-display font-bold text-lg" style={{ color: "var(--text-primary)" }}>
-              Recent form
-            </h2>
+        <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
+          <h2 className="font-display font-bold text-lg" style={{ color: "var(--text-primary)" }}>
+            Your status
+          </h2>
+          {isLeague && leagueStats && (
             <Link
               href={`/games/${gameSlug}/profile`}
               className="text-xs font-medium underline-offset-2 hover:underline"
@@ -152,10 +135,52 @@ export default async function OverviewSection({ gameSlug, gameName }: GameSectio
             >
               Full match history →
             </Link>
+          )}
+        </div>
+
+        {isLeague && leagueIntegration && viewer ? (
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{
+              background: "var(--bg-surface)",
+              border:     "1px solid var(--border-subtle)",
+            }}
+          >
+            {/* Linked Riot account — render in "embedded" mode so it
+                doesn't draw its own outer border/background and instead
+                blends into the merged card. */}
+            <div className="p-5">
+              <LinkedGameCard
+                uid={viewer.uid}
+                isOwner={true}
+                integration={leagueIntegration}
+                embedded
+              />
+            </div>
+
+            {leagueStats && (
+              <>
+                <div
+                  className="px-5 pt-1 pb-3 flex items-center gap-3"
+                  style={{ borderTop: "1px solid var(--border-subtle)" }}
+                >
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wider mt-3"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Recent form · last 20 games
+                  </span>
+                </div>
+                <div className="px-5 pb-5">
+                  <LeagueStatsOverview stats={leagueStats} embedded />
+                </div>
+              </>
+            )}
           </div>
-          <LeagueStatsOverview stats={leagueStats} />
-        </section>
-      )}
+        ) : (
+          <YourStatusCard gameSlug={gameSlug} gameName={gameName} />
+        )}
+      </section>
 
       {/* ── Block 3: Quick-link tiles to other sections ────────────── */}
       {liveSections.length > 0 && (

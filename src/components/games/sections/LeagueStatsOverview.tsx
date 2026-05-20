@@ -15,15 +15,25 @@
 import { championIconUrl } from "@/lib/riot/assets";
 import type { DerivedStats } from "@/lib/riot/match-stats";
 
-export function LeagueStatsOverview({ stats }: { stats: DerivedStats }) {
+export function LeagueStatsOverview({
+  stats,
+  embedded = false,
+}: {
+  stats: DerivedStats;
+  /** When true, omit the outer rounded surface + border so this block can
+   *  be composed inside a larger container (e.g. merged with LinkedGameCard
+   *  under one border on the LoL hub Overview). */
+  embedded?: boolean;
+}) {
   if (stats.total === 0) {
     return (
       <div
-        className="rounded-xl py-6 px-4 text-center"
-        style={{
-          background: "var(--bg-surface)",
-          border:     "1px solid var(--border-subtle)",
-        }}
+        className={embedded ? "py-2 text-center" : "rounded-xl py-6 px-4 text-center"}
+        style={
+          embedded
+            ? undefined
+            : { background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }
+        }
       >
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
           No recent games yet.
@@ -34,11 +44,16 @@ export function LeagueStatsOverview({ stats }: { stats: DerivedStats }) {
 
   return (
     <div
-      className="rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-6"
-      style={{
-        background: "var(--bg-surface)",
-        border:     "1px solid var(--border-subtle)",
-      }}
+      className={
+        embedded
+          ? "grid grid-cols-1 md:grid-cols-3 gap-6"
+          : "rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-6"
+      }
+      style={
+        embedded
+          ? undefined
+          : { background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }
+      }
     >
       {/* W/L + KDA pillar */}
       <div className="flex items-center gap-4">
