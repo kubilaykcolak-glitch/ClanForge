@@ -8,6 +8,7 @@
 
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
+import type { GameTheme } from "./meta";
 
 // Allow-listed game slugs. Adding a new game = add a new union member here
 // AND a new entry in `GAMES`. The router refuses anything outside this set.
@@ -58,4 +59,6 @@ export interface GameDefinition {
   /** Ordered — first section is the default landing (rendered at
    * /games/[gameSlug]). Only `live` sections appear in the tab nav. */
   sections:    GameSection[];
+  /** Per-game visual theme tokens used by GameHubBanner / sidebar. */
+  theme:       GameTheme;
 }
