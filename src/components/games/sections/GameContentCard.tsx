@@ -38,10 +38,10 @@ export function GameContentCard({ item }: { item: GameContent }) {
             looks correct.
         */}
         <div
-          className={`shrink-0 overflow-hidden ${
+          className={`shrink-0 overflow-hidden flex items-center justify-center ${
             item.type === "items"
-              ? "w-24 sm:w-28 aspect-square sticky top-0 p-2 flex items-center justify-center"
-              : "w-32 sm:w-40 self-stretch"
+              ? "w-24 sm:w-28 aspect-square p-2"
+              : "w-40 sm:w-56 aspect-square p-2"
           }`}
           style={{ background: "var(--bg-overlay)" }}
         >
@@ -50,11 +50,7 @@ export function GameContentCard({ item }: { item: GameContent }) {
             <img
               src={item.heroImageUrl}
               alt=""
-              className={
-                item.type === "items"
-                  ? "max-w-full max-h-full object-contain"
-                  : "w-full h-full object-cover"
-              }
+              className="max-w-full max-h-full object-contain"
             />
           ) : (
             <ImagePlaceholder type={item.type} />
