@@ -12,7 +12,10 @@ import { revalidatePath } from "next/cache";
 import { FieldValue } from "firebase-admin/firestore";
 import { getSessionWithRole } from "./server-auth";
 import { meetsRole } from "@/lib/auth/roles";
-import type { GameContent, GameContentType, GameContentStatus } from "@/types/game-content";
+import type { GameContent, GameContentType, GameContentStatus, ContentLink, ContentTag } from "@/types/game-content";
+import {
+  MAX_GALLERY, MAX_LINKS, MAX_LINK_LABEL_LEN, MAX_TAGS, MAX_TAG_LEN,
+} from "@/types/game-content";
 import type { GameSlug } from "@/lib/games/types";
 import { friendlyActionError } from "./_errors";
 
@@ -43,8 +46,43 @@ export interface CreateGameContentInput {
   summary:      string;
   body:         string;
   heroImageUrl?: string | null;
+  gallery?:     string[];
+  tags?:        ContentTag[];
+  links?:       ContentLink[];
   externalUrl?: string | null;
   status:       GameContentStatus;
+}
+
+// ─── Field validators ────────────────────────────────────────────────────────
+
+function validateGallery(arr: string[] | undefined): string | null {
+  if (!arr) return null;
+  if (arr.length > MAX_GALLERY) return `Gallery limited to ${MAX_GALLERY} images`;
+  for (const url of arr) {
+    if (typeof url !== "string" || url.length === 0) return "Gallery entries must be non-empty URLs";
+    if (url.length > 500) return "Gallery URL too long";
+  }
+  return null;
+}
+function validateTags(arr: ContentTag[] | undefined): string | null {
+  if (!arr) return null;
+  if (arr.length > MAX_TAGS) return `Max ${MAX_TAGS} tags`;
+  for (const tag of arr) {
+    if (typeof tag !== "string" || tag.trim().length === 0) return "Tags must be non-empty";
+    if (tag.length > MAX_TAG_LEN) return `Tag too long (max ${MAX_TAG_LEN} chars)`;
+  }
+  return null;
+}
+function validateLinks(arr: ContentLink[] | undefined): string | null {
+  if (!arr) return null;
+  if (arr.length > MAX_LINKS) return `Max ${MAX_LINKS} links`;
+  for (const link of arr) {
+    if (!link || typeof link.label !== "string" || typeof link.url !== "string") return "Each link needs a label and URL";
+    if (link.label.trim().length === 0 || link.url.trim().length === 0)         return "Link label and URL are required";
+    if (link.label.length > MAX_LINK_LABEL_LEN)                                  return `Link label too long (max ${MAX_LINK_LABEL_LEN} chars)`;
+    if (link.url.length > 500)                                                   return "Link URL too long";
+  }
+  return null;
 }
 
 export async function createGameContent(input: CreateGameContentInput): Promise<ActionResult<{ id: string }>> {
@@ -63,6 +101,9 @@ export async function createGameContent(input: CreateGameContentInput): Promise<
     if (title.length   > MAX_TITLE)   return { success: false, error: `Title must be ${MAX_TITLE} characters or fewer` };
     if (summary.length > MAX_SUMMARY) return { success: false, error: `Summary must be ${MAX_SUMMARY} characters or fewer` };
     if (body.length    > MAX_BODY)    return { success: false, error: `Body must be ${MAX_BODY} characters or fewer` };
+    const galleryErr = validateGallery(input.gallery); if (galleryErr) return { success: false, error: galleryErr };
+    const tagsErr    = validateTags(input.tags);       if (tagsErr)    return { success: false, error: tagsErr };
+    const linksErr   = validateLinks(input.links);     if (linksErr)   return { success: false, error: linksErr };
 
     const { adminDb } = await import("@/lib/firebase/admin");
 
@@ -82,6 +123,9 @@ export async function createGameContent(input: CreateGameContentInput): Promise<
       summary,
       body,
       heroImageUrl: input.heroImageUrl ?? null,
+      gallery:      input.gallery ?? [],
+      tags:         input.tags    ?? [],
+      links:        input.links   ?? [],
       externalUrl:  input.externalUrl  ?? null,
       status:       input.status,
       authorUid:    session.uid,
@@ -132,6 +176,18 @@ export async function updateGameContent(id: string, input: Partial<CreateGameCon
     }
     if (input.heroImageUrl !== undefined) patch.heroImageUrl = input.heroImageUrl ?? null;
     if (input.externalUrl  !== undefined) patch.externalUrl  = input.externalUrl  ?? null;
+    if (input.gallery !== undefined) {
+      const err = validateGallery(input.gallery); if (err) return { success: false, error: err };
+      patch.gallery = input.gallery;
+    }
+    if (input.tags !== undefined) {
+      const err = validateTags(input.tags); if (err) return { success: false, error: err };
+      patch.tags = input.tags;
+    }
+    if (input.links !== undefined) {
+      const err = validateLinks(input.links); if (err) return { success: false, error: err };
+      patch.links = input.links;
+    }
     if (input.status !== undefined) {
       patch.status = input.status;
       // Stamp publishedAt on first publication only.
@@ -252,6 +308,9 @@ function hydrate(id: string, data: FirebaseFirestore.DocumentData): GameContent 
     summary:      data.summary ?? "",
     body:         data.body ?? "",
     heroImageUrl: data.heroImageUrl ?? null,
+    gallery:      Array.isArray(data.gallery) ? (data.gallery as string[]) : [],
+    tags:         Array.isArray(data.tags)    ? (data.tags    as string[]) : [],
+    links:        Array.isArray(data.links)   ? (data.links   as ContentLink[]) : [],
     externalUrl:  data.externalUrl  ?? null,
     status:       data.status ?? "draft",
     authorUid:    data.authorUid ?? "",

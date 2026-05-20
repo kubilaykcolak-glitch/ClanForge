@@ -10,7 +10,13 @@ import {
   deleteGameContent,
   type CreateGameContentInput,
 } from "@/lib/actions/game-content.actions";
-import { CONTENT_TYPE_LABELS, type GameContent, type GameContentType, type GameContentStatus } from "@/types/game-content";
+import {
+  CONTENT_TYPE_LABELS,
+  type GameContent,
+  type GameContentType,
+  type GameContentStatus,
+  type ContentLink,
+} from "@/types/game-content";
 import type { GameSlug } from "@/lib/games/types";
 
 const TYPE_OPTIONS: GameContentType[] = ["guides", "items", "locations", "updates"];
@@ -32,9 +38,21 @@ export function GameContentForm({ existing }: { existing?: GameContent }) {
   const [heroImageUrl, setHeroImageUrl] = useState(existing?.heroImageUrl ?? "");
   const [externalUrl,  setExternalUrl]  = useState(existing?.externalUrl  ?? "");
   const [status,       setStatus]       = useState<GameContentStatus>(existing?.status ?? "draft");
+  const [tagsRaw,      setTagsRaw]      = useState((existing?.tags ?? []).join(", "));
+  const [galleryRaw,   setGalleryRaw]   = useState((existing?.gallery ?? []).join("\n"));
+  const [linksRaw,     setLinksRaw]     = useState(
+    (existing?.links ?? []).map(l => `${l.label} | ${l.url}`).join("\n"),
+  );
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    const tags    = parseTags(tagsRaw);
+    const gallery = parseGallery(galleryRaw);
+    const links   = parseLinks(linksRaw);
+    if (links.some(l => !l)) {
+      toast.error("Each link line must be `Label | https://url`");
+      return;
+    }
     const input: CreateGameContentInput = {
       gameSlug,
       type,
@@ -43,6 +61,9 @@ export function GameContentForm({ existing }: { existing?: GameContent }) {
       body,
       heroImageUrl: heroImageUrl.trim() || null,
       externalUrl:  externalUrl.trim()  || null,
+      tags,
+      gallery,
+      links: links as ContentLink[],
       status,
     };
     startTransition(async () => {
@@ -159,6 +180,37 @@ export function GameContentForm({ existing }: { existing?: GameContent }) {
         </Field>
       </div>
 
+      <Field label="Tags" hint="Comma-separated chips shown above the body (e.g. 'Rare, Weapon, Buried City'). Max 12.">
+        <input
+          type="text"
+          value={tagsRaw}
+          onChange={e => setTagsRaw(e.target.value)}
+          className="w-full px-3 py-2 rounded-md text-sm"
+          style={inputStyle}
+        />
+      </Field>
+
+      <Field label="Gallery URLs" hint="One image URL per line. Max 8. Shown as a grid below the body.">
+        <textarea
+          value={galleryRaw}
+          onChange={e => setGalleryRaw(e.target.value)}
+          rows={4}
+          className="w-full px-3 py-2 rounded-md text-sm font-mono"
+          style={inputStyle}
+        />
+      </Field>
+
+      <Field label="Links" hint="One link per line, format: `Label | https://url`. Max 6. Renders as buttons.">
+        <textarea
+          value={linksRaw}
+          onChange={e => setLinksRaw(e.target.value)}
+          rows={4}
+          placeholder={"Wiki page | https://arcraiders.wiki/wiki/...\nVideo guide | https://youtube.com/..."}
+          className="w-full px-3 py-2 rounded-md text-sm font-mono"
+          style={inputStyle}
+        />
+      </Field>
+
       <Field label="Status">
         <select
           value={status}
@@ -215,6 +267,30 @@ const inputStyle: React.CSSProperties = {
   color: "var(--text-primary)",
   border: "1px solid var(--border-default)",
 };
+
+// ─── Parsers for the free-form text inputs ───────────────────────────────────
+
+function parseTags(raw: string): string[] {
+  return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function parseGallery(raw: string): string[] {
+  return raw.split("\n").map(s => s.trim()).filter(Boolean);
+}
+
+function parseLinks(raw: string): (ContentLink | null)[] {
+  return raw.split("\n")
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(line => {
+      const idx = line.indexOf("|");
+      if (idx < 0) return null;
+      const label = line.slice(0, idx).trim();
+      const url   = line.slice(idx + 1).trim();
+      if (!label || !url) return null;
+      return { label, url };
+    });
+}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (

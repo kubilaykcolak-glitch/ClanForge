@@ -56,25 +56,86 @@ export function GameContentCard({ item }: { item: GameContent }) {
 
       {open && (
         <div
-          className="px-3 pb-3 pt-1 border-t"
+          className="px-3 pb-3 pt-1 border-t flex flex-col gap-3"
           style={{ borderColor: "var(--border-subtle)" }}
         >
+          {item.tags && item.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {item.tags.map((t, i) => (
+                <span
+                  key={`${t}-${i}`}
+                  className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  style={{
+                    background: "rgba(99,102,241,0.10)",
+                    color:      "var(--accent)",
+                    border:     "1px solid rgba(99,102,241,0.20)",
+                  }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div
             className="text-sm leading-relaxed whitespace-pre-wrap break-words"
             style={{ color: "var(--text-secondary)" }}
           >
             {item.body}
           </div>
-          {item.externalUrl && (
-            <a
-              href={item.externalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 mt-3 text-xs"
-              style={{ color: "var(--accent)" }}
-            >
-              <ExternalLink size={12} /> View source
-            </a>
+
+          {item.gallery && item.gallery.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {item.gallery.map((src, i) => (
+                <a
+                  key={`${src}-${i}`}
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded overflow-hidden aspect-video"
+                  style={{ background: "var(--bg-overlay)", border: "1px solid var(--border-subtle)" }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          {((item.links && item.links.length > 0) || item.externalUrl) && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {item.links?.map((link, i) => (
+                <a
+                  key={`${link.url}-${i}`}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    color:      "var(--accent)",
+                    border:     "1px solid var(--border-default)",
+                  }}
+                >
+                  <ExternalLink size={11} /> {link.label}
+                </a>
+              ))}
+              {item.externalUrl && !item.links?.some(l => l.url === item.externalUrl) && (
+                <a
+                  href={item.externalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    color:      "var(--accent)",
+                    border:     "1px solid var(--border-default)",
+                  }}
+                >
+                  <ExternalLink size={11} /> Source
+                </a>
+              )}
+            </div>
           )}
         </div>
       )}
