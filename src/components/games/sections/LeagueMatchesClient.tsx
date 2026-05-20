@@ -14,7 +14,7 @@
 // full array and passes it once.
 
 import { useMemo, useState } from "react";
-import { Search, Trophy } from "lucide-react";
+import { Search, Trophy, ChevronDown } from "lucide-react";
 import {
   championIconUrl,
   formatDuration,
@@ -152,6 +152,7 @@ export function LeagueMatchesClient({
 // ─── Match row (client variant of the server one in #2a) ─────────────────────
 
 function MatchRow({ match, viewerPuuid }: { match: MatchSummaryDoc; viewerPuuid: string }) {
+  const [expanded, setExpanded] = useState(false);
   const me = match.participants.find(p => p.puuid === viewerPuuid);
   if (!me) return null;
 
@@ -171,8 +172,15 @@ function MatchRow({ match, viewerPuuid }: { match: MatchSummaryDoc; viewerPuuid:
 
   return (
     <div
-      className="rounded-xl p-3 flex items-stretch gap-3 flex-wrap sm:flex-nowrap"
+      className="rounded-xl overflow-hidden"
       style={{ background: tint, border: `1px solid ${border}` }}
+    >
+    <button
+      type="button"
+      onClick={() => setExpanded(v => !v)}
+      aria-expanded={expanded}
+      className="w-full p-3 flex items-stretch gap-3 flex-wrap sm:flex-nowrap text-left cursor-pointer transition-colors"
+      style={{ background: "transparent" }}
     >
       <div className="flex flex-col justify-between pr-3 shrink-0" style={{ minWidth: 96 }}>
         <div>
@@ -252,21 +260,198 @@ function MatchRow({ match, viewerPuuid }: { match: MatchSummaryDoc; viewerPuuid:
         </div>
       )}
 
-      <div className="hidden lg:flex flex-col flex-1 min-w-0 text-[10px]" style={{ color: "var(--text-muted)" }}>
-        <div className="grid grid-cols-2 gap-x-3">
-          {match.participants.slice(0, 10).map(p => (
-            <div key={p.puuid} className="flex items-center gap-1 truncate">
-              <span
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ background: p.teamId === me.teamId ? "var(--accent)" : "var(--danger)" }}
-                aria-hidden
-              />
-              <span className="truncate" style={{ color: p.puuid === viewerPuuid ? "var(--text-primary)" : undefined }}>
-                {p.riotIdGameName ?? p.summonerName ?? "—"}
-              </span>
+      <div className="flex-1 flex items-center justify-end">
+        <ChevronDown
+          size={16}
+          style={{
+            color: "var(--text-muted)",
+            transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 150ms ease",
+          }}
+          aria-hidden
+        />
+      </div>
+    </button>
+
+    {expanded && <MatchDetailsPanel match={match} viewerPuuid={viewerPuuid} accent={accent} />}
+    </div>
+  );
+}
+
+// ─── Match details panel (expanded drill-down) ───────────────────────────────
+//
+// Renders both teams side-by-side with full per-player breakdown: champion,
+// summoner name, KDA, items, CS, gold, damage-to-champs, vision. Reuses the
+// already-cached MatchSummaryDoc — no extra Firestore reads, no extra Riot
+// API calls. Damage bars are computed against the highest damage value in
+// the match so the scale is comparable across players.
+
+function MatchDetailsPanel({
+  match,
+  viewerPuuid,
+  accent,
+}: {
+  match:       MatchSummaryDoc;
+  viewerPuuid: string;
+  accent:      string;
+}) {
+  const teamA = match.participants.filter(p => p.teamId === 100);
+  const teamB = match.participants.filter(p => p.teamId === 200);
+  const maxDamage = Math.max(1, ...match.participants.map(p => p.damageToChamps));
+  const teamAWon = teamA[0]?.win ?? false;
+
+  return (
+    <div
+      className="px-3 pb-3 pt-1 border-t"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <TeamBlock
+        label="Team 1"
+        won={teamAWon}
+        participants={teamA}
+        viewerPuuid={viewerPuuid}
+        maxDamage={maxDamage}
+        durationSec={match.durationSec}
+      />
+      <div className="h-2" />
+      <TeamBlock
+        label="Team 2"
+        won={!teamAWon}
+        participants={teamB}
+        viewerPuuid={viewerPuuid}
+        maxDamage={maxDamage}
+        durationSec={match.durationSec}
+      />
+      <p className="mt-2 text-[10px] text-right" style={{ color: "var(--text-muted)" }}>
+        Match ID <span className="font-mono">{match.matchId}</span> · patch {match.gameVersion}
+        {accent ? "" : ""}
+      </p>
+    </div>
+  );
+}
+
+function TeamBlock({
+  label,
+  won,
+  participants,
+  viewerPuuid,
+  maxDamage,
+  durationSec,
+}: {
+  label:        string;
+  won:          boolean;
+  participants: MatchSummaryDoc["participants"];
+  viewerPuuid:  string;
+  maxDamage:    number;
+  durationSec:  number;
+}) {
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        background:  won ? "rgba(34,197,94,0.04)" : "rgba(239,68,68,0.04)",
+        border:      `1px solid ${won ? "rgba(34,197,94,0.20)" : "rgba(239,68,68,0.20)"}`,
+      }}
+    >
+      <div
+        className="flex items-center justify-between px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
+        style={{
+          background: won ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)",
+          color:      won ? "var(--success)" : "var(--danger)",
+        }}
+      >
+        <span>{label}</span>
+        <span>{won ? "Victory" : "Defeat"}</span>
+      </div>
+      <div>
+        {participants.map(p => {
+          const csPerMin = durationSec > 0 ? (p.cs / (durationSec / 60)).toFixed(1) : "0.0";
+          const kdaRaw   = p.deaths === 0 ? p.kills + p.assists : (p.kills + p.assists) / p.deaths;
+          const dmgPct   = (p.damageToChamps / maxDamage) * 100;
+          const isViewer = p.puuid === viewerPuuid;
+          return (
+            <div
+              key={p.puuid}
+              className="grid items-center gap-2 px-2 py-1.5 border-t text-[11px]"
+              style={{
+                borderColor: "var(--border-subtle)",
+                background:  isViewer ? "rgba(99,102,241,0.05)" : "transparent",
+                gridTemplateColumns: "auto 1fr auto auto 1fr",
+              }}
+            >
+              {/* Champion + level */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="relative w-7 h-7 rounded overflow-hidden" style={{ background: "var(--bg-overlay)" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={championIconUrl(p.championId)} alt={p.championName} className="w-full h-full object-cover" />
+                  <span
+                    className="absolute bottom-0 right-0 text-[8px] font-bold px-0.5 rounded-tl leading-none"
+                    style={{ background: "rgba(0,0,0,0.7)", color: "#fff" }}
+                  >
+                    {p.champLevel}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <SpellIcon id={p.summoner1Id} />
+                  <SpellIcon id={p.summoner2Id} />
+                </div>
+              </div>
+
+              {/* Name */}
+              <div className="min-w-0">
+                <p
+                  className="truncate font-medium"
+                  style={{ color: isViewer ? "var(--text-primary)" : "var(--text-secondary)" }}
+                >
+                  {p.riotIdGameName ?? p.summonerName ?? "—"}
+                  {p.riotIdTagline ? <span style={{ color: "var(--text-muted)" }}>#{p.riotIdTagline}</span> : null}
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 10 }}>{p.championName}</p>
+              </div>
+
+              {/* KDA */}
+              <div className="text-right shrink-0">
+                <p className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  {p.kills}<span style={{ color: "var(--text-muted)" }}> / </span>
+                  <span style={{ color: "var(--danger)" }}>{p.deaths}</span>
+                  <span style={{ color: "var(--text-muted)" }}> / </span>{p.assists}
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 10 }}>{kdaRaw.toFixed(2)} KDA</p>
+              </div>
+
+              {/* CS + gold + vision */}
+              <div className="text-right shrink-0 tabular-nums" style={{ color: "var(--text-muted)", fontSize: 10, lineHeight: 1.35 }}>
+                <p>{p.cs} CS ({csPerMin})</p>
+                <p>{Math.round(p.goldEarned / 100) / 10}k gold</p>
+                <p>{p.visionScore} vision</p>
+              </div>
+
+              {/* Damage bar + items */}
+              <div className="flex flex-col gap-1 min-w-0">
+                <div
+                  className="h-1.5 rounded-full overflow-hidden"
+                  style={{ background: "var(--bg-overlay)" }}
+                  title={`${p.damageToChamps.toLocaleString()} damage to champions`}
+                >
+                  <div
+                    className="h-full"
+                    style={{
+                      width: `${dmgPct}%`,
+                      background: won ? "var(--success)" : "var(--danger)",
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-0.5 flex-wrap">
+                  {p.items.slice(0, 6).map((id, idx) => (
+                    <ItemIcon key={idx} id={id} />
+                  ))}
+                  <span className="w-px h-5 mx-0.5" style={{ background: "var(--border-subtle)" }} />
+                  <ItemIcon id={p.items[6] ?? 0} />
+                </div>
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
