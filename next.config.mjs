@@ -26,6 +26,8 @@
 //   • raw.communitydragon.org — Riot champion / item / spell icons
 //   • ddragon.leagueoflegends.com — Data Dragon (profile icons)
 //   • lh3.googleusercontent.com — Google avatar URLs (from Sign-In)
+//   • arcraiders.wiki / static.wikia.nocookie.net — Arc Raiders content
+//     section hero images (hotlinked from community wikis, no rehost)
 //   • checkout.stripe.com — Stripe Checkout form submission target
 //
 // Other headers:
@@ -43,7 +45,7 @@ const CSP = [
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://accounts.google.com https://www.gstatic.com",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
-  "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://lh3.googleusercontent.com",
+  "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://lh3.googleusercontent.com https://arcraiders.wiki https://static.wikia.nocookie.net",
   "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.cloudfunctions.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com https://accounts.google.com",
   "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
   "frame-ancestors 'none'",

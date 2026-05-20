@@ -167,11 +167,42 @@ function Gallery({ gallery }: { gallery: string[] }) {
   );
 }
 
+/**
+ * Link row. For locations, the first link whose label matches an interactive-
+ * map pattern is promoted to a primary CTA button — community sites maintain
+ * up-to-date interactive maps better than we could clone, so we surface them
+ * prominently rather than embedding our own.
+ */
 function LinkRow({ item }: { item: GameContent }) {
   const externalHasLink = item.externalUrl && item.links?.some(l => l.url === item.externalUrl);
+  const isLocation = item.type === "locations";
+
+  // Detect a "primary" map link by label keywords.
+  const primaryIdx = isLocation
+    ? (item.links ?? []).findIndex(l => /interactive map|hub|arcmap/i.test(l.label))
+    : -1;
+  const primary = primaryIdx >= 0 ? item.links![primaryIdx] : null;
+  const secondary = (item.links ?? []).filter((_, i) => i !== primaryIdx);
+
   return (
-    <div className="flex flex-wrap gap-2 pt-1">
-      {item.links?.map((link, i) => (
+    <div className="flex flex-wrap gap-2 pt-1 items-center">
+      {primary && (
+        <a
+          href={primary.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-md"
+          style={{
+            background: "var(--accent)",
+            color:      "white",
+            border:     "1px solid var(--accent)",
+          }}
+        >
+          <ExternalLink size={13} />
+          Open interactive map
+        </a>
+      )}
+      {secondary.map((link, i) => (
         <a
           key={`${link.url}-${i}`}
           href={link.url}
