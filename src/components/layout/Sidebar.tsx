@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -154,13 +155,41 @@ function GamesNavGroup({
                   }
                 }}
               >
-                <span
-                  className="w-5 h-5 rounded flex items-center justify-center font-display font-bold text-[10px] text-white shrink-0"
-                  style={{ background: g.accentColor }}
-                  aria-hidden
-                >
-                  {g.shortName[0]}
-                </span>
+                {/* Game mark — prefer the real wordmark image (sourced
+                    from press / community wiki under /public/games/<slug>/)
+                    rendered at sidebar scale. The wordmark is wide, so
+                    the tile is a 28×20 box with object-contain so the
+                    letterforms remain identifiable. Falls back to a
+                    coloured shortName tile if logoSrc is empty. */}
+                {g.logoSrc ? (
+                  <span
+                    className="relative w-7 h-5 shrink-0 flex items-center justify-start"
+                    aria-hidden
+                  >
+                    <Image
+                      src={g.logoSrc}
+                      alt=""
+                      width={120}
+                      height={32}
+                      unoptimized
+                      style={{
+                        height:         "100%",
+                        width:          "auto",
+                        maxWidth:       "100%",
+                        objectFit:      "contain",
+                        objectPosition: "left center",
+                      }}
+                    />
+                  </span>
+                ) : (
+                  <span
+                    className="w-5 h-5 rounded flex items-center justify-center font-display font-bold text-[10px] text-white shrink-0"
+                    style={{ background: g.accentColor }}
+                    aria-hidden
+                  >
+                    {g.shortName[0]}
+                  </span>
+                )}
                 <span className="truncate">{g.name}</span>
               </Link>
             );
