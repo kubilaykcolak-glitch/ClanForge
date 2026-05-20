@@ -1,11 +1,76 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { Check, X } from "lucide-react";
-import { storage } from "@/lib/firebase/client";
 import { ANIMATED_BACKGROUNDS } from "@/lib/profile-backgrounds";
 import { validateImageFile, MAX_UPLOAD_LABEL } from "@/lib/uploads";
+
+// ─── Upload helper ────────────────────────────────────────────────────────────
+//
+// We POST to /api/upload instead of writing to Firebase Storage directly from
+// the browser. Two reasons:
+//
+//   1. CORS — direct uploads via uploadBytesResumable() hit
+//      firebasestorage.googleapis.com, which only allows origins in the
+//      bucket's CORS allowlist. Vercel preview deploys (and any new
+//      production domain) get rejected at preflight until someone runs
+//      `gsutil cors set`. Routing through our own API endpoint sidesteps
+//      that entirely — same-origin POST, no preflight.
+//   2. Defence in depth — the API route re-checks ownership + magic-byte
+//      sniffs the file so a forged Content-Type can't slip an SVG payload
+//      into a `image/png` slot.
+//
+// XMLHttpRequest is used (rather than fetch) so we can read upload-progress
+// events for the progress bar UI. fetch() in browsers still doesn't expose
+// granular upload-progress reporting in a portable way.
+
+function uploadViaApi(
+  file:       File,
+  path:       string,
+  onProgress: (pct: number) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("path", path);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload");
+
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const { url } = JSON.parse(xhr.responseText) as { url?: string };
+          if (url) return resolve(url);
+          reject(new Error("Upload succeeded but no URL returned"));
+        } catch {
+          reject(new Error("Upload succeeded but response was unreadable"));
+        }
+      } else {
+        // Try to surface the API's friendly error message; fall back to
+        // a status-coded label if the body isn't JSON.
+        let detail = `Upload failed (${xhr.status})`;
+        try {
+          const body = JSON.parse(xhr.responseText) as { error?: string };
+          if (body.error) detail = body.error;
+        } catch { /* keep status label */ }
+        reject(new Error(detail));
+      }
+    });
+
+    xhr.addEventListener("error",   () => reject(new Error("Network error during upload")));
+    xhr.addEventListener("abort",   () => reject(new Error("Upload cancelled")));
+    xhr.addEventListener("timeout", () => reject(new Error("Upload timed out")));
+
+    xhr.send(fd);
+  });
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -155,39 +220,20 @@ export default function CustomiseProfilePanel({
     setBannerError(null);
     setBannerProgress(0);
 
-    // Path MUST match the storage rule allowlist
+    // Path MUST match the API route's USER_OWNED_PREFIXES contract
+    // (src/app/api/upload/route.ts) and the storage rule allowlist
     // (firebase/storage.rules → profile-banners/{userId}/{fileName}).
-    // The old `banners/...` path silently failed permission check, causing
-    // resumable uploads to hang at 0% with no surfaced error.
-    const storageRef = ref(storage, `profile-banners/${uid}/profile-banner.jpg`);
-    const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
-
-    task.on(
-      "state_changed",
-      snap => {
-        setBannerProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
-      },
-      err => {
-        console.error("[banner upload]", err);
-        // Surface the Firebase error code so silent permission failures
-        // don't look like the upload is hanging — `storage/unauthorized`
-        // means the storage rules path doesn't match, etc.
-        const code = (err as { code?: string })?.code;
-        setBannerError(
-          code === "storage/unauthorized" ? "Upload denied by server (permissions)" :
-          code === "storage/canceled"     ? "Upload cancelled" :
-          code                            ? `Upload failed (${code})` :
-                                            "Upload failed — please try again",
-        );
-        setBannerProgress(null);
-      },
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
+    uploadViaApi(file, `profile-banners/${uid}/profile-banner.jpg`, (pct) => setBannerProgress(pct))
+      .then((url) => {
         setBannerUrl(url);
         setBannerProgress(null);
         if (bannerInputRef.current) bannerInputRef.current.value = "";
-      },
-    );
+      })
+      .catch((err: Error) => {
+        console.error("[banner upload]", err);
+        setBannerError(err.message || "Upload failed — please try again");
+        setBannerProgress(null);
+      });
   };
 
   const handleRemoveBanner = () => {
@@ -211,35 +257,24 @@ export default function CustomiseProfilePanel({
     setBgImageError(null);
     setBgImageProgress(0);
 
-    const storageRef = ref(storage, `profile-backgrounds/${uid}/profile-background.jpg`);
-    const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
-
-    task.on(
-      "state_changed",
-      snap => {
-        setBgImageProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
-      },
-      err => {
-        console.error("[background upload]", err);
-        const code = (err as { code?: string })?.code;
-        setBgImageError(
-          code === "storage/unauthorized" ? "Upload denied by server (permissions)" :
-          code === "storage/canceled"     ? "Upload cancelled" :
-          code                            ? `Upload failed (${code})` :
-                                            "Upload failed — please try again",
-        );
-        setBgImageProgress(null);
-      },
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
+    uploadViaApi(
+      file,
+      `profile-backgrounds/${uid}/profile-background.jpg`,
+      (pct) => setBgImageProgress(pct),
+    )
+      .then((url) => {
         setBackgroundImageUrl(url);
         // A custom image takes precedence over the animated theme — clear the
         // theme selection so the UI accurately reflects what will render.
         setBackgroundId("none");
         setBgImageProgress(null);
         if (bgImageInputRef.current) bgImageInputRef.current.value = "";
-      },
-    );
+      })
+      .catch((err: Error) => {
+        console.error("[background upload]", err);
+        setBgImageError(err.message || "Upload failed — please try again");
+        setBgImageProgress(null);
+      });
   };
 
   const handleRemoveBgImage = () => {

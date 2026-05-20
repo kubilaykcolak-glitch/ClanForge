@@ -43,8 +43,11 @@
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://accounts.google.com https://www.gstatic.com",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self' data:",
+  // fonts.googleapis.com hosts the @import stylesheet (Rajdhani / DM Sans /
+  // JetBrains Mono) loaded from globals.css; fonts.gstatic.com serves the
+  // actual font files referenced by that stylesheet.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://lh3.googleusercontent.com https://arcraiders.wiki https://static.wikia.nocookie.net",
   "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.cloudfunctions.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com https://accounts.google.com",
   "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
