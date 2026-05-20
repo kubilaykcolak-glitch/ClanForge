@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import {
@@ -70,6 +71,7 @@ function labelCls(): React.CSSProperties {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ProfileEditPage() {
+  const router = useRouter();
   const [uid, setUid]                       = useState<string | null>(null);
   const [originalUsername, setOriginalUsername] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<"idle"|"checking"|"available"|"taken">("idle");
@@ -276,6 +278,13 @@ export default function ProfileEditPage() {
       toast.success("Profile saved!");
       setOriginalUsername(values.username);
       setValue("username", values.username);
+
+      // Invalidate the server-rendered cache for any page that reads the
+      // profile (the public /profile/[username] view, in particular).
+      // Without this, the next navigation can serve a cached response and
+      // the user sees stale data right after a successful save — which
+      // looks like "my Steam URL didn't save".
+      router.refresh();
 
       // Mirror saved appearance back into the page state so subsequent
       // re-renders / mini-previews reflect the persisted truth.

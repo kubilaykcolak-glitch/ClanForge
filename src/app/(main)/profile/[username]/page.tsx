@@ -2,6 +2,15 @@ import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { Pencil } from "lucide-react";
+
+// Force dynamic rendering on every request. Without this, Next.js (and
+// Vercel's edge cache) can serve a stale response after a profile edit,
+// leaving the user looking at their old data even after a successful
+// save — exactly the "I saved my Steam URL but don't see it" report.
+// The page reads cookies() further down to resolve the logged-in viewer,
+// which should already opt out of static generation, but being explicit
+// here belt-and-braces it against future code re-orderings.
+export const dynamic = "force-dynamic";
 import type { Clan, ClanMember, GameRecord, Profile } from "@/types";
 import type { LeagueIntegration } from "@/types/integrations";
 import ProfileHero from "@/components/profile/ProfileHero";
