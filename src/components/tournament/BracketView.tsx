@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Copy, Check, Wrench, Loader2, X } from "lucide-react";
+import { Copy, Check, Wrench, Loader2, X, Flag, ThumbsUp, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import type { TournamentMatch } from "@/types";
 import {
@@ -9,6 +9,11 @@ import {
   simulateRiotMatchResult,
   adminFinalizeMatch,
 } from "@/lib/actions/riot-tournament.actions";
+import {
+  reportMatchResult,
+  confirmMatchResult,
+  disputeMatch,
+} from "@/lib/actions/tournament.actions";
 
 interface BracketViewProps {
   matches:          TournamentMatch[];
@@ -16,6 +21,10 @@ interface BracketViewProps {
   tournamentId?:    string;
   isCreatorOrAdmin?: boolean;
   isLol?:           boolean;
+  /** Viewer's signed-in UID (undefined for anonymous). Used to decide which
+   *  participant-facing panel to render on `pending` / `pending_confirmation` /
+   *  `disputed` matches. */
+  viewerUid?:       string;
 }
 
 // ── Placeholder bracket ───────────────────────────────────────────────────────
@@ -225,6 +234,442 @@ function MatchAdminPanel({
   );
 }
 
+// ── Participant report panel ─────────────────────────────────────────────────
+//
+// Rendered inside a non-LoL `pending` MatchBox when the viewer is one of the
+// two participants. Lets them stage a result claim — the OPPONENT must
+// confirm before the match finalises (audit fix H4).
+
+function ParticipantReportPanel({
+  tournamentId,
+  match,
+  viewerUid,
+  nameA,
+  nameB,
+}: {
+  tournamentId: string;
+  match:        TournamentMatch;
+  viewerUid:    string;
+  nameA:        string;
+  nameB:        string;
+}) {
+  const [open, setOpen]     = useState(false);
+  const [scoreA, setScoreA] = useState<string>("");
+  const [scoreB, setScoreB] = useState<string>("");
+  const [winnerOverride, setWinnerOverride] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const nA = Number(scoreA);
+  const nB = Number(scoreB);
+  const validNumeric =
+    Number.isFinite(nA) && Number.isFinite(nB) &&
+    nA >= 0 && nB >= 0 && nA <= 99 && nB <= 99 &&
+    scoreA !== "" && scoreB !== "";
+  const inferredWinner =
+    !validNumeric ? null :
+    nA > nB ? match.participantAId :
+    nB > nA ? match.participantBId :
+    winnerOverride;
+  const canSubmit = validNumeric && !!inferredWinner && !pending;
+
+  const submit = () => {
+    if (!canSubmit || !inferredWinner) return;
+    startTransition(async () => {
+      const res = await reportMatchResult(viewerUid, tournamentId, match.id as string, nA, nB, inferredWinner);
+      if (res.success) {
+        toast.success("Result submitted — waiting on your opponent to confirm");
+        setOpen(false);
+      } else {
+        toast.error(res.error ?? "Could not submit result");
+      }
+    });
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center justify-center gap-1 py-1 border-t text-[10px] font-semibold transition-colors"
+        style={{
+          background:  "rgba(99,102,241,0.06)",
+          color:       "var(--accent)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <Flag size={10} /> Report result
+      </button>
+    );
+  }
+
+  const tied = validNumeric && nA === nB;
+
+  return (
+    <div
+      className="border-t px-2 py-2 flex flex-col gap-1.5"
+      style={{ background: "rgba(99,102,241,0.04)", borderColor: "var(--border-subtle)" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--accent)" }}>
+          Report Result
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          aria-label="Close"
+          className="p-0.5 rounded"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <X size={10} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <label className="flex flex-col gap-0.5">
+          <span className="text-[9px] uppercase tracking-wider truncate" style={{ color: "var(--text-muted)" }}>{nameA}</span>
+          <input
+            type="number"
+            min={0}
+            max={99}
+            inputMode="numeric"
+            value={scoreA}
+            onChange={e => setScoreA(e.target.value)}
+            className="w-full px-1.5 py-1 rounded text-xs text-center tabular-nums focus:outline-none focus:ring-1"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-default)",
+            }}
+          />
+        </label>
+        <label className="flex flex-col gap-0.5">
+          <span className="text-[9px] uppercase tracking-wider truncate" style={{ color: "var(--text-muted)" }}>{nameB}</span>
+          <input
+            type="number"
+            min={0}
+            max={99}
+            inputMode="numeric"
+            value={scoreB}
+            onChange={e => setScoreB(e.target.value)}
+            className="w-full px-1.5 py-1 rounded text-xs text-center tabular-nums focus:outline-none focus:ring-1"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-default)",
+            }}
+          />
+        </label>
+      </div>
+
+      {tied && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--warning)" }}>Tie — pick winner</span>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => setWinnerOverride(match.participantAId as string)}
+              className="text-[10px] px-2 py-1 rounded font-medium truncate"
+              style={{
+                background: winnerOverride === match.participantAId ? "rgba(99,102,241,0.20)" : "var(--bg-elevated)",
+                color: winnerOverride === match.participantAId ? "var(--accent)" : "var(--text-secondary)",
+                border: `1px solid ${winnerOverride === match.participantAId ? "var(--accent)" : "var(--border-default)"}`,
+              }}
+            >
+              {nameA}
+            </button>
+            <button
+              type="button"
+              onClick={() => setWinnerOverride(match.participantBId as string)}
+              className="text-[10px] px-2 py-1 rounded font-medium truncate"
+              style={{
+                background: winnerOverride === match.participantBId ? "rgba(99,102,241,0.20)" : "var(--bg-elevated)",
+                color: winnerOverride === match.participantBId ? "var(--accent)" : "var(--text-secondary)",
+                border: `1px solid ${winnerOverride === match.participantBId ? "var(--accent)" : "var(--border-default)"}`,
+              }}
+            >
+              {nameB}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!canSubmit}
+        className="text-[10px] px-2 py-1 rounded font-semibold transition-colors disabled:opacity-40"
+        style={{
+          background: "var(--accent)",
+          color: "white",
+          border: "1px solid var(--accent)",
+        }}
+      >
+        {pending ? <Loader2 size={9} className="inline animate-spin mr-1" /> : null}
+        Submit for confirmation
+      </button>
+      <p className="text-[9px] leading-snug" style={{ color: "var(--text-muted)" }}>
+        Your opponent will see this and confirm or dispute.
+      </p>
+    </div>
+  );
+}
+
+// ── Confirm / dispute panel (opponent view) ──────────────────────────────────
+//
+// Rendered when the match is `pending_confirmation` and the viewer is the
+// participant who did NOT report. Two buttons + an inline dispute textarea.
+
+function ConfirmDisputePanel({
+  tournamentId,
+  match,
+  viewerUid,
+  reporterName,
+}: {
+  tournamentId: string;
+  match:        TournamentMatch;
+  viewerUid:    string;
+  reporterName: string;
+}) {
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const confirm = () => {
+    startTransition(async () => {
+      const res = await confirmMatchResult(tournamentId, match.id as string);
+      if (res.success) toast.success("Result confirmed");
+      else toast.error(res.error ?? "Could not confirm");
+    });
+  };
+  const dispute = () => {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      toast.error("Please add a brief reason");
+      return;
+    }
+    if (!window.confirm("Send this to an admin? The match will be paused until they resolve it.")) return;
+    startTransition(async () => {
+      const res = await disputeMatch(viewerUid, tournamentId, match.id as string, trimmed);
+      if (res.success) {
+        toast.success("Dispute opened — an admin will review");
+        setDisputeOpen(false);
+      } else {
+        toast.error(res.error ?? "Could not open dispute");
+      }
+    });
+  };
+
+  return (
+    <div
+      className="border-t px-2 py-2 flex flex-col gap-1.5"
+      style={{ background: "rgba(245,158,11,0.06)", borderColor: "var(--border-subtle)" }}
+    >
+      <div className="flex items-center gap-1.5">
+        <AlertTriangle size={11} style={{ color: "var(--warning)" }} />
+        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--warning)" }}>
+          Action needed
+        </span>
+      </div>
+      <p className="text-[10px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+        <strong style={{ color: "var(--text-primary)" }}>{reporterName}</strong> reported{" "}
+        <span className="tabular-nums font-mono">{match.reportedScoreA}–{match.reportedScoreB}</span>.
+        Confirm if accurate, dispute if not.
+      </p>
+
+      {!disputeOpen ? (
+        <div className="grid grid-cols-2 gap-1">
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={pending}
+            className="text-[10px] px-2 py-1 rounded font-semibold transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--success)",
+              color: "white",
+              border: "1px solid var(--success)",
+            }}
+          >
+            {pending ? <Loader2 size={9} className="inline animate-spin mr-1" /> : <ThumbsUp size={9} className="inline mr-1" />}
+            Confirm
+          </button>
+          <button
+            type="button"
+            onClick={() => setDisputeOpen(true)}
+            disabled={pending}
+            className="text-[10px] px-2 py-1 rounded font-semibold transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--warning)",
+              border: "1px solid rgba(245,158,11,0.4)",
+            }}
+          >
+            Dispute
+          </button>
+        </div>
+      ) : (
+        <>
+          <textarea
+            value={reason}
+            maxLength={500}
+            placeholder="What's wrong with the reported result?"
+            onChange={e => setReason(e.target.value)}
+            rows={3}
+            className="w-full px-1.5 py-1 rounded text-[10px] resize-none focus:outline-none focus:ring-1"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-default)",
+            }}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+              {reason.length}/500
+            </span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => { setDisputeOpen(false); setReason(""); }}
+                className="text-[10px] px-2 py-1 rounded"
+                style={{ background: "transparent", color: "var(--text-muted)" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={dispute}
+                disabled={pending || !reason.trim()}
+                className="text-[10px] px-2 py-1 rounded font-semibold disabled:opacity-40"
+                style={{
+                  background: "var(--warning)",
+                  color: "white",
+                  border: "1px solid var(--warning)",
+                }}
+              >
+                {pending ? <Loader2 size={9} className="inline animate-spin mr-1" /> : null}
+                Send dispute
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── My pending claim panel (reporter view) ───────────────────────────────────
+//
+// Rendered when the match is `pending_confirmation` and the viewer IS the
+// reporter. Read-only summary + a dispute option (in case they realise their
+// opponent isn't going to confirm in good faith).
+
+function MyPendingClaimPanel({
+  tournamentId,
+  match,
+  viewerUid,
+}: {
+  tournamentId: string;
+  match:        TournamentMatch;
+  viewerUid:    string;
+}) {
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const dispute = () => {
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    if (!window.confirm("Send this to an admin? The match will be paused until they resolve it.")) return;
+    startTransition(async () => {
+      const res = await disputeMatch(viewerUid, tournamentId, match.id as string, trimmed);
+      if (res.success) toast.success("Dispute opened");
+      else toast.error(res.error ?? "Could not open dispute");
+    });
+  };
+
+  return (
+    <div
+      className="border-t px-2 py-2 flex flex-col gap-1"
+      style={{ background: "rgba(99,102,241,0.04)", borderColor: "var(--border-subtle)" }}
+    >
+      <div className="flex items-center gap-1.5">
+        <Loader2 size={10} className="animate-spin" style={{ color: "var(--accent)" }} />
+        <span className="text-[10px] font-medium" style={{ color: "var(--text-secondary)" }}>
+          Awaiting opponent confirmation
+        </span>
+      </div>
+      <p className="text-[9px] leading-snug" style={{ color: "var(--text-muted)" }}>
+        You reported <span className="font-mono">{match.reportedScoreA}–{match.reportedScoreB}</span>.
+      </p>
+      {!disputeOpen ? (
+        <button
+          type="button"
+          onClick={() => setDisputeOpen(true)}
+          className="text-[9px] underline self-start"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Opponent not responding?
+        </button>
+      ) : (
+        <div className="flex flex-col gap-1 mt-1">
+          <textarea
+            value={reason}
+            maxLength={500}
+            placeholder="Reason (admin will review)"
+            onChange={e => setReason(e.target.value)}
+            rows={2}
+            className="w-full px-1.5 py-1 rounded text-[10px] resize-none focus:outline-none focus:ring-1"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-default)",
+            }}
+          />
+          <div className="flex justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => { setDisputeOpen(false); setReason(""); }}
+              className="text-[10px] px-2 py-0.5 rounded"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={dispute}
+              disabled={pending || !reason.trim()}
+              className="text-[10px] px-2 py-0.5 rounded font-semibold disabled:opacity-40"
+              style={{ background: "var(--warning)", color: "white" }}
+            >
+              {pending ? <Loader2 size={9} className="inline animate-spin mr-1" /> : null}
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Dispute reason chip (visible to participants) ────────────────────────────
+
+function DisputeReasonChip({ match, viewerUid }: { match: TournamentMatch; viewerUid: string }) {
+  const isParticipant = match.participantAId === viewerUid || match.participantBId === viewerUid;
+  if (!isParticipant || !match.disputeReason) return null;
+  return (
+    <div
+      className="border-t px-2 py-1.5"
+      style={{ background: "rgba(245,158,11,0.04)", borderColor: "var(--border-subtle)" }}
+    >
+      <p className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: "var(--warning)" }}>
+        Reason
+      </p>
+      <p className="text-[10px] leading-snug break-words" style={{ color: "var(--text-secondary)" }}>
+        {match.disputeReason}
+      </p>
+    </div>
+  );
+}
+
 // ── Match box ─────────────────────────────────────────────────────────────────
 
 function MatchBox({
@@ -233,12 +678,14 @@ function MatchBox({
   tournamentId,
   isCreatorOrAdmin,
   isLol,
+  viewerUid,
 }: {
   match:             TournamentMatch;
   participantNames:  Record<string, string>;
   tournamentId?:     string;
   isCreatorOrAdmin?: boolean;
   isLol?:            boolean;
+  viewerUid?:        string;
 }) {
   const [adminOpen, setAdminOpen] = useState(false);
 
@@ -259,9 +706,22 @@ function MatchBox({
     && match.status !== "complete"
     && match.participantBId !== "BYE";
 
+  // ─── Participant-facing H4 panels (non-LoL only — LoL auto-finalises) ───
+  const bothAssigned = !!match.participantAId && !!match.participantBId
+    && match.participantAId !== "BYE" && match.participantBId !== "BYE";
+  const viewerIsParticipant = !!viewerUid && bothAssigned
+    && (match.participantAId === viewerUid || match.participantBId === viewerUid);
+  const showParticipantUi = !isLol && !!tournamentId && viewerIsParticipant;
+  const viewerIsReporter = showParticipantUi && match.reportedBy === viewerUid;
+
+  const reporterName = match.reportedBy
+    ? (participantNames[match.reportedBy] ?? "Opponent")
+    : "Opponent";
+
   return (
     <div
-      className="rounded-lg overflow-hidden text-xs"
+      id={match.id ? `match-${match.id}` : undefined}
+      className="rounded-lg overflow-hidden text-xs scroll-mt-24"
       style={{
         background: "var(--bg-elevated)",
         border: `1px solid ${match.status === "disputed" ? "var(--warning)" : "var(--border-default)"}`,
@@ -346,6 +806,44 @@ function MatchBox({
 
       {showCode && <TournamentCodeChip code={match.riotTournamentCode as string} />}
 
+      {/* H4 participant-facing panels (non-LoL). Ordered by match status. */}
+      {showParticipantUi && match.status === "pending" && tournamentId && viewerUid && (
+        <ParticipantReportPanel
+          tournamentId={tournamentId}
+          match={match}
+          viewerUid={viewerUid}
+          nameA={nameA}
+          nameB={nameB}
+        />
+      )}
+      {showParticipantUi && match.status === "pending_confirmation" && tournamentId && viewerUid && (
+        viewerIsReporter ? (
+          <MyPendingClaimPanel
+            tournamentId={tournamentId}
+            match={match}
+            viewerUid={viewerUid}
+          />
+        ) : (
+          <ConfirmDisputePanel
+            tournamentId={tournamentId}
+            match={match}
+            viewerUid={viewerUid}
+            reporterName={reporterName}
+          />
+        )
+      )}
+      {match.status === "pending_confirmation" && !viewerIsParticipant && match.reportedBy && (
+        <div
+          className="border-t px-2 py-1 text-center text-[9px]"
+          style={{ background: "transparent", borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
+        >
+          Awaiting confirmation
+        </div>
+      )}
+      {match.status === "disputed" && viewerUid && (
+        <DisputeReasonChip match={match} viewerUid={viewerUid} />
+      )}
+
       {showAdminToggle && !adminOpen && (
         <button
           type="button"
@@ -382,6 +880,7 @@ export function BracketView({
   tournamentId,
   isCreatorOrAdmin,
   isLol,
+  viewerUid,
 }: BracketViewProps) {
   if (matches.length === 0) return <PlaceholderBracket />;
 
@@ -421,6 +920,7 @@ export function BracketView({
                     tournamentId={tournamentId}
                     isCreatorOrAdmin={isCreatorOrAdmin}
                     isLol={isLol}
+                    viewerUid={viewerUid}
                   />
                 ))}
             </div>

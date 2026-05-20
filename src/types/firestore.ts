@@ -277,6 +277,22 @@ export interface TournamentMatch {
    *   admin_simulate  — admin "fake a callback" tool used pre-prod-approval
    */
   resultSource?: "manual" | "riot_callback" | "riot_poll" | "admin_override" | "admin_simulate";
+
+  // ─── pending_confirmation state (H4 manual-report flow) ──────────────────
+  // Set by reportMatchResult; cleared / promoted by confirmMatchResult or
+  // disputeMatch. See src/lib/actions/tournament.actions.ts for the state
+  // machine.
+  reportedBy?:           string;
+  reportedAt?:           Date;
+  reportedWinnerId?:     string;
+  reportedScoreA?:       number;
+  reportedScoreB?:       number;
+  confirmationDeadline?: Date;
+
+  // ─── disputed state ──────────────────────────────────────────────────────
+  disputeReason?: string;
+  disputedBy?:    string;
+  disputedAt?:    Date;
 }
 
 // ─── ClanChallenge ────────────────────────────────────────────────────────────

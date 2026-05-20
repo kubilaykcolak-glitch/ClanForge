@@ -284,6 +284,36 @@ export async function withdrawFromTournament(
 
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+// ── Match-event notification helper ──────────────────────────────────────────
+// Fire-and-forget. Imports the server-only helper lazily so this module stays
+// importable from client code (only `"use server"` exports are reachable, and
+// notifications are written via the trusted server-only path per audit fix C6).
+async function notifyMatchEvent(input: {
+  tournamentId: string;
+  matchId:      string;
+  recipients:   string[];
+  type:         "match_reported" | "match_confirmed" | "match_disputed";
+  title:        string;
+  body:         string;
+}) {
+  try {
+    const { createNotification } = await import("@/lib/server/notifications");
+    const href = `/tournaments/${input.tournamentId}#match-${input.matchId}`;
+    await Promise.all(
+      input.recipients
+        .filter(uid => !!uid && uid !== "BYE")
+        .map(uid => createNotification(uid, {
+          type:  input.type,
+          title: input.title,
+          body:  input.body,
+          href,
+        })),
+    );
+  } catch (err) {
+    console.error("[notifyMatchEvent]", err);
+  }
+}
+
 export async function reportMatchResult(
   uid: string,
   tournamentId: string,
@@ -351,6 +381,19 @@ export async function reportMatchResult(
       confirmationDeadline: new Date(now.getTime() + CONFIRMATION_WINDOW_MS),
     });
 
+    // Notify the opponent — discovery surface for a participant who isn't
+    // currently on the bracket page. Fire-and-forget; never blocks the
+    // primary success path.
+    const opponentUid = match.participantAId === uid ? match.participantBId as string : match.participantAId as string;
+    void notifyMatchEvent({
+      tournamentId,
+      matchId,
+      recipients: [opponentUid],
+      type:  "match_reported",
+      title: "Match result reported",
+      body:  "Your opponent reported a result — confirm or dispute.",
+    });
+
     return { success: true, data: { awaitingConfirmation: true } };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to report result";
@@ -412,6 +455,18 @@ export async function confirmMatchResult(
     if (!fin.success) {
       return { success: false, error: fin.error ?? "Failed to finalise" };
     }
+
+    // Notify the original reporter that their claim was accepted.
+    const reporterUid = match.reportedBy as string;
+    void notifyMatchEvent({
+      tournamentId,
+      matchId,
+      recipients: [reporterUid],
+      type:  "match_confirmed",
+      title: "Match result confirmed",
+      body:  "Your opponent confirmed the result. The match is finalised.",
+    });
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to confirm match result";
@@ -471,6 +526,36 @@ export async function disputeMatch(
       disputedBy:    uid,
       disputedAt:    new Date(),
     });
+
+    // Notify the other participant + the tournament creator. Creator gets a
+    // distinct copy so they know it's their queue to resolve.
+    const otherParticipantUid = match.participantAId === uid ? match.participantBId as string : match.participantAId as string;
+    void notifyMatchEvent({
+      tournamentId,
+      matchId,
+      recipients: [otherParticipantUid],
+      type:  "match_disputed",
+      title: "Match dispute opened",
+      body:  "Your opponent opened a dispute. An admin will review.",
+    });
+
+    try {
+      const { adminDb: db } = await import("@/lib/firebase/admin");
+      const tournSnap = await db.collection("tournaments").doc(tournamentId).get();
+      const creatorId = tournSnap.exists ? (tournSnap.data()?.creatorId as string | undefined) : undefined;
+      if (creatorId && creatorId !== uid && creatorId !== otherParticipantUid) {
+        void notifyMatchEvent({
+          tournamentId,
+          matchId,
+          recipients: [creatorId],
+          type:  "match_disputed",
+          title: "Dispute needs review",
+          body:  "A match in your tournament has been disputed.",
+        });
+      }
+    } catch {
+      /* notification is best-effort; never block the dispute */
+    }
 
     return { success: true };
   } catch (err) {

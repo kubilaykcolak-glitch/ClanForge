@@ -141,6 +141,16 @@ async function getPageData(id: string): Promise<PageData | null> {
       // Live-game integration fields (LoL). Plain strings — no Date conversion.
       riotTournamentCode: (data.riotTournamentCode as string | null | undefined) ?? null,
       resultSource:       data.resultSource as TournamentMatch["resultSource"],
+      // H4 pending_confirmation / disputed metadata
+      reportedBy:           data.reportedBy as string | undefined,
+      reportedAt:           data.reportedAt?.toDate?.(),
+      reportedWinnerId:     data.reportedWinnerId as string | undefined,
+      reportedScoreA:       data.reportedScoreA as number | undefined,
+      reportedScoreB:       data.reportedScoreB as number | undefined,
+      confirmationDeadline: data.confirmationDeadline?.toDate?.(),
+      disputeReason:        data.disputeReason as string | undefined,
+      disputedBy:           data.disputedBy as string | undefined,
+      disputedAt:           data.disputedAt?.toDate?.(),
     } as TournamentMatch;
   });
 
@@ -429,6 +439,7 @@ export default async function TournamentPage({
                 tournamentId={tournament.id ?? ""}
                 isCreatorOrAdmin={isCreator}
                 isLol={tournament.gameProvider === "league"}
+                viewerUid={currentUid ?? undefined}
               />
             </div>
           </section>
