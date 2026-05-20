@@ -155,7 +155,11 @@ export default function CustomiseProfilePanel({
     setBannerError(null);
     setBannerProgress(0);
 
-    const storageRef = ref(storage, `banners/${uid}/profile-banner.jpg`);
+    // Path MUST match the storage rule allowlist
+    // (firebase/storage.rules → profile-banners/{userId}/{fileName}).
+    // The old `banners/...` path silently failed permission check, causing
+    // resumable uploads to hang at 0% with no surfaced error.
+    const storageRef = ref(storage, `profile-banners/${uid}/profile-banner.jpg`);
     const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
 
     task.on(
@@ -163,8 +167,18 @@ export default function CustomiseProfilePanel({
       snap => {
         setBannerProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
       },
-      () => {
-        setBannerError("Upload failed — please try again");
+      err => {
+        console.error("[banner upload]", err);
+        // Surface the Firebase error code so silent permission failures
+        // don't look like the upload is hanging — `storage/unauthorized`
+        // means the storage rules path doesn't match, etc.
+        const code = (err as { code?: string })?.code;
+        setBannerError(
+          code === "storage/unauthorized" ? "Upload denied by server (permissions)" :
+          code === "storage/canceled"     ? "Upload cancelled" :
+          code                            ? `Upload failed (${code})` :
+                                            "Upload failed — please try again",
+        );
         setBannerProgress(null);
       },
       async () => {
@@ -205,8 +219,15 @@ export default function CustomiseProfilePanel({
       snap => {
         setBgImageProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
       },
-      () => {
-        setBgImageError("Upload failed — please try again");
+      err => {
+        console.error("[background upload]", err);
+        const code = (err as { code?: string })?.code;
+        setBgImageError(
+          code === "storage/unauthorized" ? "Upload denied by server (permissions)" :
+          code === "storage/canceled"     ? "Upload cancelled" :
+          code                            ? `Upload failed (${code})` :
+                                            "Upload failed — please try again",
+        );
         setBgImageProgress(null);
       },
       async () => {
