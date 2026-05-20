@@ -5,39 +5,17 @@ import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  addDoc,
-  updateDoc as firestoreUpdate,
-  deleteDoc,
-  collection,
-  getDocs,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import {
   AlertCircle,
   CheckCircle,
   EyeOff,
   Loader2,
-  Pencil,
-  Trash2,
-  Plus,
   Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { validateImageFile } from "@/lib/uploads";
 import { auth, db } from "@/lib/firebase/client";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-} from "@/components/ui/sheet";
-import type { GameRecord } from "@/types";
 import Toggle from "@/components/ui/Toggle";
 import CustomiseProfilePanel from "@/components/profile/CustomiseProfilePanel";
 import { LeagueLinkPanel } from "@/components/profile/LeagueLinkPanel";
@@ -51,16 +29,6 @@ const COUNTRIES = [
   "Norway","Poland","South Africa","South Korea","Spain","Sweden",
   "United Kingdom","United States",
 ];
-
-const POPULAR_GAMES = [
-  "Apex Legends","Call of Duty: Warzone","Counter-Strike 2","Dota 2",
-  "EA Sports FC 25","Fortnite","Hearthstone","League of Legends",
-  "Minecraft","Overwatch 2","PUBG","Rainbow Six Siege",
-  "Rocket League","Rust","Teamfight Tactics","Valorant",
-  "Warframe","World of Warcraft","FIFA Online","Chess.com",
-];
-
-const PLATFORMS = ["PC","PS5","Xbox","Nintendo Switch","Mobile"] as const;
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -79,19 +47,6 @@ const profileSchema = z.object({
   twitchUrl:   z.string().url("Must be a valid URL").optional().or(z.literal("")).default(""),
 });
 type ProfileForm = z.infer<typeof profileSchema>;
-
-const gameSchema = z.object({
-  gameName:    z.string().min(1,"Required"),
-  platform:    z.enum(PLATFORMS),
-  wins:        z.coerce.number().min(0).default(0),
-  losses:      z.coerce.number().min(0).default(0),
-  draws:       z.coerce.number().min(0).default(0),
-  peakRank:    z.string().optional().default(""),
-  hoursPlayed: z.coerce.number().min(0).default(0),
-  notes:       z.string().max(300).optional().default(""),
-  isFeatured:  z.boolean().default(false),
-});
-type GameForm = z.infer<typeof gameSchema>;
 
 // ── Input style helper ────────────────────────────────────────────────────────
 
@@ -112,187 +67,6 @@ function labelCls(): React.CSSProperties {
   return { color: "var(--text-secondary)", fontSize: 13, fontWeight: 500, display: "block", marginBottom: 6 };
 }
 
-// ── Game Sheet ────────────────────────────────────────────────────────────────
-
-function GameSheet({
-  open,
-  onClose,
-  uid,
-  editing,
-  onSaved,
-}: {
-  open: boolean;
-  onClose: () => void;
-  uid: string;
-  editing: (GameRecord & { id: string }) | null;
-  onSaved: () => void;
-}) {
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = useForm<GameForm>({ resolver: zodResolver(gameSchema) as Resolver<GameForm> });
-
-  const isFeatured = watch("isFeatured");
-
-  useEffect(() => {
-    if (open) {
-      reset(editing
-        ? {
-            gameName:    editing.gameName,
-            platform:    editing.platform as typeof PLATFORMS[number],
-            wins:        editing.wins,
-            losses:      editing.losses,
-            draws:       editing.draws,
-            peakRank:    editing.peakRank ?? "",
-            hoursPlayed: editing.hoursPlayed,
-            notes:       editing.notes ?? "",
-            isFeatured:  editing.isFeatured,
-          }
-        : { platform: "PC", wins: 0, losses: 0, draws: 0, hoursPlayed: 0, isFeatured: false });
-    }
-  }, [open, editing, reset]);
-
-  const onSubmit = async (values: GameForm) => {
-    try {
-      const colRef = collection(db, "profiles", uid, "gameRecords");
-      if (editing) {
-        await firestoreUpdate(doc(colRef, editing.id), { ...values });
-        toast.success("Game record updated");
-      } else {
-        await addDoc(colRef, { ...values, userId: uid, createdAt: new Date() });
-        toast.success("Game record added");
-      }
-      onSaved();
-      onClose();
-    } catch {
-      toast.error("Failed to save game record");
-    }
-  };
-
-  const field = "w-full rounded-lg text-sm outline-none";
-
-  return (
-    <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-md overflow-y-auto"
-        style={{ background: "var(--bg-surface)", borderLeft: "1px solid var(--border-default)" }}
-      >
-        <SheetHeader className="mb-6">
-          <SheetTitle
-            className="font-display font-bold text-xl"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {editing ? "Edit Game Record" : "Add Game Record"}
-          </SheetTitle>
-        </SheetHeader>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
-
-          {/* Game name with datalist */}
-          <div>
-            <label style={labelCls()}>Game Name</label>
-            <input
-              {...register("gameName")}
-              list="game-suggestions"
-              placeholder="e.g. Valorant"
-              className={field}
-              style={inputCls(!!errors.gameName)}
-            />
-            <datalist id="game-suggestions">
-              {POPULAR_GAMES.map(g => <option key={g} value={g} />)}
-            </datalist>
-            {errors.gameName && <p className="mt-1 text-xs" style={{ color: "var(--danger)" }}>{errors.gameName.message}</p>}
-          </div>
-
-          {/* Platform */}
-          <div>
-            <label style={labelCls()}>Platform</label>
-            <select {...register("platform")} className={field} style={inputCls()}>
-              {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-
-          {/* W/L/D */}
-          <div className="grid grid-cols-3 gap-3">
-            {(["wins","losses","draws"] as const).map(k => (
-              <div key={k}>
-                <label style={labelCls()}>{k.charAt(0).toUpperCase() + k.slice(1)}</label>
-                <input
-                  {...register(k)}
-                  type="number" min={0}
-                  className={field}
-                  style={inputCls()}
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* Peak rank + hours */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label style={labelCls()}>Peak Rank</label>
-              <input {...register("peakRank")} placeholder="e.g. Diamond" className={field} style={inputCls()} />
-            </div>
-            <div>
-              <label style={labelCls()}>Hours Played</label>
-              <input {...register("hoursPlayed")} type="number" min={0} className={field} style={inputCls()} />
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label style={labelCls()}>Notes</label>
-            <textarea
-              {...register("notes")}
-              rows={3}
-              placeholder="Any extra notes..."
-              className={field}
-              style={{ ...inputCls(), resize: "vertical" }}
-            />
-          </div>
-
-          {/* Feature toggle */}
-          <Toggle
-            checked={isFeatured}
-            onChange={v => setValue("isFeatured", v)}
-            label="Featured game"
-            description="Show this prominently on your profile"
-          />
-
-          <SheetFooter className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors"
-              style={{
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-default)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-60"
-              style={{ background: "var(--accent)" }}
-            >
-              {isSubmitting && <Loader2 size={14} className="animate-spin" />}
-              Save
-            </button>
-          </SheetFooter>
-        </form>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ProfileEditPage() {
@@ -302,9 +76,6 @@ export default function ProfileEditPage() {
   const [avatarPreview, setAvatarPreview]   = useState<string | null>(null);
   const [avatarFile, setAvatarFile]         = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [gameRecords, setGameRecords]       = useState<(GameRecord & { id: string })[]>([]);
-  const [sheetOpen, setSheetOpen]           = useState(false);
-  const [editingRecord, setEditingRecord]   = useState<(GameRecord & { id: string }) | null>(null);
   const [isSaveSlow, setIsSaveSlow]         = useState(false);
   const [profileBannerUrl,    setProfileBannerUrl]    = useState<string | null>(null);
   const [profileBgId,         setProfileBgId]         = useState<string | null>(null);
@@ -380,17 +151,11 @@ export default function ProfileEditPage() {
     return () => unsub();
   }, [reset]);
 
-  // ── Load game records ────────────────────────────────────────────────────
-
-  const loadRecords = useCallback(async () => {
-    if (!uid) return;
-    const snap = await getDocs(
-      query(collection(db, "profiles", uid, "gameRecords"), orderBy("isFeatured","desc"))
-    );
-    setGameRecords(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<GameRecord,"id">) })));
-  }, [uid]);
-
-  useEffect(() => { if (uid) loadRecords(); }, [uid, loadRecords]);
+  // Game records (manual entries) are no longer authored from this page —
+  // the section now lists linked-account integrations only. The
+  // /profiles/{uid}/gameRecords subcollection is preserved for backward
+  // compatibility (existing entries still render on the public profile),
+  // but no new ones are created from here.
 
   // ── Username check ───────────────────────────────────────────────────────
 
@@ -546,17 +311,8 @@ export default function ProfileEditPage() {
     }
   };
 
-  // ── Delete game record ───────────────────────────────────────────────────
-
-  const handleDeleteRecord = async (id: string) => {
-    if (!uid) return;
-    if (!window.confirm("Delete this game record?")) return;
-    try {
-      await deleteDoc(doc(db, "profiles", uid, "gameRecords", id));
-      toast.success("Deleted");
-      loadRecords();
-    } catch { toast.error("Failed to delete"); }
-  };
+  // (Delete game record handler removed — manual entries no longer
+  // editable here; see comment near loadRecords removal.)
 
   // ── Initials fallback ─────────────────────────────────────────────────────
 
@@ -748,106 +504,38 @@ export default function ProfileEditPage() {
           </div>
         </Section>
 
-        {/* ── SECTION 4: Game Records ────────────────────────────────────── */}
-        <Section
-          title="My Games"
-          action={
-            <button
-              type="button"
-              onClick={() => { setEditingRecord(null); setSheetOpen(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-              style={{
-                background: "var(--accent)",
-                color: "#fff",
-              }}
-            >
-              <Plus size={15} />
-              Add Game
-            </button>
-          }
-        >
-          {gameRecords.length === 0 ? (
+        {/* ── SECTION 4: My Games ─────────────────────────────────────────
+            Read-only shell driven entirely by linked-account integrations.
+            The hand-entered "Add Game" list was removed — it was confusing
+            (two ways to add a game, no live stats, no platform check). Real
+            game data now flows from the panels below, and each linked
+            account renders its own card on the public profile automatically.
+            New game integrations slot in here as they ship. */}
+        <Section title="My Games">
+          <div className="flex flex-col gap-3">
+            <LeagueLinkPanel uid={uid} />
+
+            {/* Coming-soon shell — visual signal that more game integrations
+                will land in this same place. Add a new card per integration
+                as they ship (Valorant, TFT, Halo, etc.). */}
             <div
-              className="flex flex-col items-center justify-center rounded-xl py-10 text-center"
+              className="flex items-center gap-3 px-4 py-3 rounded-xl"
               style={{
                 background: "var(--bg-elevated)",
-                border: "1px dashed var(--border-default)",
+                border:     "1px dashed var(--border-default)",
+                color:      "var(--text-muted)",
               }}
             >
-              <span className="text-4xl mb-3 opacity-30">🎮</span>
-              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                No games logged yet
-              </p>
+              <span className="text-xl opacity-60">🎮</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+                  More games coming soon
+                </p>
+                <p className="text-xs mt-0.5">
+                  Link any supported game here and it shows up on your public profile automatically with live stats.
+                </p>
+              </div>
             </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {gameRecords.map(record => (
-                <div
-                  key={record.id}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    border: "1px solid var(--border-default)",
-                  }}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p
-                        className="font-display font-semibold truncate"
-                        style={{ color: "var(--text-primary)", fontSize: 16 }}
-                      >
-                        {record.isFeatured && "⭐ "}{record.gameName}
-                      </p>
-                      <span
-                        className="text-xs px-2 py-0.5 rounded-full shrink-0"
-                        style={{
-                          background: "var(--accent)22",
-                          color: "var(--accent)",
-                          border: "1px solid var(--accent)44",
-                        }}
-                      >
-                        {record.platform}
-                      </span>
-                    </div>
-                    <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                      {record.wins}W · {record.losses}L · {record.draws}D
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => { setEditingRecord(record); setSheetOpen(true); }}
-                      className="p-2 rounded-lg transition-colors"
-                      style={{ color: "var(--text-muted)" }}
-                      title="Edit"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRecord(record.id)}
-                      className="p-2 rounded-lg transition-colors"
-                      style={{ color: "var(--danger)" }}
-                      title="Delete"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Linked game accounts (live stats via official APIs) ──────── */}
-          <div className="mt-5">
-            <p
-              className="text-xs uppercase tracking-wider mb-2"
-              style={{ color: "var(--text-muted)", letterSpacing: "0.08em" }}
-            >
-              Linked Accounts
-            </p>
-            <LeagueLinkPanel uid={uid} />
           </div>
         </Section>
 
@@ -899,14 +587,10 @@ export default function ProfileEditPage() {
         <button type="submit" id="profile-save-btn" className="hidden" />
       </form>
 
-      {/* ── Game Sheet ───────────────────────────────────────────────────── */}
-      <GameSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        uid={uid}
-        editing={editingRecord}
-        onSaved={loadRecords}
-      />
+      {/* GameSheet (manual game-record add/edit) no longer mounted — the
+          "My Games" section is integration-driven now. Component definition
+          is still in this file but unused; kept as scaffolding for future
+          features like adding an unsupported game manually. */}
 
       {/* ── Sticky save bar ──────────────────────────────────────────────── */}
       <div
