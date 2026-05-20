@@ -4,8 +4,17 @@
 // the registry; this page picks it up automatically. Static metadata only.
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Crosshair, Swords, type LucideIcon } from "lucide-react";
 import { listGames } from "@/lib/games/registry";
+import type { GameSlug } from "@/lib/games/types";
+
+// Mirrors the per-game iconography used on the hub banner. Single source of
+// truth would be nice but the banner is a server component too — keep both
+// keyed by slug and the TS exhaustiveness check guards against drift.
+const GAME_ICON: Record<GameSlug, LucideIcon> = {
+  "league-of-legends": Swords,
+  "arc-raiders":        Crosshair,
+};
 
 export const metadata = {
   title: "Games · ClanForge",
@@ -44,12 +53,21 @@ export default function GamesIndexPage() {
             <div className="flex items-start justify-between gap-4 mt-1">
               <div className="min-w-0">
                 <div className="flex items-center gap-3 mb-2">
-                  <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center font-display font-bold text-white shrink-0"
-                    style={{ background: g.accentColor }}
-                  >
-                    {g.shortName[0]}
-                  </div>
+                  {(() => {
+                    const Icon = GAME_ICON[g.slug];
+                    const t = g.theme;
+                    return (
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0"
+                        style={{
+                          background: `linear-gradient(135deg, ${t.accent} 0%, ${t.secondary} 100%)`,
+                          boxShadow:  `0 4px 12px -4px ${t.accent}80, inset 0 0 0 1px rgba(255,255,255,0.18)`,
+                        }}
+                      >
+                        <Icon size={20} strokeWidth={1.75} aria-hidden />
+                      </div>
+                    );
+                  })()}
                   <h2
                     className="font-display font-bold text-xl"
                     style={{ color: "var(--text-primary)" }}

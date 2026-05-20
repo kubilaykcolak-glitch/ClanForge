@@ -15,10 +15,21 @@
 
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-import type { GameDefinition } from "@/lib/games/types";
+import { ArrowLeft, Crosshair, Swords, type LucideIcon } from "lucide-react";
+import type { GameDefinition, GameSlug } from "@/lib/games/types";
 import type { GameTheme } from "@/lib/games/meta";
 import { LeagueBannerStatus } from "./LeagueBannerStatus";
+
+// Game-flavoured icons used inside the logo tile. Picked to evoke each
+// game's identity without using a trademarked wordmark:
+//   - LoL → crossed swords (the rift, melee combat)
+//   - Arc Raiders → crosshair (raider HUD reticle)
+// If a real logo asset ships under /public/games/<slug>/logo.<ext> later,
+// swap GameLogoTile for a Next/Image-backed branch and keep this as fallback.
+const GAME_ICON: Record<GameSlug, LucideIcon> = {
+  "league-of-legends": Swords,
+  "arc-raiders":        Crosshair,
+};
 
 interface Props {
   game: GameDefinition;
@@ -78,20 +89,7 @@ export function GameHubBanner({ game }: Props) {
 
         <div className="relative p-6 sm:p-8">
           <div className="flex items-center gap-5 flex-wrap">
-            {/* Logo tile — gradient between the two accents, with a soft inner
-                stroke for depth. Holds the shortName initial as the wordmark
-                until a real logo asset is wired in. */}
-            <div
-              className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center font-display font-bold text-white shrink-0"
-              style={{
-                background:  `linear-gradient(135deg, ${t.accent} 0%, ${t.secondary} 100%)`,
-                fontSize:    28,
-                boxShadow:   `0 8px 24px -8px ${t.accent}80, inset 0 0 0 1px rgba(255,255,255,0.18)`,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              {game.shortName[0]}
-            </div>
+            <GameLogoTile slug={game.slug} theme={t} />
 
             <div className="min-w-0 flex-1">
               {/* Eyebrow — small uppercase label in the primary accent so the
@@ -105,9 +103,9 @@ export function GameHubBanner({ game }: Props) {
               <h1
                 className="font-display font-bold text-3xl sm:text-4xl leading-tight"
                 style={{
-                  color:      "#ffffff",
+                  color:         "#ffffff",
                   letterSpacing: "-0.015em",
-                  textShadow: `0 2px 12px ${t.bgBase}cc`,
+                  textShadow:    `0 2px 12px ${t.bgBase}cc`,
                 }}
               >
                 {game.name}
@@ -133,6 +131,28 @@ export function GameHubBanner({ game }: Props) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Logo tile ───────────────────────────────────────────────────────────────
+//
+// Gradient block with a soft inner stroke + accent shadow holding a game-
+// flavoured Lucide icon. Reads as a brand mark rather than initials. If a
+// real per-game logo file ever lands at /public/games/<slug>/logo.<ext>,
+// branch to a Next/Image render and keep the icon as a fallback.
+
+function GameLogoTile({ slug, theme }: { slug: GameSlug; theme: GameTheme }) {
+  const Icon = GAME_ICON[slug];
+  return (
+    <div
+      className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center text-white shrink-0"
+      style={{
+        background: `linear-gradient(135deg, ${theme.accent} 0%, ${theme.secondary} 100%)`,
+        boxShadow:  `0 8px 24px -8px ${theme.accent}80, inset 0 0 0 1px rgba(255,255,255,0.18)`,
+      }}
+    >
+      <Icon size={36} strokeWidth={1.75} aria-hidden />
     </div>
   );
 }
