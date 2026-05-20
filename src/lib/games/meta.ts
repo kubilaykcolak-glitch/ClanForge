@@ -46,7 +46,7 @@ export const GAMES_META: Record<GameSlug, GameMeta> = {
     name:        "League of Legends",
     shortName:   "LoL",
     bannerSrc:   "/games/league-of-legends/banner.webp",
-    logoSrc:     "/games/league-of-legends/logo.webp",
+    logoSrc:     "/games/league-of-legends/logo.png",
     accentColor: "#c89b3c",
     tagline:     "Tournaments, ladders, and clan competition on the Rift.",
     theme: {

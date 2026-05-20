@@ -13,6 +13,7 @@
 //   - When real art ships, drop it in `/public/games/<slug>/banner.webp` and
 //     swap the gradient layer for a Next/Image background.
 
+import Image from "next/image";
 import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowLeft, Crosshair, Swords, type LucideIcon } from "lucide-react";
@@ -20,12 +21,12 @@ import type { GameDefinition, GameSlug } from "@/lib/games/types";
 import type { GameTheme } from "@/lib/games/meta";
 import { LeagueBannerStatus } from "./LeagueBannerStatus";
 
-// Game-flavoured icons used inside the logo tile. Picked to evoke each
-// game's identity without using a trademarked wordmark:
+// Fallback iconography for games that don't have a wordmark asset yet. The
+// banner prefers `game.logoSrc` (a real game-art wordmark stored under
+// /public) and only renders these Lucide marks if the image is missing or
+// the slug isn't pre-mapped. Picked to evoke each game's identity:
 //   - LoL → crossed swords (the rift, melee combat)
 //   - Arc Raiders → crosshair (raider HUD reticle)
-// If a real logo asset ships under /public/games/<slug>/logo.<ext> later,
-// swap GameLogoTile for a Next/Image-backed branch and keep this as fallback.
 const GAME_ICON: Record<GameSlug, LucideIcon> = {
   "league-of-legends": Swords,
   "arc-raiders":        Crosshair,
@@ -88,30 +89,27 @@ export function GameHubBanner({ game }: Props) {
         />
 
         <div className="relative p-6 sm:p-8">
-          <div className="flex items-center gap-5 flex-wrap">
-            <GameLogoTile slug={game.slug} theme={t} />
-
+          <div className="flex items-start gap-6 flex-wrap">
             <div className="min-w-0 flex-1">
-              {/* Eyebrow — small uppercase label in the primary accent so the
-                  game's identity reads before the heading does. */}
+              {/* Eyebrow — small uppercase label in the primary accent. */}
               <p
-                className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.25em] mb-1"
+                className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.25em] mb-3"
                 style={{ color: t.accent }}
               >
                 Game hub
               </p>
-              <h1
-                className="font-display font-bold text-3xl sm:text-4xl leading-tight"
-                style={{
-                  color:         "#ffffff",
-                  letterSpacing: "-0.015em",
-                  textShadow:    `0 2px 12px ${t.bgBase}cc`,
-                }}
-              >
-                {game.name}
-              </h1>
+
+              {/* Wordmark — real game art from /public/games/<slug>/logo.*
+                  rendered at a fixed height with auto width so wide
+                  wordmarks (LoL ~2.6:1, AR ~5:1) keep their proportions.
+                  Falls back to a flavoured Lucide icon tile if the asset
+                  is missing. The accessible game name is kept as a visually
+                  hidden h1 for screen readers / SEO. */}
+              <h1 className="sr-only">{game.name}</h1>
+              <GameWordmark game={game} theme={t} />
+
               <p
-                className="text-sm mt-2 max-w-xl"
+                className="text-sm mt-4 max-w-xl"
                 style={{ color: t.subtitle }}
               >
                 {game.tagline}
@@ -122,7 +120,7 @@ export function GameHubBanner({ game }: Props) {
                 so the banner paints immediately and the chip streams in once
                 the integration lookup resolves. */}
             {game.slug === "league-of-legends" && (
-              <div className="ml-auto self-start mt-2">
+              <div className="ml-auto self-start mt-1">
                 <Suspense fallback={null}>
                   <LeagueBannerStatus />
                 </Suspense>
@@ -135,15 +133,40 @@ export function GameHubBanner({ game }: Props) {
   );
 }
 
-// ─── Logo tile ───────────────────────────────────────────────────────────────
+// ─── Wordmark ────────────────────────────────────────────────────────────────
 //
-// Gradient block with a soft inner stroke + accent shadow holding a game-
-// flavoured Lucide icon. Reads as a brand mark rather than initials. If a
-// real per-game logo file ever lands at /public/games/<slug>/logo.<ext>,
-// branch to a Next/Image render and keep the icon as a fallback.
+// Renders the game's actual wordmark image (sourced from press resources /
+// the community wiki and saved under /public/games/<slug>/logo.<ext>) at a
+// fixed height so wide wordmarks keep their proportions without dominating
+// the banner. A soft accent drop-shadow gives the image lift over the dark
+// background. If the asset is missing, falls back to a gradient tile with a
+// flavoured Lucide icon so the banner still reads as branded.
 
-function GameLogoTile({ slug, theme }: { slug: GameSlug; theme: GameTheme }) {
-  const Icon = GAME_ICON[slug];
+function GameWordmark({ game, theme }: { game: GameDefinition; theme: GameTheme }) {
+  if (game.logoSrc) {
+    return (
+      <div className="relative" style={{ height: 56, maxWidth: 360 }}>
+        <Image
+          src={game.logoSrc}
+          alt={`${game.name} logo`}
+          width={720}
+          height={140}
+          priority
+          unoptimized
+          style={{
+            height:      "100%",
+            width:       "auto",
+            maxWidth:    "100%",
+            objectFit:   "contain",
+            objectPosition: "left center",
+            filter:      `drop-shadow(0 4px 14px ${theme.accent}55)`,
+          }}
+        />
+      </div>
+    );
+  }
+  // Fallback — no wordmark asset available for this game yet.
+  const Icon = GAME_ICON[game.slug];
   return (
     <div
       className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center text-white shrink-0"
