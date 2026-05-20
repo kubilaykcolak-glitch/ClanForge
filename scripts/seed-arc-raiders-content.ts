@@ -11,14 +11,20 @@
 //   - progameguides.com / insider-gaming.com (patch notes)
 //
 // Behaviour:
-//   - Default: dry-run, prints what would be written.
-//   - --write: deletes every existing /game_content doc where
-//     gameSlug === 'arc-raiders', then writes the fresh set as
-//     status: 'published' (per user instruction).
+//   - Default: dry-run, prints a diff (new / updated / unchanged).
+//   - --write: upserts each entry into /game_content keyed on
+//     (gameSlug, type, slug). Existing docs are PATCHED (title, summary,
+//     body, tags, gallery, links etc.) — they are NOT deleted. Manually-
+//     authored entries via /admin/game-content that don't match any slug
+//     in this script are LEFT UNTOUCHED.
+//   - --wipe (additional flag, requires --write): also delete every
+//     existing arc-raiders doc before writing. Use only when you want a
+//     clean reset.
 //
 // Usage:
 //   npx tsx scripts/seed-arc-raiders-content.ts              # dry-run
-//   npx tsx scripts/seed-arc-raiders-content.ts --write      # commit
+//   npx tsx scripts/seed-arc-raiders-content.ts --write      # upsert
+//   npx tsx scripts/seed-arc-raiders-content.ts --write --wipe   # destructive reset
 
 import { config as loadEnv } from "dotenv";
 import { resolve } from "path";
@@ -42,6 +48,7 @@ if (getApps().length === 0) {
 
 const db    = getFirestore();
 const write = process.argv.includes("--write");
+const wipe  = process.argv.includes("--wipe");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -523,9 +530,17 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+interface ExistingDoc {
+  ref:  FirebaseFirestore.DocumentReference;
+  type: string;
+  slug: string;
+  data: FirebaseFirestore.DocumentData;
+}
+
 async function main() {
-  console.log(`Mode: ${write ? "WRITE" : "DRY-RUN"}`);
-  console.log(`Entries: ${ALL_ENTRIES.length}`);
+  console.log(`Mode:  ${write ? (wipe ? "WRITE + WIPE" : "WRITE (upsert)") : "DRY-RUN"}`);
+  console.log(`Game:  ${GAME}`);
+  console.log(`Total: ${ALL_ENTRIES.length} entries in script`);
   const byType = ALL_ENTRIES.reduce<Record<string, number>>((acc, e) => {
     acc[e.type] = (acc[e.type] ?? 0) + 1;
     return acc;
@@ -534,58 +549,168 @@ async function main() {
     console.log(`  ${t.padEnd(10)} ${n}`);
   }
 
+  // ── Read existing index for (type, slug) → doc ──
+  const existingSnap = await db.collection("game_content").where("gameSlug", "==", GAME).get();
+  const existingByKey = new Map<string, ExistingDoc>();
+  for (const doc of existingSnap.docs) {
+    const data = doc.data();
+    existingByKey.set(`${data.type}:${data.slug}`, {
+      ref:  doc.ref,
+      type: data.type as string,
+      slug: data.slug as string,
+      data,
+    });
+  }
+  console.log(`Found ${existingByKey.size} existing arc-raiders doc(s) in Firestore.`);
+
+  // ── Classify each entry: new / updated / unchanged ──
+  let nNew = 0, nUpdate = 0, nUnchanged = 0;
+  const updates: Array<{ entry: SeedEntry; ref: FirebaseFirestore.DocumentReference; existing: FirebaseFirestore.DocumentData }> = [];
+  const creates: Array<{ entry: SeedEntry }> = [];
+  const seenKeys = new Set<string>();
+
+  for (const entry of ALL_ENTRIES) {
+    const key = `${entry.type}:${entry.slug}`;
+    seenKeys.add(key);
+    const ex = existingByKey.get(key);
+    if (!ex) {
+      creates.push({ entry });
+      nNew++;
+      continue;
+    }
+    if (entryMatchesExisting(entry, ex.data)) {
+      nUnchanged++;
+      continue;
+    }
+    updates.push({ entry, ref: ex.ref, existing: ex.data });
+    nUpdate++;
+  }
+
+  // Entries in DB that the script does NOT cover — surviving manual edits.
+  const surviving = Array.from(existingByKey.values()).filter(e => !seenKeys.has(`${e.type}:${e.slug}`));
+
+  console.log("");
+  console.log(`  new        ${nNew}`);
+  console.log(`  updated    ${nUpdate}`);
+  console.log(`  unchanged  ${nUnchanged}`);
+  console.log(`  not in script (will be preserved unless --wipe): ${surviving.length}`);
+  if (surviving.length > 0) {
+    for (const s of surviving.slice(0, 10)) {
+      console.log(`    · [${s.type}] ${s.slug}`);
+    }
+    if (surviving.length > 10) console.log(`    · ... +${surviving.length - 10} more`);
+  }
+
   if (!write) {
     console.log("");
-    console.log("Re-run with --write to apply.");
+    console.log("Re-run with --write to apply (or --write --wipe to reset).");
     return;
   }
 
-  // ── Wipe existing arc-raiders content ──
-  console.log("");
-  console.log("Wiping existing arc-raiders /game_content...");
-  const existing = await db.collection("game_content").where("gameSlug", "==", GAME).get();
-  console.log(`  found ${existing.size} existing doc(s)`);
-  // Batch deletes (max 500 ops per batch).
-  for (let i = 0; i < existing.docs.length; i += 400) {
-    const batch = db.batch();
-    existing.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
-    await batch.commit();
-  }
-  console.log("  deleted.");
-
-  // ── Write fresh ──
-  console.log("");
-  console.log("Writing fresh entries...");
   const now = new Date();
-  for (let i = 0; i < ALL_ENTRIES.length; i += 400) {
-    const batch = db.batch();
-    for (const entry of ALL_ENTRIES.slice(i, i + 400)) {
-      const ref = db.collection("game_content").doc();
-      batch.set(ref, {
-        gameSlug:     GAME,
-        type:         entry.type,
-        slug:         entry.slug,
-        title:        entry.title,
-        summary:      entry.summary,
-        body:         entry.body,
-        heroImageUrl: entry.heroImageUrl ?? null,
-        gallery:      entry.gallery ?? [],
-        tags:         entry.tags ?? [],
-        links:        entry.links ?? [],
-        externalUrl:  null,
-        status:       "published",
-        authorUid:    AUTHOR_UID,
-        authorName:   AUTHOR_NAME,
-        createdAt:    now,
-        updatedAt:    now,
-        publishedAt:  now,
-      });
+
+  // ── Optional destructive wipe ──
+  if (wipe) {
+    console.log("");
+    console.log("WIPE: deleting every existing arc-raiders doc...");
+    for (let i = 0; i < existingSnap.docs.length; i += 400) {
+      const batch = db.batch();
+      existingSnap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+      await batch.commit();
     }
-    await batch.commit();
+    console.log(`  deleted ${existingSnap.size} doc(s).`);
+    // Force everything into the create path now that the slate is empty.
+    creates.push(...updates.map(u => ({ entry: u.entry })));
+    updates.length = 0;
   }
-  console.log(`  wrote ${ALL_ENTRIES.length} entries.`);
+
+  // ── Creates ──
+  if (creates.length > 0) {
+    console.log("");
+    console.log(`Creating ${creates.length} new doc(s)...`);
+    for (let i = 0; i < creates.length; i += 400) {
+      const batch = db.batch();
+      for (const { entry } of creates.slice(i, i + 400)) {
+        const ref = db.collection("game_content").doc();
+        batch.set(ref, {
+          gameSlug:     GAME,
+          type:         entry.type,
+          slug:         entry.slug,
+          title:        entry.title,
+          summary:      entry.summary,
+          body:         entry.body,
+          heroImageUrl: entry.heroImageUrl ?? null,
+          gallery:      entry.gallery ?? [],
+          tags:         entry.tags ?? [],
+          links:        entry.links ?? [],
+          externalUrl:  null,
+          status:       "published",
+          authorUid:    AUTHOR_UID,
+          authorName:   AUTHOR_NAME,
+          createdAt:    now,
+          updatedAt:    now,
+          publishedAt:  now,
+        });
+      }
+      await batch.commit();
+    }
+  }
+
+  // ── Updates ──
+  if (updates.length > 0) {
+    console.log(`Updating ${updates.length} existing doc(s)...`);
+    for (let i = 0; i < updates.length; i += 400) {
+      const batch = db.batch();
+      for (const u of updates.slice(i, i + 400)) {
+        batch.update(u.ref, {
+          title:        u.entry.title,
+          summary:      u.entry.summary,
+          body:         u.entry.body,
+          heroImageUrl: u.entry.heroImageUrl ?? null,
+          gallery:      u.entry.gallery ?? [],
+          tags:         u.entry.tags ?? [],
+          links:        u.entry.links ?? [],
+          updatedAt:    now,
+          // Preserve publishedAt if already published; otherwise stamp now.
+          ...(u.existing.publishedAt ? {} : { publishedAt: now, status: "published" }),
+        });
+      }
+      await batch.commit();
+    }
+  }
+
   console.log("");
-  console.log("✔ Done. Visit /games/arc-raiders/guides etc. to verify.");
+  console.log(`✔ Done. ${nNew} created, ${nUpdate} updated, ${nUnchanged} unchanged${wipe ? `, ${existingSnap.size} wiped first` : ""}.`);
+  console.log("  Visit /games/arc-raiders/guides etc. to verify.");
+}
+
+// ─── Diff helper ─────────────────────────────────────────────────────────────
+
+function entryMatchesExisting(entry: SeedEntry, existing: FirebaseFirestore.DocumentData): boolean {
+  if ((existing.title   ?? "") !== entry.title)   return false;
+  if ((existing.summary ?? "") !== entry.summary) return false;
+  if ((existing.body    ?? "") !== entry.body)    return false;
+  if ((existing.heroImageUrl ?? null) !== (entry.heroImageUrl ?? null)) return false;
+  if (!arrEq(existing.tags    as string[] | undefined, entry.tags    ?? [])) return false;
+  if (!arrEq(existing.gallery as string[] | undefined, entry.gallery ?? [])) return false;
+  if (!linksEq(existing.links as Array<{ label: string; url: string }> | undefined, entry.links ?? [])) return false;
+  return true;
+}
+
+function arrEq(a: string[] | undefined, b: string[]): boolean {
+  const aa = a ?? [];
+  if (aa.length !== b.length) return false;
+  for (let i = 0; i < aa.length; i++) if (aa[i] !== b[i]) return false;
+  return true;
+}
+
+function linksEq(a: Array<{ label: string; url: string }> | undefined, b: Array<{ label: string; url: string }>): boolean {
+  const aa = a ?? [];
+  if (aa.length !== b.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    if (aa[i].label !== b[i].label || aa[i].url !== b[i].url) return false;
+  }
+  return true;
 }
 
 main().catch(err => {
