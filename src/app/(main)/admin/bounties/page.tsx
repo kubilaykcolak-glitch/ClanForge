@@ -1,6 +1,9 @@
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { listBountiesForAdmin } from "@/lib/actions/bounty.actions";
+
+// Admin auth reads the session cookie — must render dynamically.
+export const dynamic = "force-dynamic";
 import { Badge } from "@/components/ui/Badge";
 import { AdminBountyRow } from "@/components/admin/AdminBountyRow";
 

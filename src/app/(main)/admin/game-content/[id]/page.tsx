@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import { getContentById } from "@/lib/actions/game-content.actions";
 import { GameContentForm } from "@/components/admin/GameContentForm";
 
+// Admin auth reads the session cookie — must render dynamically.
+export const dynamic = "force-dynamic";
+
 export default async function EditGameContentPage({ params }: { params: { id: string } }) {
   const item = await getContentById(params.id);
   if (!item) notFound();

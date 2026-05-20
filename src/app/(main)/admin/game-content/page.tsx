@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { listAllContentForAdmin } from "@/lib/actions/game-content.actions";
+
+// Admin auth reads the session cookie — must render dynamically.
+export const dynamic = "force-dynamic";
 import { CONTENT_TYPE_LABELS } from "@/types/game-content";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
