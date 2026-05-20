@@ -36,10 +36,11 @@ export async function requireAuthContext(): Promise<void> {
 // ─── Role-tier helpers ───────────────────────────────────────────────────────
 //
 // Authorization source-of-truth is the Firebase Custom Claim `role` set on
-// the auth user. We fall back to the legacy `profiles.isAdmin` field during
-// the migration period so existing admin users keep working until the
-// bootstrap script (or admin grant flow) has set their claims. Once every
-// admin has a claim, the fallback can be removed.
+// the auth user. The legacy `profiles.isAdmin` fallback was removed after
+// the audit script confirmed every admin user has a matching claim
+// (scripts/audit-admin-claims.ts). New admins must be granted via
+// scripts/bootstrap-superadmin.ts or via an admin-grant flow that sets the
+// custom claim — writing `profiles.isAdmin` no longer confers any privilege.
 
 interface SessionWithRole {
   uid:  string;
@@ -48,12 +49,11 @@ interface SessionWithRole {
 
 /**
  * Resolves the session uid AND their elevated role (if any) in a single
- * pass. Reads the Custom Claim from the verified session cookie; falls back
- * to the legacy `profiles.isAdmin` boolean for users who haven't been
- * migrated to claims yet (in which case the inferred role is "admin").
+ * pass. Reads the Custom Claim from the verified session cookie. Returns
+ * `role: null` for users without an elevated claim.
  */
 export async function getSessionWithRole(): Promise<SessionWithRole> {
-  const { adminAuth, adminDb } = await import("@/lib/firebase/admin");
+  const { adminAuth } = await import("@/lib/firebase/admin");
   const sessionCookie = cookies().get("session")?.value;
   if (!sessionCookie) throw new Error("Unauthenticated");
 
@@ -61,12 +61,6 @@ export async function getSessionWithRole(): Promise<SessionWithRole> {
   const claimRole = decoded.role;
   if (isRole(claimRole)) {
     return { uid: decoded.uid, role: claimRole };
-  }
-
-  // Legacy fallback — read profiles.isAdmin. Remove once all admins migrated.
-  const snap = await adminDb.collection("profiles").doc(decoded.uid).get();
-  if (snap.exists && snap.data()?.isAdmin) {
-    return { uid: decoded.uid, role: "admin" };
   }
 
   return { uid: decoded.uid, role: null };
