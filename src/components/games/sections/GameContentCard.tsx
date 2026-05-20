@@ -20,6 +20,10 @@ void Link; // reserved — future deep-link to per-entry permalink
 export function GameContentCard({ item }: { item: GameContent }) {
   const publishedMs = (item.publishedAt ?? item.updatedAt).getTime();
   const isSideBySide = item.type === "items" || item.type === "locations";
+  // Items only — pick up a rarity colour from the parsed wiki stat so the
+  // image frame is tinted accordingly. Locations / non-items fall through
+  // to the neutral surface treatment.
+  const rarityHex = item.type === "items" ? rarityColourOf(item) : null;
 
   if (isSideBySide) {
     return (
@@ -30,31 +34,46 @@ export function GameContentCard({ item }: { item: GameContent }) {
       >
         {/*
           Image rail.
-          - Items are transparent PNG weapons/gear from the wiki with varied
-            aspect ratios — use object-contain on a fixed square so the whole
-            item is visible (no zoom/crop) and rail height doesn't follow the
-            tall info column.
-          - Locations are landscape screenshots — object-cover on a wider box
-            looks correct.
+
+          Layered as [outer padding box] > [rarity-tinted frame] > [image].
+          The outer padding gives the frame breathing room from the card
+          edges (instead of the image touching the left border). The inner
+          frame is a fixed aspect-square with object-contain so the full
+          item renders without crop. For items we tint the frame border +
+          background with the item's rarity colour (Common → Legendary);
+          locations get a neutral elevated surface.
         */}
-        <div
-          className={`shrink-0 overflow-hidden flex items-center justify-center ${
-            item.type === "items"
-              ? "w-24 sm:w-28 aspect-square p-2"
-              : "w-40 sm:w-56 aspect-square p-2"
-          }`}
-          style={{ background: "var(--bg-overlay)" }}
-        >
-          {item.heroImageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={item.heroImageUrl}
-              alt=""
-              className="max-w-full max-h-full object-contain"
-            />
-          ) : (
-            <ImagePlaceholder type={item.type} />
-          )}
+        <div className={`shrink-0 ${item.type === "items" ? "p-3" : "p-4"}`}>
+          <div
+            className={`overflow-hidden flex items-center justify-center rounded-lg ${
+              item.type === "items"
+                ? "w-20 sm:w-24 aspect-square p-2"
+                : "w-36 sm:w-52 aspect-square p-2"
+            }`}
+            style={
+              rarityHex
+                ? {
+                    background: `${rarityHex}1A`,
+                    border:     `1px solid ${rarityHex}66`,
+                    boxShadow:  `inset 0 0 0 1px ${rarityHex}22`,
+                  }
+                : {
+                    background: "var(--bg-overlay)",
+                    border:     "1px solid var(--border-subtle)",
+                  }
+            }
+          >
+            {item.heroImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.heroImageUrl}
+                alt=""
+                className="max-w-full max-h-full object-contain"
+              />
+            ) : (
+              <ImagePlaceholder type={item.type} />
+            )}
+          </div>
         </div>
 
         {/* Info rail */}
@@ -396,6 +415,26 @@ function LinkRow({ item }: { item: GameContent }) {
       )}
     </div>
   );
+}
+
+// ─── Rarity → frame colour ───────────────────────────────────────────────────
+//
+// Pulled live from the item's parsed wiki "Rarity" stat so we stay in lock-
+// step with whatever the fetch script wrote (no second source of truth).
+// Returns null when the rarity is missing or unrecognised; the caller falls
+// back to a neutral border in that case.
+const RARITY_HEX: Record<string, string> = {
+  common:    "#9ca3af", // slate-400
+  uncommon:  "#22c55e", // green-500
+  rare:      "#3b82f6", // blue-500
+  epic:      "#a855f7", // purple-500
+  legendary: "#f59e0b", // amber-500
+};
+
+function rarityColourOf(item: GameContent): string | null {
+  const stat = item.stats?.find(s => s.label.toLowerCase() === "rarity");
+  if (!stat) return null;
+  return RARITY_HEX[stat.value.trim().toLowerCase()] ?? null;
 }
 
 function ImagePlaceholder({ type }: { type: GameContent["type"] }) {
