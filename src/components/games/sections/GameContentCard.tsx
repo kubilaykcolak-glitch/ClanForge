@@ -25,7 +25,7 @@ export function GameContentCard({ item }: { item: GameContent }) {
     return (
       <article
         id={`content-${item.slug}`}
-        className="rounded-xl overflow-hidden scroll-mt-24 flex items-start"
+        className="rounded-xl overflow-hidden scroll-mt-24 flex items-center"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
       >
         {/*
