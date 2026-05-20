@@ -11,9 +11,9 @@
 // user feedback (image + info should be visible at a glance for items).
 
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Hammer, ArrowUpRight } from "lucide-react";
 import { timeAgoCompact } from "@/lib/riot/assets";
-import type { GameContent } from "@/types/game-content";
+import type { GameContent, ItemMaterial } from "@/types/game-content";
 
 void Link; // reserved — future deep-link to per-entry permalink
 
@@ -55,6 +55,18 @@ export function GameContentCard({ item }: { item: GameContent }) {
           >
             {item.body}
           </div>
+
+          {item.stats && item.stats.length > 0 && (
+            <StatsGrid stats={item.stats} />
+          )}
+
+          {item.crafting && (
+            <CraftingBlock crafting={item.crafting} />
+          )}
+
+          {item.upgrades && item.upgrades.length > 0 && (
+            <UpgradesTable upgrades={item.upgrades} />
+          )}
 
           {item.gallery && item.gallery.length > 0 && (
             <Gallery gallery={item.gallery} />
@@ -143,6 +155,139 @@ function TagRow({ tags }: { tags: string[] }) {
           {t}
         </span>
       ))}
+    </div>
+  );
+}
+
+function StatsGrid({ stats }: { stats: { label: string; value: string }[] }) {
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
+    >
+      <div
+        className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+        style={{
+          background: "rgba(99,102,241,0.10)",
+          color:      "var(--accent)",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        Stats
+      </div>
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 px-2.5 py-2 text-xs">
+        {stats.map((s, i) => (
+          <div key={`${s.label}-${i}`} className="flex items-baseline justify-between">
+            <dt style={{ color: "var(--text-muted)" }}>{s.label}</dt>
+            <dd className="font-medium tabular-nums" style={{ color: "var(--text-primary)" }}>{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function MaterialList({ materials }: { materials: ItemMaterial[] }) {
+  if (materials.length === 0) return null;
+  return (
+    <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+      {materials.map((m, i) => (
+        <li key={`${m.name}-${i}`} className="tabular-nums">
+          <span style={{ color: "var(--text-primary)" }}>{m.qty}×</span>{" "}
+          <span>{m.name}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CraftingBlock({
+  crafting,
+}: {
+  crafting: NonNullable<GameContent["crafting"]>;
+}) {
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
+    >
+      <div
+        className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+        style={{
+          background: "rgba(99,102,241,0.10)",
+          color:      "var(--accent)",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <Hammer size={10} />
+        Crafting
+        {crafting.station && (
+          <span className="ml-auto normal-case font-normal" style={{ color: "var(--text-muted)" }}>
+            {crafting.station}
+          </span>
+        )}
+      </div>
+      <div className="px-2.5 py-2 flex flex-col gap-1">
+        <MaterialList materials={crafting.materials} />
+        {(crafting.result || crafting.blueprint) && (
+          <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+            {crafting.result && <>Produces <strong style={{ color: "var(--text-secondary)" }}>{crafting.result}</strong></>}
+            {crafting.result && crafting.blueprint && " · "}
+            {crafting.blueprint && <>Blueprint required</>}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UpgradesTable({
+  upgrades,
+}: {
+  upgrades: NonNullable<GameContent["upgrades"]>;
+}) {
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
+    >
+      <div
+        className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+        style={{
+          background: "rgba(99,102,241,0.10)",
+          color:      "var(--accent)",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <ArrowUpRight size={10} />
+        Upgrades
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+        {upgrades.map((tier, i) => (
+          <div
+            key={`${tier.label}-${i}`}
+            className="px-2.5 py-2 flex flex-col gap-1"
+            style={{ borderTop: i === 0 ? "none" : "1px solid var(--border-subtle)" }}
+          >
+            <div className="flex items-center justify-between">
+              <span
+                className="text-[10px] font-bold uppercase tracking-wider tabular-nums"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {tier.label}
+              </span>
+            </div>
+            <MaterialList materials={tier.materials} />
+            {tier.perks && tier.perks.length > 0 && (
+              <ul className="text-[10px] mt-0.5 list-disc list-inside" style={{ color: "var(--text-muted)" }}>
+                {tier.perks.map((p, j) => (
+                  <li key={j}>{p}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

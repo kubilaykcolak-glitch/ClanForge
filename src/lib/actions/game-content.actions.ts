@@ -12,9 +12,14 @@ import { revalidatePath } from "next/cache";
 import { FieldValue } from "firebase-admin/firestore";
 import { getSessionWithRole } from "./server-auth";
 import { meetsRole } from "@/lib/auth/roles";
-import type { GameContent, GameContentType, GameContentStatus, ContentLink, ContentTag } from "@/types/game-content";
+import type {
+  GameContent, GameContentType, GameContentStatus,
+  ContentLink, ContentTag,
+  ItemStat, ItemCrafting, UpgradeTier, ItemMaterial,
+} from "@/types/game-content";
 import {
   MAX_GALLERY, MAX_LINKS, MAX_LINK_LABEL_LEN, MAX_TAGS, MAX_TAG_LEN,
+  MAX_STATS, MAX_UPGRADES, MAX_MATERIALS_PER_RECIPE, MAX_PERKS_PER_TIER,
 } from "@/types/game-content";
 import type { GameSlug } from "@/lib/games/types";
 import { friendlyActionError } from "./_errors";
@@ -51,6 +56,10 @@ export interface CreateGameContentInput {
   links?:       ContentLink[];
   externalUrl?: string | null;
   status:       GameContentStatus;
+  // Item-specific
+  stats?:       ItemStat[];
+  crafting?:    ItemCrafting;
+  upgrades?:    UpgradeTier[];
 }
 
 // ─── Field validators ────────────────────────────────────────────────────────
@@ -70,6 +79,44 @@ function validateTags(arr: ContentTag[] | undefined): string | null {
   for (const tag of arr) {
     if (typeof tag !== "string" || tag.trim().length === 0) return "Tags must be non-empty";
     if (tag.length > MAX_TAG_LEN) return `Tag too long (max ${MAX_TAG_LEN} chars)`;
+  }
+  return null;
+}
+function validateStats(arr: ItemStat[] | undefined): string | null {
+  if (!arr) return null;
+  if (arr.length > MAX_STATS) return `Max ${MAX_STATS} stats`;
+  for (const s of arr) {
+    if (typeof s?.label !== "string" || typeof s?.value !== "string") return "Each stat needs a label and value";
+    if (!s.label.trim()) return "Stat label is required";
+    if (s.label.length > 40 || s.value.length > 80) return "Stat label/value too long";
+  }
+  return null;
+}
+function validateMaterials(arr: ItemMaterial[]): string | null {
+  if (arr.length > MAX_MATERIALS_PER_RECIPE) return `Max ${MAX_MATERIALS_PER_RECIPE} materials per recipe`;
+  for (const m of arr) {
+    if (typeof m?.name !== "string" || !m.name.trim()) return "Material name is required";
+    if (m.name.length > 80) return "Material name too long";
+    if (!Number.isFinite(m?.qty) || m.qty < 0 || m.qty > 9999) return "Material qty out of range";
+  }
+  return null;
+}
+function validateCrafting(c: ItemCrafting | undefined): string | null {
+  if (!c) return null;
+  if (!Array.isArray(c.materials)) return "Crafting materials must be an array";
+  const m = validateMaterials(c.materials);
+  if (m) return m;
+  return null;
+}
+function validateUpgrades(arr: UpgradeTier[] | undefined): string | null {
+  if (!arr) return null;
+  if (arr.length > MAX_UPGRADES) return `Max ${MAX_UPGRADES} upgrade tiers`;
+  for (const t of arr) {
+    if (typeof t?.label !== "string" || !t.label.trim()) return "Upgrade tier label is required";
+    if (!Array.isArray(t.materials)) return "Upgrade tier materials must be an array";
+    const m = validateMaterials(t.materials);
+    if (m) return m;
+    if (t.perks && t.perks.length > MAX_PERKS_PER_TIER) return `Max ${MAX_PERKS_PER_TIER} perks per tier`;
   }
   return null;
 }
@@ -101,9 +148,12 @@ export async function createGameContent(input: CreateGameContentInput): Promise<
     if (title.length   > MAX_TITLE)   return { success: false, error: `Title must be ${MAX_TITLE} characters or fewer` };
     if (summary.length > MAX_SUMMARY) return { success: false, error: `Summary must be ${MAX_SUMMARY} characters or fewer` };
     if (body.length    > MAX_BODY)    return { success: false, error: `Body must be ${MAX_BODY} characters or fewer` };
-    const galleryErr = validateGallery(input.gallery); if (galleryErr) return { success: false, error: galleryErr };
-    const tagsErr    = validateTags(input.tags);       if (tagsErr)    return { success: false, error: tagsErr };
-    const linksErr   = validateLinks(input.links);     if (linksErr)   return { success: false, error: linksErr };
+    const galleryErr  = validateGallery(input.gallery);   if (galleryErr)  return { success: false, error: galleryErr };
+    const tagsErr     = validateTags(input.tags);         if (tagsErr)     return { success: false, error: tagsErr };
+    const linksErr    = validateLinks(input.links);       if (linksErr)    return { success: false, error: linksErr };
+    const statsErr    = validateStats(input.stats);       if (statsErr)    return { success: false, error: statsErr };
+    const craftingErr = validateCrafting(input.crafting); if (craftingErr) return { success: false, error: craftingErr };
+    const upgradesErr = validateUpgrades(input.upgrades); if (upgradesErr) return { success: false, error: upgradesErr };
 
     const { adminDb } = await import("@/lib/firebase/admin");
 
@@ -127,6 +177,9 @@ export async function createGameContent(input: CreateGameContentInput): Promise<
       tags:         input.tags    ?? [],
       links:        input.links   ?? [],
       externalUrl:  input.externalUrl  ?? null,
+      stats:        input.stats     ?? null,
+      crafting:     input.crafting  ?? null,
+      upgrades:     input.upgrades  ?? null,
       status:       input.status,
       authorUid:    session.uid,
       authorName,
@@ -187,6 +240,18 @@ export async function updateGameContent(id: string, input: Partial<CreateGameCon
     if (input.links !== undefined) {
       const err = validateLinks(input.links); if (err) return { success: false, error: err };
       patch.links = input.links;
+    }
+    if (input.stats !== undefined) {
+      const err = validateStats(input.stats); if (err) return { success: false, error: err };
+      patch.stats = input.stats;
+    }
+    if (input.crafting !== undefined) {
+      const err = validateCrafting(input.crafting); if (err) return { success: false, error: err };
+      patch.crafting = input.crafting;
+    }
+    if (input.upgrades !== undefined) {
+      const err = validateUpgrades(input.upgrades); if (err) return { success: false, error: err };
+      patch.upgrades = input.upgrades;
     }
     if (input.status !== undefined) {
       patch.status = input.status;
@@ -312,6 +377,9 @@ function hydrate(id: string, data: FirebaseFirestore.DocumentData): GameContent 
     tags:         Array.isArray(data.tags)    ? (data.tags    as string[]) : [],
     links:        Array.isArray(data.links)   ? (data.links   as ContentLink[]) : [],
     externalUrl:  data.externalUrl  ?? null,
+    stats:        Array.isArray(data.stats)    ? (data.stats    as ItemStat[]) : undefined,
+    crafting:     (data.crafting   && typeof data.crafting   === "object") ? (data.crafting as ItemCrafting) : undefined,
+    upgrades:     Array.isArray(data.upgrades) ? (data.upgrades as UpgradeTier[]) : undefined,
     status:       data.status ?? "draft",
     authorUid:    data.authorUid ?? "",
     authorName:   data.authorName ?? "Admin",

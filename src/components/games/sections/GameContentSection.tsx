@@ -49,7 +49,53 @@ export async function GameContentSection({
       {items.map(item => (
         <GameContentCard key={item.id} item={item} />
       ))}
+      {gameSlug === "arc-raiders" && <ArcRaidersAttribution />}
     </section>
+  );
+}
+
+// ─── Arc Raiders attribution / CC notice ─────────────────────────────────────
+//
+// Displayed once at the bottom of every Arc Raiders content tab. Required
+// because the Items and Locations sections hotlink images + structured data
+// from the community wiki (CC BY-SA) and reference Embark's trademarks. We
+// don't claim ownership and we direct readers back to the source.
+
+function ArcRaidersAttribution() {
+  return (
+    <footer
+      className="rounded-xl p-3 text-[10px] leading-relaxed mt-4"
+      style={{
+        background: "var(--bg-surface)",
+        border:     "1px solid var(--border-subtle)",
+        color:      "var(--text-muted)",
+      }}
+    >
+      <p>
+        All game content and materials are copyright of Embark Studios AB.
+        ARC RAIDERS and EMBARK trademarks and logos are trademarks or
+        registered trademarks of Embark Studios AB. Other content sourced
+        from the{" "}
+        <a
+          href="https://arcraiders.wiki"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "var(--accent)" }}
+        >
+          ARC Raiders community wiki
+        </a>{" "}
+        and made available under{" "}
+        <a
+          href="https://creativecommons.org/licenses/by-sa/4.0/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "var(--accent)" }}
+        >
+          Creative Commons Attribution-ShareAlike
+        </a>{" "}
+        unless otherwise noted.
+      </p>
+    </footer>
   );
 }
 

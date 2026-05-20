@@ -42,6 +42,11 @@ export interface GameContent {
   /** Legacy single external link — kept for backward compatibility. New entries
    *  should prefer `links`. */
   externalUrl?:  string | null;
+
+  // ─── Item-specific structured data (optional, items only) ────────────────
+  stats?:    ItemStat[];
+  crafting?: ItemCrafting;
+  upgrades?: UpgradeTier[];
   status:        GameContentStatus;
   authorUid:     string;
   authorName:    string;
@@ -51,12 +56,50 @@ export interface GameContent {
   publishedAt?:  Date | null;
 }
 
+// ─── Item-specific structured data (only relevant for type === "items") ─────
+//
+// Pulled from the source wiki at fetch time, not authored by hand. The
+// renderer treats every field as optional — entries written before the
+// schema extension still render correctly without these blocks.
+
+export interface ItemStat {
+  label: string;
+  value: string;
+}
+
+export interface ItemMaterial {
+  name: string;
+  qty:  number;
+}
+
+export interface ItemCrafting {
+  /** What the recipe produces, e.g. "Tempest I". */
+  result?:    string;
+  /** Required crafting station / trader rank, e.g. "Gunsmith 3". */
+  station?:   string;
+  /** Whether a blueprint must also be learned to craft. */
+  blueprint?: boolean;
+  materials:  ItemMaterial[];
+}
+
+export interface UpgradeTier {
+  /** Display label — typically "I → II", "Level 2", etc. */
+  label:     string;
+  materials: ItemMaterial[];
+  /** Free-form perk strings; renderer keeps line breaks. */
+  perks?:    string[];
+}
+
 // Validation bounds — referenced by the server action and the form.
 export const MAX_GALLERY  = 8;
 export const MAX_TAGS     = 12;
 export const MAX_TAG_LEN  = 40;
 export const MAX_LINKS    = 6;
 export const MAX_LINK_LABEL_LEN = 60;
+export const MAX_STATS    = 20;
+export const MAX_UPGRADES = 10;
+export const MAX_MATERIALS_PER_RECIPE = 12;
+export const MAX_PERKS_PER_TIER       = 6;
 
 export const CONTENT_TYPE_LABELS: Record<GameContentType, { singular: string; plural: string }> = {
   guides:    { singular: "Guide",    plural: "Guides"    },

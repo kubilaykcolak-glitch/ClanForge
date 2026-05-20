@@ -1,16 +1,21 @@
-// ─── Fetch Arc Raiders wiki images and patch Firestore ──────────────────────
+// ─── Fetch Arc Raiders wiki images + structured data, patch Firestore ──────
 //
-// Hits each Arc Raiders weapon / map wiki page, extracts the main infobox
-// image URL, and PATCHES the corresponding /game_content doc's heroImageUrl
-// directly. For maps, also collects a tactical/overview image into gallery.
+// For each Arc Raiders weapon / map this script:
+//   1. Hits the public page HTML to extract the hero image URL (og:image)
+//      and any tactical / blank / underground map images for the gallery.
+//   2. For weapons, hits the MediaWiki API to fetch raw wikitext, then
+//      parses the {{Infobox weapon}}, {{Crafting}} and {{Weapon upgrades}}
+//      templates into structured stats / crafting recipe / upgrade tiers.
+//   3. PATCHES the matching /game_content doc with heroImageUrl, gallery,
+//      stats, crafting, upgrades.
 //
 // Hotlinks the wiki URLs (no rehost) — fastest path to a populated grid with
-// zero copyright exposure. If the wiki ever blocks hotlinks, the seed script
-// can be re-run after migrating these to Firebase Storage.
+// zero copyright exposure. The Arc Raiders sections render an Embark Studios
+// attribution + CC-BY-SA notice for compliance.
 //
 // Usage:
-//   npx tsx scripts/fetch-arc-raiders-images.ts           # dry-run (print)
-//   npx tsx scripts/fetch-arc-raiders-images.ts --write   # patch Firestore
+//   npx tsx scripts/fetch-arc-raiders-data.ts           # dry-run (print)
+//   npx tsx scripts/fetch-arc-raiders-data.ts --write   # patch Firestore
 
 import { config as loadEnv } from "dotenv";
 import { resolve } from "path";
@@ -82,6 +87,19 @@ interface ExtractedImages {
   gallery: string[];
 }
 
+// Mirror of the schema's structured types, kept in-script so this file
+// stands alone (no app-source imports).
+interface ItemStat      { label: string; value: string }
+interface ItemMaterial  { name: string; qty: number }
+interface ItemCrafting  { result?: string; station?: string; blueprint?: boolean; materials: ItemMaterial[] }
+interface UpgradeTier   { label: string; materials: ItemMaterial[]; perks?: string[] }
+
+interface ExtractedItemData {
+  stats:    ItemStat[];
+  crafting: ItemCrafting | null;
+  upgrades: UpgradeTier[];
+}
+
 async function fetchHtml(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
@@ -94,6 +112,181 @@ async function fetchHtml(url: string): Promise<string | null> {
     console.warn(`  ! ${url} → ${err instanceof Error ? err.message : err}`);
     return null;
   }
+}
+
+// ─── MediaWiki API: fetch raw wikitext for parsing ───────────────────────────
+
+async function fetchWikitext(pageName: string): Promise<string | null> {
+  const apiUrl = `${WIKI}/w/api.php?action=parse&page=${encodeURIComponent(pageName)}&format=json&prop=wikitext`;
+  try {
+    const res = await fetch(apiUrl, { headers: { "User-Agent": USER_AGENT } });
+    if (!res.ok) return null;
+    const json = await res.json() as { parse?: { wikitext?: { "*"?: string } } };
+    return json?.parse?.wikitext?.["*"] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Template parsing ────────────────────────────────────────────────────────
+// MediaWiki templates look like {{Name | key1 = value | key2 = value | ... }}
+// Templates can nest. We extract the outermost match of a named template,
+// then parse the body into key/value pairs.
+
+function extractTemplate(wikitext: string, name: string): string | null {
+  const open = `{{${name}`;
+  const startIdx = wikitext.toLowerCase().indexOf(open.toLowerCase());
+  if (startIdx < 0) return null;
+  // Walk forward counting braces so nested templates don't trip us up.
+  let depth = 0;
+  for (let i = startIdx; i < wikitext.length - 1; i++) {
+    if (wikitext[i] === "{" && wikitext[i + 1] === "{") { depth++; i++; continue; }
+    if (wikitext[i] === "}" && wikitext[i + 1] === "}") {
+      depth--;
+      if (depth === 0) return wikitext.slice(startIdx + 2, i); // strip "{{...}}"
+    }
+  }
+  return null;
+}
+
+function parseTemplateBody(body: string): Map<string, string> {
+  // First line is the template name; the rest are |key=value pairs.
+  // But pipes can also appear inside nested templates and wikilinks, so we
+  // split by top-level pipes only.
+  const params = new Map<string, string>();
+  const parts: string[] = [];
+  let depth = 0;
+  let buf = "";
+  let nameConsumed = false;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i], n = body[i + 1];
+    if (c === "{" && n === "{") { depth++; buf += c; continue; }
+    if (c === "}" && n === "}") { depth--; buf += c; continue; }
+    if (c === "[" && n === "[") { depth++; buf += c; continue; }
+    if (c === "]" && n === "]") { depth--; buf += c; continue; }
+    if (c === "|" && depth === 0) {
+      if (!nameConsumed) {
+        nameConsumed = true;     // discard the template name
+        buf = "";
+        continue;
+      }
+      parts.push(buf);
+      buf = "";
+      continue;
+    }
+    buf += c;
+  }
+  if (buf.trim().length > 0) parts.push(buf);
+
+  for (const part of parts) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim().toLowerCase();
+    const val = stripWikitext(part.slice(eq + 1).trim());
+    if (key) params.set(key, val);
+  }
+  return params;
+}
+
+/** Strip [[wikilinks]] and basic wiki markup for plain display. */
+function stripWikitext(s: string): string {
+  return s
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1")
+    .replace(/'''([^']+)'''/g, "$1")
+    .replace(/''([^']+)''/g, "$1")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .trim();
+}
+
+function parseIngredients(raw: string): ItemMaterial[] {
+  // "1 Magnetic Accelerator + 3 Medium Gun Parts + 2 Exodus Modules"
+  // → [{name: "Magnetic Accelerator", qty: 1}, ...]
+  const out: ItemMaterial[] = [];
+  for (const chunk of raw.split("+")) {
+    const m = chunk.trim().match(/^(\d+)\s*[×x]?\s*(.+)$/);
+    if (m) {
+      out.push({ qty: Number(m[1]), name: m[2].trim() });
+    } else if (chunk.trim()) {
+      out.push({ qty: 1, name: chunk.trim() });
+    }
+  }
+  return out;
+}
+
+const STAT_KEYS: Array<{ key: string; label: string }> = [
+  { key: "damage",             label: "Damage" },
+  { key: "firerate",           label: "Fire Rate" },
+  { key: "magsize",            label: "Magazine" },
+  { key: "range",              label: "Range" },
+  { key: "stability",          label: "Stability" },
+  { key: "agility",            label: "Agility" },
+  { key: "stealth",            label: "Stealth" },
+  { key: "headshotmultiplier", label: "Headshot ×" },
+  { key: "weight",             label: "Weight" },
+  { key: "ammo",               label: "Ammo" },
+  { key: "firingmode",         label: "Firing Mode" },
+  { key: "rarity",             label: "Rarity" },
+  { key: "type",               label: "Class" },
+  { key: "arcarmorpenetr",     label: "ARC Armour Pen" },
+  { key: "compatiblemods",     label: "Mod Slots" },
+  { key: "durability1",        label: "Durability (I)" },
+];
+
+function extractItemData(wikitext: string): ExtractedItemData {
+  const result: ExtractedItemData = { stats: [], crafting: null, upgrades: [] };
+
+  // ── Stats from Infobox weapon ──
+  const infoboxBody = extractTemplate(wikitext, "Infobox weapon");
+  if (infoboxBody) {
+    const params = parseTemplateBody(infoboxBody);
+    for (const { key, label } of STAT_KEYS) {
+      const val = params.get(key);
+      if (val && val.length > 0 && val !== "?") {
+        result.stats.push({ label, value: val });
+      }
+    }
+  }
+
+  // ── Crafting recipe ──
+  const craftingBody = extractTemplate(wikitext, "Crafting");
+  if (craftingBody) {
+    const params = parseTemplateBody(craftingBody);
+    const ingredients = params.get("ingredients") ?? "";
+    const materials = parseIngredients(ingredients);
+    result.crafting = {
+      result:    params.get("result") || undefined,
+      station:   params.get("station") || undefined,
+      blueprint: (params.get("blueprint") ?? "").toLowerCase() === "y",
+      materials,
+    };
+  }
+
+  // ── Upgrade tiers ──
+  const upgradesBody = extractTemplate(wikitext, "Weapon upgrades");
+  if (upgradesBody) {
+    const params = parseTemplateBody(upgradesBody);
+    for (let lvl = 2; lvl <= 6; lvl++) {
+      const ingKey   = `level${lvl}-ingredients`;
+      const perksKey = `level${lvl}-perks`;
+      const ing = params.get(ingKey);
+      if (!ing) continue;
+      const materials = parseIngredients(ing);
+      const perksRaw = params.get(perksKey) ?? "";
+      const perks = perksRaw ? perksRaw.split("\n").map(s => s.trim()).filter(Boolean) : undefined;
+      result.upgrades.push({
+        label:     `${toRoman(lvl - 1)} → ${toRoman(lvl)}`,
+        materials,
+        perks,
+      });
+    }
+  }
+
+  return result;
+}
+
+function toRoman(n: number): string {
+  return ["", "I", "II", "III", "IV", "V", "VI"][n] ?? String(n);
 }
 
 function absolutise(url: string): string {
@@ -174,7 +367,14 @@ async function main() {
     byKey.set(`${data.type}:${data.slug}`, d);
   }
 
-  const results: Array<{ target: Target; hero: string | null; gallery: string[]; foundDoc: boolean }> = [];
+  interface ResultRow {
+    target:   Target;
+    hero:     string | null;
+    gallery:  string[];
+    item:     ExtractedItemData | null;
+    foundDoc: boolean;
+  }
+  const results: ResultRow[] = [];
 
   // Bounded concurrency — be polite to the wiki.
   const CONCURRENCY = 4;
@@ -187,17 +387,26 @@ async function main() {
       const url = `${WIKI}/wiki/${target.wikiPath}`;
       const html = await fetchHtml(url);
       const imgs = html ? extractImages(html, !!target.collectTactical) : { hero: null, gallery: [] };
+
+      // For items only: fetch wikitext and parse structured templates.
+      let item: ExtractedItemData | null = null;
+      if (target.type === "items") {
+        const wikitext = await fetchWikitext(target.wikiPath);
+        if (wikitext) item = extractItemData(wikitext);
+      }
+
       const docKey = `${target.type}:${target.slug}`;
       const foundDoc = byKey.has(docKey);
-      results.push({ target, hero: imgs.hero, gallery: imgs.gallery, foundDoc });
+      results.push({ target, hero: imgs.hero, gallery: imgs.gallery, item, foundDoc });
 
-      // Build the per-target log atomically so concurrent workers don't
-      // interleave lines and mislead the reader about which hero belongs to
-      // which target.
+      // Atomic per-target log.
       const lines: string[] = [`  · ${target.type}/${target.slug.padEnd(20)} ← ${url}`];
       if (!html)       lines.push("    no html");
       if (imgs.hero)   lines.push(`    hero: ${imgs.hero}`);
       for (const g of imgs.gallery) lines.push(`    gallery: ${g}`);
+      if (item) {
+        lines.push(`    stats: ${item.stats.length} · crafting: ${item.crafting ? "yes" : "no"} · upgrades: ${item.upgrades.length}`);
+      }
       if (!foundDoc)   lines.push(`    ! no matching doc in Firestore`);
       console.log(lines.join("\n"));
     }
@@ -239,6 +448,12 @@ async function main() {
         const existing = (doc.data().gallery as string[] | undefined) ?? [];
         const merged = Array.from(new Set([...existing, ...r.gallery])).slice(0, 8);
         update.gallery = merged;
+      }
+      // Structured item data — only for items, only if we extracted anything.
+      if (r.item) {
+        if (r.item.stats.length > 0)    update.stats    = r.item.stats;
+        if (r.item.crafting)            update.crafting = r.item.crafting;
+        if (r.item.upgrades.length > 0) update.upgrades = r.item.upgrades;
       }
       batch.update(doc.ref, update);
       patched++;
