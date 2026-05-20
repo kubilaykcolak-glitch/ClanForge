@@ -269,6 +269,20 @@
         { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "ASCENDING",  "queryScope": "COLLECTION_GROUP" }
       ]
+    },
+
+    // Collection-group equality query on integrations.provider used by:
+    //   - src/lib/riot/ladder.ts getLeagueLadder (LoL hub Ladder section)
+    // Firestore does NOT auto-create COLLECTION_GROUP scope on single-field
+    // indexes — without this override the ladder query throws
+    // FAILED_PRECONDITION at runtime and the section renders empty.
+    {
+      "collectionGroup": "integrations",
+      "fieldPath":       "provider",
+      "indexes": [
+        { "order": "ASCENDING",  "queryScope": "COLLECTION" },
+        { "order": "ASCENDING",  "queryScope": "COLLECTION_GROUP" }
+      ]
     }
   ]
 }

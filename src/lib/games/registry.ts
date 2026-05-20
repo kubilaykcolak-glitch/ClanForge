@@ -75,7 +75,7 @@ export const GAMES: Record<GameSlug, GameDefinition> = {
       // ── Spec #2a (My Profile) is live; Ladder and Live Now stay hidden
       //    until their own follow-ups land. ──
       { slug: "profile",  label: "My Profile",  icon: Activity, status: "live",   loader: () => import("@/components/games/sections/LeagueProfileSection") },
-      { slug: "ladder",   label: "Ladder",      icon: Trophy,   status: "hidden", loader: hiddenLoader },
+      { slug: "ladder",   label: "Ladder",      icon: Trophy,   status: "live",   loader: () => import("@/components/games/sections/LeagueLadderSection") },
       { slug: "live-now", label: "Live Now",    icon: Swords,   status: "hidden", loader: hiddenLoader },
     ],
   },
