@@ -18,20 +18,10 @@
 import { cache } from "react";
 import { fetchActiveGameByPuuid } from "@/lib/riot/client";
 import type { LolPlatformRegion } from "@/lib/riot/regions";
+import type { LiveGameRow } from "@/lib/riot/live-game-shared";
 
-export interface LiveGameRow {
-  uid:           string;
-  displayName:   string;
-  avatarUrl?:    string | null;
-  riotIdGameName: string;
-  riotIdTagline:  string;
-  region:        LolPlatformRegion;
-  championId:    number;
-  /** Seconds since game start. Negative / 0 means champ select / loading. */
-  gameLengthSec: number;
-  gameMode:      string;
-  queueId:       number;
-}
+export type { LiveGameRow } from "@/lib/riot/live-game-shared";
+export { formatGameLength } from "@/lib/riot/live-game-shared";
 
 const MAX_COHORT = 20;
 const CONCURRENCY = 4;
@@ -155,10 +145,3 @@ export const getLiveGames = cache(async (opts: GetLiveGamesOpts = {}): Promise<L
   }
 });
 
-/** Format a game length (seconds) as "12:34". */
-export function formatGameLength(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${r.toString().padStart(2, "0")}`;
-}

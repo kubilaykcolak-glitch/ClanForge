@@ -13,7 +13,7 @@ import { RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { championIconUrl, queueLabel } from "@/lib/riot/assets";
 import { refreshLiveGames } from "@/lib/actions/live-games.actions";
-import { formatGameLength, type LiveGameRow } from "@/lib/riot/live-game";
+import { formatGameLength, type LiveGameRow } from "@/lib/riot/live-game-shared";
 
 const POLL_INTERVAL_MS = 60_000;
 
