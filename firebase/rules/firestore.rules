@@ -368,5 +368,15 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // ─── /bounties/{bountyId} ─────────────────────────────────────────────────
+    // Public reads (Wanted board is public). All writes server-only —
+    // bounty.actions.ts gates publish/resolve behind moderator role; claim
+    // and cancel use the Admin SDK so per-doc invariants run in the action.
+
+    match /bounties/{bountyId} {
+      allow read: if true;
+      allow write: if false;
+    }
   }
 }

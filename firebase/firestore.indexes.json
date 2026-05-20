@@ -273,6 +273,20 @@
         { "fieldPath": "type",     "order": "ASCENDING" },
         { "fieldPath": "slug",     "order": "ASCENDING" }
       ]
+    },
+
+    // ── bounties ─────────────────────────────────────────────────────────────
+
+    // Wanted board public query: gameSlug + status IN [...] + publishedAt desc
+    // (listBounties in bounty.actions.ts).
+    {
+      "collectionGroup": "bounties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "gameSlug",    "order": "ASCENDING"  },
+        { "fieldPath": "status",      "order": "ASCENDING"  },
+        { "fieldPath": "publishedAt", "order": "DESCENDING" }
+      ]
     }
 
   ],

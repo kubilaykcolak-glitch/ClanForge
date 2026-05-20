@@ -20,7 +20,8 @@ export type XpReason =
   | "member_recruit"
   | "daily_mission_complete"
   | "weekly_mission_complete"
-  | "clan_mission_contribute";
+  | "clan_mission_contribute"
+  | "bounty_claim_approved";
 
 /** How the dedupe/limit check is applied for each rule. */
 export type RuleType =
@@ -72,6 +73,11 @@ export const XP_RULES: Record<XpReason, XpRule> = {
   //   `clan_mission:<clanId>:<dateKey|weekKey>:<templateId>:<uid>`
   // so each (mission × contributor) tuple can only award once.
   clan_mission_contribute: { reason: "clan_mission_contribute", amount:  20, type: "once_per_target", label: "Clan mission contribution" },
+
+  // Wanted/Bounty system — hunter is awarded XP when a moderator approves
+  // their claim. targetId is the bounty doc id so a single bounty can only
+  // ever pay out once.
+  bounty_claim_approved:   { reason: "bounty_claim_approved",   amount: 150, type: "once_per_target", label: "Bounty claim approved" },
 };
 
 // ─── Clan join cooldown (anti-grind) ──────────────────────────────────────────
