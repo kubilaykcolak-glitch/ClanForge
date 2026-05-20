@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { AlertCircle, ChevronLeft, Loader2, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase/client";
 import Toggle from "@/components/ui/Toggle";
 import ClanTagSettings from "@/components/clan/ClanTagSettings";
-import { disbandClan } from "@/lib/actions/clan.actions";
+import { disbandClan, renameClan } from "@/lib/actions/clan.actions";
 import { validateImageFile } from "@/lib/uploads";
 import { checkClanNameAvailable } from "@/lib/actions/clan-name.actions";
 
@@ -148,7 +148,9 @@ export default function ClanSettingsPage() {
   const [clanId, setClanId]       = useState<string | null>(null);
   const [currentTag, setCurrentTag] = useState<string | null>(null);
   const [originalName, setOriginalName] = useState<string>("");
-  const [originalNameKey, setOriginalNameKey] = useState<string>("");
+  // Kept around so post-rename we can mirror the new key back into local
+  // state for any subsequent edits in the same session without a refetch.
+  const [, setOriginalNameKey] = useState<string>("");
   const [loading, setLoading]     = useState(true);
   const [notOwner, setNotOwner]   = useState(false);
   const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | undefined>();
@@ -276,13 +278,12 @@ export default function ClanSettingsPage() {
       toast.error("Select a primary game"); return;
     }
 
-    // If the name changed, run the same anti-copycat check the create page
-    // uses. Excluding `clanId` so the clan isn't told its own current name
-    // is taken (e.g. when only description changed).
     const newName = form.name.trim();
     const renamed = newName !== originalName;
-    let newNameKey: string | null = null;
 
+    // Pre-flight name check so we surface the toast BEFORE uploading any
+    // images (avoids burning a transfer on a name that's going to be rejected
+    // by the server action anyway). Server action re-validates server-side.
     if (renamed) {
       const check = await checkClanNameAvailable(newName, clanId);
       if (!check.success || !check.data) {
@@ -297,7 +298,6 @@ export default function ClanSettingsPage() {
         }
         return;
       }
-      newNameKey = check.data.nameKey;
     }
 
     setSaving(true);
@@ -311,45 +311,41 @@ export default function ClanSettingsPage() {
         bannerFile ? uploadFile(bannerFile, `clan-assets/${clanId}/banner`) : Promise.resolve(null),
       ]);
 
-      if (renamed && newNameKey) {
-        // Atomic key swap: write the new index entry, delete the old, and
-        // update the clan doc in one batch so the index is always consistent.
-        const batch = writeBatch(db);
-        batch.update(doc(db, "clans", clanId), {
-          name:         newName,
-          nameKey:      newNameKey,
-          description:  form.description.trim(),
-          gameFocus:    form.gameFocus,
-          tags:         form.tags,
-          isPublic:     form.isPublic,
-          isRecruiting: form.isRecruiting,
-          memberLimit:  form.memberLimit,
-          ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
-          ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
-          updatedAt: new Date(),
-        });
-        batch.set(doc(db, "clanNameKeys", newNameKey), { clanId });
-        if (originalNameKey && originalNameKey !== newNameKey) {
-          batch.delete(doc(db, "clanNameKeys", originalNameKey));
+      // Non-name fields go straight through the client SDK — the Firestore
+      // rule allows owner writes on /clans/{id} so no server bounce needed.
+      await updateDoc(doc(db, "clans", clanId), {
+        description:  form.description.trim(),
+        gameFocus:    form.gameFocus,
+        tags:         form.tags,
+        isPublic:     form.isPublic,
+        isRecruiting: form.isRecruiting,
+        memberLimit:  form.memberLimit,
+        ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
+        ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
+        updatedAt:    new Date(),
+      });
+
+      // Rename has to go through the server action because:
+      //   1. /clanNameKeys/{key} has no client-write rule (and shouldn't —
+      //      forging entries would corrupt the uniqueness index).
+      //   2. /clanSlugs/{slug} is also server-only — the URL has to update
+      //      atomically with the clan-doc rename + member-denorm propagation.
+      // The action runs the whole index swap + profile-denorm sync in a
+      // single transaction; on success we redirect to the new URL.
+      let destSlug = slug;
+      if (renamed) {
+        const result = await renameClan(uid, clanId, newName);
+        if (!result.success || !result.data) {
+          toast.error(result.error ?? "Failed to rename clan");
+          return;
         }
-        await batch.commit();
-      } else {
-        await updateDoc(doc(db, "clans", clanId), {
-          name:         newName,
-          description:  form.description.trim(),
-          gameFocus:    form.gameFocus,
-          tags:         form.tags,
-          isPublic:     form.isPublic,
-          isRecruiting: form.isRecruiting,
-          memberLimit:  form.memberLimit,
-          ...(newAvatarUrl ? { avatarUrl: newAvatarUrl } : {}),
-          ...(newBannerUrl ? { bannerUrl: newBannerUrl } : {}),
-          updatedAt: new Date(),
-        });
+        destSlug = result.data.slug;
+        setOriginalName(result.data.name);
+        setOriginalNameKey(result.data.nameKey);
       }
 
       toast.success("Settings saved");
-      router.push(`/clans/${slug}`);
+      router.push(`/clans/${destSlug}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save settings";
       toast.error(msg);
@@ -454,7 +450,9 @@ export default function ClanSettingsPage() {
               onBlur={e => { e.currentTarget.style.borderColor = "var(--border-default)"; }}
             />
             <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
-              Note: the clan URL (<span style={{ color: "var(--text-secondary)" }}>/clans/{slug}</span>) cannot be changed.
+              The clan URL updates to match: currently{" "}
+              <span style={{ color: "var(--text-secondary)" }}>/clans/{slug}</span>.
+              Existing links to the old URL stop working after a rename.
             </p>
           </div>
 

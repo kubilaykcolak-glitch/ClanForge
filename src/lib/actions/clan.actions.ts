@@ -472,6 +472,154 @@ export async function updateClanTag(
   }
 }
 
+// ── renameClan ────────────────────────────────────────────────────────────────
+// Owner-only. Atomically renames the clan: updates /clans/{id} (name +
+// nameKey + slug), swaps the /clanSlugs/{slug} and /clanNameKeys/{key}
+// index entries, and propagates the new (clanName, clanSlug) to every
+// member's /profiles/{uid} clan-denorm fields.
+//
+// Why a server action instead of a client batch?
+//   The settings page previously did this via a client-side writeBatch.
+//   That failed with "Missing or insufficient permissions" because the
+//   /clanNameKeys collection has no client-write rule (and shouldn't —
+//   forging arbitrary name-key reservations would let users hijack the
+//   uniqueness index). Doing it server-side with the Admin SDK bypasses
+//   rules and lets us also update the slug + members in one shot.
+//
+// Op-budget: ~1 (clan) + 1 (new slug) + 1 (old slug) + 1 (new key) +
+// 1 (old key) + N (member profiles). Caps at the same DISBAND_MAX_MEMBERS
+// safety ceiling so a 200-member clan rename still fits the 500-op tx limit.
+
+import { slugify } from "@/lib/utils";
+import { normalizeClanName, MIN_NAME_KEY_LENGTH } from "@/lib/clan-name";
+
+const RENAME_MAX_MEMBERS = 200;
+
+export async function renameClan(
+  uid:     string,
+  clanId:  string,
+  newName: string,
+): Promise<ActionResult<{ slug: string; name: string; nameKey: string }>> {
+  try {
+    const sessionUid = await getSessionUid();
+    if (sessionUid !== uid) return { success: false, error: "Forbidden" };
+
+    const trimmed = (newName ?? "").trim();
+    if (trimmed.length < 3) {
+      return { success: false, error: "Clan name must be at least 3 characters" };
+    }
+    if (trimmed.length > 30) {
+      return { success: false, error: "Clan name must be 30 characters or fewer" };
+    }
+
+    const newSlug    = slugify(trimmed);
+    const newNameKey = normalizeClanName(trimmed);
+
+    if (!newSlug) {
+      return { success: false, error: "Clan name doesn't produce a valid URL" };
+    }
+    if (!newNameKey || newNameKey.length < MIN_NAME_KEY_LENGTH) {
+      return { success: false, error: "Clan name needs more letters or numbers" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+
+    await adminDb.runTransaction(async tx => {
+      const clanRef = adminDb.collection("clans").doc(clanId);
+      const clanSnap = await tx.get(clanRef);
+      if (!clanSnap.exists) throw new Error("Clan not found");
+
+      const data = clanSnap.data()!;
+      if ((data.ownerId as string | undefined) !== uid) {
+        throw new Error("Only the clan owner can rename the clan");
+      }
+
+      const oldName    = (data.name    as string | undefined) ?? "";
+      const oldSlug    = (data.slug    as string | undefined) ?? "";
+      const oldNameKey = (data.nameKey as string | undefined) ?? "";
+
+      // No-op if literally unchanged.
+      if (trimmed === oldName && newSlug === oldSlug && newNameKey === oldNameKey) {
+        return;
+      }
+
+      // Slug-collision check — must point at a different clan to count.
+      if (newSlug !== oldSlug) {
+        const slugSnap = await tx.get(adminDb.collection("clanSlugs").doc(newSlug));
+        if (slugSnap.exists) {
+          const owner = (slugSnap.data() as { clanId?: string })?.clanId;
+          if (owner && owner !== clanId) {
+            throw new Error("A clan with that URL already exists — pick a more distinctive name");
+          }
+        }
+      }
+
+      // Name-key collision check — same logic as create-time copycat guard.
+      if (newNameKey !== oldNameKey) {
+        const keySnap = await tx.get(adminDb.collection("clanNameKeys").doc(newNameKey));
+        if (keySnap.exists) {
+          const owner = (keySnap.data() as { clanId?: string })?.clanId;
+          if (owner && owner !== clanId) {
+            throw new Error("A clan with a very similar name already exists — pick something more distinctive");
+          }
+        }
+      }
+
+      // Member list — needed to propagate the (clanName, clanSlug) denorm.
+      const membersSnap = await tx.get(
+        adminDb.collection("clans").doc(clanId).collection("members"),
+      );
+      if (membersSnap.size > RENAME_MAX_MEMBERS) {
+        throw new Error(
+          `This clan has ${membersSnap.size} members — too large to rename atomically. ` +
+          `Contact support for assistance.`,
+        );
+      }
+
+      // 1. Clan doc
+      tx.update(clanRef, {
+        name:      trimmed,
+        slug:      newSlug,
+        nameKey:   newNameKey,
+        updatedAt: new Date(),
+      });
+
+      // 2. Slug index swap
+      if (newSlug !== oldSlug) {
+        tx.set(adminDb.collection("clanSlugs").doc(newSlug), { clanId });
+        if (oldSlug) {
+          tx.delete(adminDb.collection("clanSlugs").doc(oldSlug));
+        }
+      }
+
+      // 3. Name-key index swap
+      if (newNameKey !== oldNameKey) {
+        tx.set(adminDb.collection("clanNameKeys").doc(newNameKey), { clanId });
+        if (oldNameKey) {
+          tx.delete(adminDb.collection("clanNameKeys").doc(oldNameKey));
+        }
+      }
+
+      // 4. Member-profile denorm propagation
+      for (const memberDoc of membersSnap.docs) {
+        tx.update(adminDb.collection("profiles").doc(memberDoc.id), {
+          clanName: trimmed,
+          clanSlug: newSlug,
+        });
+      }
+    });
+
+    return {
+      success: true,
+      data:    { slug: newSlug, name: trimmed, nameKey: newNameKey },
+    };
+  } catch (err) {
+    const message = friendlyActionError(err, "Failed to rename clan");
+    console.error("[renameClan]", err);
+    return { success: false, error: message };
+  }
+}
+
 // ── disbandClan ───────────────────────────────────────────────────────────────
 // Leader-only. Deletes the clan doc, clanSlugs entry, all member sub-docs, and
 // clears clan-denorm fields from every member's profile in a single batch.
