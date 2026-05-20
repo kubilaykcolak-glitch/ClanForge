@@ -34,7 +34,14 @@ export interface GameMeta {
   name:        string;
   shortName:   string;
   bannerSrc:   string;
+  /** Wide wordmark — used in the hub banner + /games index tile where the
+   *  game name reads at hero scale. */
   logoSrc:     string;
+  /** Optional square icon mark (e.g. the iconic LoL "L"). Used in tight
+   *  spots like the sidebar sub-nav where a wide wordmark would shrink past
+   *  legibility. Components fall back to logoSrc, then to the coloured
+   *  shortName tile, when this is absent. */
+  logoIconSrc?: string;
   accentColor: string;
   tagline:     string;
   theme:       GameTheme;
@@ -47,6 +54,7 @@ export const GAMES_META: Record<GameSlug, GameMeta> = {
     shortName:   "LoL",
     bannerSrc:   "/games/league-of-legends/banner.webp",
     logoSrc:     "/games/league-of-legends/logo.png",
+    logoIconSrc: "/games/league-of-legends/icon.png",
     accentColor: "#c89b3c",
     tagline:     "Tournaments, ladders, and clan competition on the Rift.",
     theme: {

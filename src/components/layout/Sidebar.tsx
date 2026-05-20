@@ -155,13 +155,32 @@ function GamesNavGroup({
                   }
                 }}
               >
-                {/* Game mark — prefer the real wordmark image (sourced
-                    from press / community wiki under /public/games/<slug>/)
-                    rendered at sidebar scale. The wordmark is wide, so
-                    the tile is a 28×20 box with object-contain so the
-                    letterforms remain identifiable. Falls back to a
-                    coloured shortName tile if logoSrc is empty. */}
-                {g.logoSrc ? (
+                {/* Game mark — preference ladder:
+                      1. logoIconSrc — square brand mark (e.g. LoL's
+                         iconic "L"). Reads best at sidebar scale.
+                      2. logoSrc — wide wordmark, fitted to a 28×20 tile.
+                      3. Coloured shortName tile fallback for any future
+                         game that hasn't shipped art yet. */}
+                {g.logoIconSrc ? (
+                  <span
+                    className="relative w-5 h-5 shrink-0 flex items-center justify-center"
+                    aria-hidden
+                  >
+                    <Image
+                      src={g.logoIconSrc}
+                      alt=""
+                      width={40}
+                      height={40}
+                      unoptimized
+                      style={{
+                        height:    "100%",
+                        width:     "auto",
+                        maxWidth:  "100%",
+                        objectFit: "contain",
+                      }}
+                    />
+                  </span>
+                ) : g.logoSrc ? (
                   <span
                     className="relative w-7 h-5 shrink-0 flex items-center justify-start"
                     aria-hidden
