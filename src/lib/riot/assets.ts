@@ -73,13 +73,35 @@ export function formatRank(tier: string, division: string): string {
 
 // ─── Item / summoner-spell / queue helpers ───────────────────────────────────
 //
-// All served from CommunityDragon's `latest` channel. We accept a fallback
-// asset path on the client so a missing item (e.g. retired item id, empty
-// slot) just renders a placeholder rather than a broken image.
+// Item icons are tricky: CommunityDragon's `v1/item-icons/{id}.png` route is
+// the best single endpoint but 404s for items that have been removed in
+// recent patches (retired Mythic items, season-rotated items, some Arena
+// augments encoded as item IDs). When that happens the browser renders its
+// broken-image glyph in match history.
+//
+// `itemIconUrl` returns a single primary URL for places that only want one
+// (e.g. server-side rendering, og-images). `itemIconUrls` returns the
+// preferred fallback chain so the `<ItemIcon>` client component can walk it
+// on each onError event.
+
+const DDRAGON_FALLBACK_VERSION = "15.1.1"; // bump occasionally; only used as a fallback
 
 export function itemIconUrl(itemId: number): string | null {
   if (!itemId || itemId === 0) return null;
-  return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/item-icons/${itemId}.png`;
+  return itemIconUrls(itemId)[0] ?? null;
+}
+
+export function itemIconUrls(itemId: number): string[] {
+  if (!itemId || itemId === 0) return [];
+  return [
+    // CommunityDragon is auto-updated from the live client and includes the
+    // largest catalogue of historical icons. Try first.
+    `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/item-icons/${itemId}.png`,
+    // Data Dragon — Riot's official CDN. Catches items CommunityDragon's
+    // `v1/item-icons` directory hasn't ingested yet (and a few removed ones
+    // CommunityDragon prunes faster than Data Dragon does).
+    `https://ddragon.leagueoflegends.com/cdn/${DDRAGON_FALLBACK_VERSION}/img/item/${itemId}.png`,
+  ];
 }
 
 export function summonerSpellIconUrl(spellId: number): string | null {

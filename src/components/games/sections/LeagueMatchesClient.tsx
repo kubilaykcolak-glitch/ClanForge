@@ -18,7 +18,7 @@ import { Search, Trophy, ChevronDown } from "lucide-react";
 import {
   championIconUrl,
   formatDuration,
-  itemIconUrl,
+  itemIconUrls,
   queueLabel,
   summonerSpellIconUrl,
   timeAgoCompact,
@@ -459,18 +459,31 @@ function TeamBlock({
 
 function SpellIcon({ id }: { id: number }) {
   const src = summonerSpellIconUrl(id);
+  const [broken, setBroken] = useState(false);
   return (
     <div className="w-5 h-5 rounded overflow-hidden" style={{ background: "var(--bg-overlay)" }} aria-hidden>
-      {src && (
+      {src && !broken && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="w-full h-full object-cover" />
+        <img
+          src={src}
+          alt=""
+          className="w-full h-full object-cover"
+          onError={() => setBroken(true)}
+        />
       )}
     </div>
   );
 }
 
 function ItemIcon({ id }: { id: number }) {
-  const src = itemIconUrl(id);
+  // Items can come back as a sequence of URLs to try because some item IDs
+  // (retired items, Arena augments, ARAM-only IDs) aren't served by every
+  // CDN. Walk the list on each onError. When all sources fail we render
+  // the neutral placeholder tile instead of the browser's broken-image glyph.
+  const sources = useMemo(() => itemIconUrls(id), [id]);
+  const [idx, setIdx] = useState(0);
+  const src = sources[idx];
+
   return (
     <div
       className="w-6 h-6 rounded overflow-hidden"
@@ -479,7 +492,12 @@ function ItemIcon({ id }: { id: number }) {
     >
       {src && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="w-full h-full object-cover" />
+        <img
+          src={src}
+          alt=""
+          className="w-full h-full object-cover"
+          onError={() => setIdx(i => i + 1)}
+        />
       )}
     </div>
   );
