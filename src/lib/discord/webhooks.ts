@@ -123,19 +123,22 @@ export async function postBountyModLog(payload: BountyEventPayload): Promise<voi
 //   - Green   → claim approved (a hunter just earned XP)
 //   - Red     → rejected / cancelled (corrective state)
 
+// Event-keyed accent colour. `published` and `claim_approved` use deep
+// crimson on the public board so the kill-call and the kill-confirmation
+// land with visual weight; the cooler colours stay for mod-internal noise.
 const COLOUR: Record<BountyEventKind, number> = {
-  published:       0x6366f1, // indigo
+  published:       0xb91c1c, // crimson (kill-call)
   claim_opened:    0xf59e0b, // amber
-  claim_approved:  0x22c55e, // green
+  claim_approved:  0x7f1d1d, // deep crimson (kill-confirmation)
   claim_rejected:  0xef4444, // red
   cancelled:       0x94a3b8, // slate (neutral close)
   expired:         0x64748b, // slate-deeper (auto-close)
 };
 
 const HEADLINE: Record<BountyEventKind, string> = {
-  published:      "🎯 New bounty published",
+  published:      "🩸 BOUNTY LIVE",
   claim_opened:   "🛎️ Claim submitted",
-  claim_approved: "✅ Claim approved",
+  claim_approved: "💀 TARGET ELIMINATED",
   claim_rejected: "🚫 Claim rejected",
   cancelled:      "🛑 Bounty cancelled",
   expired:        "⌛ Bounty expired",
@@ -174,18 +177,35 @@ function buildEmbed(payload: BountyEventPayload, channel: "board" | "mod-log"): 
     return `<@${id}>`;
   };
 
-  const fields: DiscordEmbed["fields"] = [
-    { name: "Target",    value: trunc(payload.targetLabel, 256), inline: true  },
-    { name: "Reward",    value: `${payload.rewardXp} XP`,        inline: true  },
-    { name: "Issued by", value: trunc(payload.issuer.displayName, 256), inline: true },
-  ];
+  // Field list. The target is intentionally OMITTED here for `published`
+  // and `claim_approved` — those two events promote the target into the
+  // description as the visual focal point so it reads like a wanted poster
+  // rather than a stat box. The other events keep target as a plain field
+  // because they're informational / administrative rather than dramatic.
+  const fields: DiscordEmbed["fields"] = [];
+  const targetIsHeadline = payload.kind === "published" || payload.kind === "claim_approved";
+  if (!targetIsHeadline) {
+    fields.push({ name: "Target", value: trunc(payload.targetLabel, 256), inline: true });
+  }
+  fields.push(
+    { name: "Reward",    value: `${payload.rewardXp} XP`,                  inline: true },
+    { name: "Issued by", value: trunc(payload.issuer.displayName, 256),    inline: true },
+  );
 
   let description: string;
   let rolePing    = "";
 
   switch (payload.kind) {
     case "published": {
-      description = `A new bounty has been posted. Open the listing on ClanForge to claim it.`;
+      // Wanted-poster styling. The `diff` codeblock paints the target line
+      // red in Discord's renderer; combined with the crimson embed accent
+      // and skull headline, it reads as a kill-call rather than a chore.
+      description =
+        `## ☠️ TARGET\n` +
+        "```diff\n" +
+        `- ${trunc(payload.targetLabel, 200)}\n` +
+        "```\n" +
+        `🩸 A new bounty is live on ClanForge. **${payload.rewardXp} XP** to the hunter who closes it.`;
       // Opt-in role ping only on publish — chat-level signal that there's
       // new work available without spamming everyone with the role.
       if (channel === "board") {
@@ -203,11 +223,18 @@ function buildEmbed(payload: BountyEventPayload, channel: "board" | "mod-log"): 
       break;
     }
     case "claim_approved": {
-      // Public-channel celebration: ping the winner if we have their ID.
+      // Same wanted-poster styling as `published`, recoloured as the
+      // confirmation. The deep-crimson accent + "ELIMINATED" headline +
+      // strike-through target name reads as the kill-confirmation moment.
       const winnerMention = payload.hunter
         ? (mention(payload.hunter.discordUserId) ?? `**${payload.hunter.displayName}**`)
         : "The hunter";
-      description = `${winnerMention} earned **${payload.rewardXp} XP** for completing this bounty.`;
+      description =
+        `## 💀 TARGET DOWN\n` +
+        "```diff\n" +
+        `- ~~${trunc(payload.targetLabel, 196)}~~\n` +
+        "```\n" +
+        `🏆 ${winnerMention} claimed the bounty and banked **${payload.rewardXp} XP**.`;
       break;
     }
     case "claim_rejected": {
