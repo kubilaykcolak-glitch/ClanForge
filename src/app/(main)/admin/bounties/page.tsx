@@ -1,16 +1,24 @@
-import { Plus } from "lucide-react";
-import Link from "next/link";
 import { listBountiesForAdmin } from "@/lib/actions/bounty.actions";
 
 // Admin auth reads the session cookie — must render dynamically.
 export const dynamic = "force-dynamic";
-import { Badge } from "@/components/ui/Badge";
-import { AdminBountyRow } from "@/components/admin/AdminBountyRow";
+
+import { AdminBountyQueue } from "@/components/admin/AdminBountyQueue";
+import { AdminPublishBountySheet } from "@/components/admin/AdminPublishBountySheet";
+
+// ─── /admin/bounties ─────────────────────────────────────────────────────────
+//
+// Mod-side primary surface for the Wanted/Bounty system. Server fetches
+// every bounty once via listBountiesForAdmin (mod-gated; capped at 200),
+// then hands the payload to AdminBountyQueue which owns all interactive
+// state: tab selection (?tab=), search, count badges, filtered list.
+//
+// Stacked-sections layout retired in §2d — replaced with the tabbed queue.
+// The "Publish from intake" CTA still lives here for now; once §2g lands
+// it'll move into a side-panel slide-over.
 
 export default async function AdminBountiesPage() {
   const bounties = await listBountiesForAdmin();
-  const claimed = bounties.filter(b => b.status === "claimed");
-  const others  = bounties.filter(b => b.status !== "claimed");
 
   return (
     <div className="space-y-6">
@@ -23,43 +31,10 @@ export default async function AdminBountiesPage() {
             Review intake tickets, publish new bounties, and approve/reject claim evidence.
           </p>
         </div>
-        <Link
-          href="/admin/bounties/new"
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-semibold"
-          style={{ background: "var(--accent)", color: "white" }}
-        >
-          <Plus size={14} /> Publish from intake
-        </Link>
+        <AdminPublishBountySheet />
       </div>
 
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-display font-bold text-lg" style={{ color: "var(--text-primary)" }}>
-            Awaiting evidence review
-          </h2>
-          <Badge variant={claimed.length > 0 ? "warning" : "default"}>{claimed.length}</Badge>
-        </div>
-        {claimed.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Nothing pending.</p>
-        ) : (
-          <div className="space-y-2">
-            {claimed.map(b => <AdminBountyRow key={b.id} bounty={b} />)}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="font-display font-bold text-lg mb-3" style={{ color: "var(--text-primary)" }}>
-          All bounties
-        </h2>
-        {others.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>No history yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {others.map(b => <AdminBountyRow key={b.id} bounty={b} />)}
-          </div>
-        )}
-      </section>
+      <AdminBountyQueue bounties={bounties} />
     </div>
   );
 }

@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Check, X, Loader2, ExternalLink, Award } from "lucide-react";
+import { Check, X, Loader2, ExternalLink, Award, MoreHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { adminResolveBounty } from "@/lib/actions/bounty.actions";
 import type { Bounty } from "@/types/bounty";
+import { AdminBountyDetailPanel } from "./AdminBountyDetailPanel";
 
 const STATUS_VARIANT: Record<Bounty["status"], Parameters<typeof Badge>[0]["variant"]> = {
   open:      "success",
@@ -19,6 +20,11 @@ export function AdminBountyRow({ bounty }: { bounty: Bounty }) {
   const [resolveOpen, setResolveOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [pending, startTransition] = useTransition();
+  // Detail panel is the catch-all home for everything that doesn't fit
+  // inline: edit, mod-cancel, internal notes, full description + activity
+  // feed. The inline Approve/Reject for claimed bounties stays on the row
+  // so the fast path doesn't require a click + panel open.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const decide = (approved: boolean) => {
     if (!approved && !reason.trim()) {
@@ -105,8 +111,23 @@ export function AdminBountyRow({ bounty }: { bounty: Bounty }) {
               </button>
             </>
           )}
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium"
+            style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+            title="Open full bounty details, edit, cancel, or notes"
+          >
+            <MoreHorizontal size={11} /> Details
+          </button>
         </div>
       </div>
+
+      <AdminBountyDetailPanel
+        bounty={bounty}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
 
       {resolveOpen && (
         <div className="mt-3 flex flex-col gap-2">
