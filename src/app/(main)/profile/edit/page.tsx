@@ -45,6 +45,15 @@ const profileSchema = z.object({
   xboxGamertag:z.string().optional().default(""),
   psnId:       z.string().optional().default(""),
   discordTag:  z.string().optional().default(""),
+  // Discord user-id snowflake: 17–20 digits, numeric only. Used by the
+  // Wanted bounty webhook layer to @-ping the user on personal events.
+  // Allow empty string (user hasn't filled it in yet); when non-empty
+  // it must match the snowflake format Discord exposes via "Copy User ID".
+  discordUserId: z.string()
+    .regex(/^\d{17,20}$/, "Must be a 17–20 digit Discord user ID")
+    .optional()
+    .or(z.literal(""))
+    .default(""),
   twitchUrl:   z.string().url("Must be a valid URL").optional().or(z.literal("")).default(""),
 });
 type ProfileForm = z.infer<typeof profileSchema>;
@@ -139,7 +148,8 @@ export default function ProfileEditPage() {
         steamUrl:     d.steamUrl     ?? "",
         xboxGamertag: d.xboxGamertag ?? "",
         psnId:        d.psnId        ?? "",
-        discordTag:   d.discordTag   ?? "",
+        discordTag:    d.discordTag    ?? "",
+        discordUserId: d.discordUserId ?? "",
         twitchUrl:    d.twitchUrl    ?? "",
       });
       setOriginalUsername(d.username ?? "");
@@ -256,8 +266,11 @@ export default function ProfileEditPage() {
         steamUrl:     values.steamUrl     ?? "",
         xboxGamertag: values.xboxGamertag ?? "",
         psnId:        values.psnId        ?? "",
-        discordTag:   values.discordTag   ?? "",
-        twitchUrl:    values.twitchUrl    ?? "",
+        discordTag:    values.discordTag    ?? "",
+        // Empty-string means "user cleared the field" — store null so the
+        // bounty webhook layer treats absence consistently with never-set.
+        discordUserId: values.discordUserId?.trim() ? values.discordUserId.trim() : null,
+        twitchUrl:     values.twitchUrl     ?? "",
         updatedAt:    new Date(),
       };
       if (avatarUrl) payload.avatarUrl = avatarUrl;
@@ -495,6 +508,11 @@ export default function ProfileEditPage() {
               { key: "xboxGamertag",  label: "🎯 Xbox Gamertag",       placeholder: "YourGamertag" },
               { key: "psnId",         label: "🕹️ PSN ID",              placeholder: "YourPSNID" },
               { key: "discordTag",    label: "💬 Discord Tag",          placeholder: "username#1234" },
+              // 17–20 digit Discord snowflake. Optional — without it the
+              // user just won't get @-pinged on bounty events; everything
+              // else still works. Hint copy walks them through Discord →
+              // Settings → Advanced → Developer Mode → right-click profile.
+              { key: "discordUserId", label: "🆔 Discord User ID",      placeholder: "e.g. 241834892101947392" },
               { key: "twitchUrl",     label: "📺 Twitch URL",           placeholder: "https://twitch.tv/..." },
             ].map(({ key, label, placeholder }) => (
               <div key={key}>

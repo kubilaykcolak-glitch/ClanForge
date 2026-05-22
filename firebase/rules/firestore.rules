@@ -76,8 +76,13 @@ service cloud.firestore {
         'displayName',
         // Bio fields
         'bio', 'country',
-        // External handles
-        'steamUrl', 'xboxGamertag', 'psnId', 'discordTag', 'twitchUrl',
+        // External handles. `discordUserId` is the 17–20 digit Discord
+        // snowflake used by the Wanted webhook layer to @-ping the user
+        // on personal events. The edit form validates the shape; this
+        // rule only gates field-presence. `discordVerified` is NOT here
+        // — it's reserved for a future server-set verification flow and
+        // must never be client-writable.
+        'steamUrl', 'xboxGamertag', 'psnId', 'discordTag', 'discordUserId', 'twitchUrl',
         // Cosmetic
         'avatarUrl', 'bannerUrl', 'backgroundId', 'backgroundImageUrl', 'accentColour',
         // Timestamp

@@ -28,6 +28,36 @@ import {
 } from "@/types/bounty";
 import type { GameSlug } from "@/lib/games/types";
 import { friendlyActionError } from "./_errors";
+import {
+  postBountyBoard,
+  postBountyModLog,
+  type BountyEventPayload,
+} from "@/lib/discord/webhooks";
+
+// ─── Profile-identity helper ─────────────────────────────────────────────────
+// Reads displayName + discordUserId off /profiles/{uid} for the webhook ping
+// layer. Returns null-shaped data on miss so callers can pass through to
+// the embed builder without branching.
+
+interface IdentitySnapshot {
+  displayName:   string;
+  discordUserId: string | null;
+}
+
+async function readIdentity(uid: string): Promise<IdentitySnapshot> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const snap = await adminDb.collection("profiles").doc(uid).get();
+    if (!snap.exists) return { displayName: "Unknown", discordUserId: null };
+    const data = snap.data()!;
+    return {
+      displayName:   (data.displayName   as string | undefined) ?? "Unknown",
+      discordUserId: (data.discordUserId as string | undefined) ?? null,
+    };
+  } catch {
+    return { displayName: "Unknown", discordUserId: null };
+  }
+}
 
 interface ActionResult<T = undefined> {
   success: boolean;
@@ -103,6 +133,22 @@ export async function adminPublishBounty(input: PublishBountyInput): Promise<Act
 
     revalidatePath(`/games/${input.gameSlug}/wanted`);
     revalidatePath("/admin/bounties");
+
+    // Discord announcement — public board only on publish. Issuer's
+    // discordUserId is read alongside the displayName above (issuerSnap)
+    // so we don't refetch.
+    const issuerDiscordUserId = (issuerSnap.data()?.discordUserId as string | undefined) ?? null;
+    void postBountyBoard({
+      kind:             "published",
+      gameSlug:         input.gameSlug,
+      bountyId:         docRef.id,
+      title,
+      targetLabel:      target,
+      rewardXp:         Math.floor(input.rewardXp),
+      issuer:           { displayName: issuerName, discordUserId: issuerDiscordUserId },
+      discordTicketUrl: input.discordTicketUrl ?? null,
+    });
+
     return { success: true, data: { id: docRef.id } };
   } catch (err) {
     console.error("[adminPublishBounty]", err);
@@ -115,6 +161,10 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
     const sessionUid = await getSessionUid();
     const { adminDb } = await import("@/lib/firebase/admin");
     const ref  = adminDb.collection("bounties").doc(bountyId);
+
+    // Captured inside the tx for the post-tx Discord webhook so we don't
+    // refetch the bounty after committing.
+    let bountyForPost: BountyEventPayload | null = null;
 
     await adminDb.runTransaction(async tx => {
       const snap = await tx.get(ref);
@@ -130,6 +180,7 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
 
       const profSnap = await tx.get(adminDb.collection("profiles").doc(sessionUid));
       const hunterName = (profSnap.exists ? (profSnap.data()?.displayName as string | undefined) : undefined) ?? "Hunter";
+      const hunterDiscordUserId = (profSnap.exists ? (profSnap.data()?.discordUserId as string | undefined) : undefined) ?? null;
 
       tx.update(ref, {
         status:        "claimed",
@@ -137,10 +188,27 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
         claimedByName: hunterName,
         claimedAt:     new Date(),
       });
+
+      // Stash everything the webhook needs so we don't refetch later.
+      bountyForPost = {
+        kind:        "claim_opened",
+        gameSlug:    data.gameSlug,
+        bountyId,
+        title:       data.title,
+        targetLabel: data.targetDescription,
+        rewardXp:    data.rewardXp,
+        issuer:      { displayName: data.issuedByName ?? "Unknown", discordUserId: null }, // not needed for this event
+        hunter:      { displayName: hunterName, discordUserId: hunterDiscordUserId },
+      };
     });
 
     revalidatePath("/games/arc-raiders/wanted");
     revalidatePath("/admin/bounties");
+
+    // Mod-log only — claim opened. The brainstorm matrix keeps this off
+    // the public channel to avoid revealing the queue depth.
+    if (bountyForPost) void postBountyModLog(bountyForPost);
+
     return { success: true };
   } catch (err) {
     console.error("[claimBounty]", err);
@@ -200,7 +268,17 @@ export async function adminResolveBounty(
         });
       }
 
-      return { hunterUid, rewardXp: data.rewardXp, gameSlug: data.gameSlug };
+      // Snapshot fields needed by the webhook layer post-tx so we don't
+      // refetch the document.
+      return {
+        hunterUid,
+        rewardXp:          data.rewardXp,
+        gameSlug:          data.gameSlug,
+        title:             data.title,
+        targetDescription: data.targetDescription,
+        claimedByName:     (data.claimedByName as string | undefined) ?? "Hunter",
+        issuedByName:      (data.issuedByName  as string | undefined) ?? "Unknown",
+      };
     });
 
     // Award XP outside the transaction. Wrapped in trusted-server-context
@@ -229,6 +307,33 @@ export async function adminResolveBounty(
 
     revalidatePath(`/games/${result.gameSlug}/wanted`);
     revalidatePath("/admin/bounties");
+
+    // Discord notification per the brainstorm matrix:
+    //   approved → board (celebration + winner ping) + mod-log (audit)
+    //   rejected → mod-log only (with rejection reason + claimer ping)
+    // Identities are read post-tx so the read happens off the critical
+    // path of the resolution itself.
+    if (result.hunterUid) {
+      const hunterIdentity = await readIdentity(result.hunterUid);
+      const baseEmbed: BountyEventPayload = {
+        kind:        approved ? "claim_approved" : "claim_rejected",
+        gameSlug:    result.gameSlug,
+        bountyId,
+        title:       result.title,
+        targetLabel: result.targetDescription,
+        rewardXp:    result.rewardXp,
+        issuer:      { displayName: result.issuedByName, discordUserId: null },
+        hunter:      hunterIdentity,
+        reason:      trimmedReason || null,
+      };
+      if (approved) {
+        void postBountyBoard(baseEmbed);
+        void postBountyModLog(baseEmbed);
+      } else {
+        void postBountyModLog(baseEmbed);
+      }
+    }
+
     return { success: true };
   } catch (err) {
     console.error("[adminResolveBounty]", err);
@@ -241,6 +346,10 @@ export async function cancelBounty(bountyId: string): Promise<ActionResult> {
     const sessionUid = await getSessionUid();
     const { adminDb } = await import("@/lib/firebase/admin");
     const ref  = adminDb.collection("bounties").doc(bountyId);
+
+    // Snapshot the post-tx webhook payload from inside the tx so we don't
+    // refetch after committing.
+    let bountyForPost: BountyEventPayload | null = null;
 
     await adminDb.runTransaction(async tx => {
       const snap = await tx.get(ref);
@@ -256,10 +365,33 @@ export async function cancelBounty(bountyId: string): Promise<ActionResult> {
         throw new Error("You can only cancel a bounty after the 24-hour cooldown");
       }
       tx.update(ref, { status: "cancelled" });
+
+      bountyForPost = {
+        kind:        "cancelled",
+        gameSlug:    data.gameSlug,
+        bountyId,
+        title:       data.title,
+        targetLabel: data.targetDescription,
+        rewardXp:    data.rewardXp,
+        issuer:      { displayName: data.issuedByName ?? "Unknown", discordUserId: null },
+      };
     });
 
     revalidatePath("/games/arc-raiders/wanted");
     revalidatePath("/admin/bounties");
+
+    // Mod-log only — issuer-initiated cancellation is admin-relevant noise,
+    // not something the public board needs to announce.
+    if (bountyForPost !== null) {
+      // Hydrate the issuer's discord ID for a more useful ping in the log.
+      const issuerIdentity = await readIdentity(sessionUid);
+      const finalPayload: BountyEventPayload = {
+        ...(bountyForPost as BountyEventPayload),
+        issuer: issuerIdentity,
+      };
+      void postBountyModLog(finalPayload);
+    }
+
     return { success: true };
   } catch (err) {
     console.error("[cancelBounty]", err);

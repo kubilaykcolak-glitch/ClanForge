@@ -23,6 +23,15 @@ export interface Profile {
   psnId?: string;
   discordTag?: string;
   twitchUrl?: string;
+  /** Discord user-id snowflake (17–20 digit numeric string). Used by the
+   *  Wanted/Bounty Discord webhook layer to @-ping users on personal
+   *  events (claim approved, your bounty was resolved). Distinct from
+   *  `discordTag` (display handle). Not verified yet — see `discordVerified`. */
+  discordUserId?: string | null;
+  /** Reserved for a future bot-driven verification flow. Defaults to false;
+   *  no UI badge rendered today, but the schema slot is here so we don't
+   *  have to data-migrate when verification ships. */
+  discordVerified?: boolean;
   xp: number;
   tournamentsPlayed: number;
   tournamentsWon: number;
