@@ -70,7 +70,9 @@ export type BountyEventKind =
   | "claim_opened"
   | "claim_approved"
   | "claim_rejected"
-  | "cancelled"
+  | "cancelled"           // issuer pulled their own bounty
+  | "cancelled_by_mod"    // mod-override cancel
+  | "edited"              // mod tweaked the bounty post-publish
   | "expired";
 
 export interface BountyEventPayload {
@@ -90,6 +92,13 @@ export interface BountyEventPayload {
   reason?:     string | null;
   /** Optional Discord intake-ticket URL (carried over from publish). */
   discordTicketUrl?: string | null;
+  /** Mod identity — present for events initiated by mods (cancelled_by_mod,
+   *  edited). The webhook uses this in the embed copy so it's clear who took
+   *  the action. */
+  mod?:        { displayName: string; discordUserId?: string | null };
+  /** For `edited` events: which fields changed and their before/after values.
+   *  Stringified on the way in so the embed builder can render uniformly. */
+  changes?:    Array<{ field: string; from: string; to: string }>;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -127,21 +136,25 @@ export async function postBountyModLog(payload: BountyEventPayload): Promise<voi
 // crimson on the public board so the kill-call and the kill-confirmation
 // land with visual weight; the cooler colours stay for mod-internal noise.
 const COLOUR: Record<BountyEventKind, number> = {
-  published:       0xb91c1c, // crimson (kill-call)
-  claim_opened:    0xf59e0b, // amber
-  claim_approved:  0x7f1d1d, // deep crimson (kill-confirmation)
-  claim_rejected:  0xef4444, // red
-  cancelled:       0x94a3b8, // slate (neutral close)
-  expired:         0x64748b, // slate-deeper (auto-close)
+  published:        0xb91c1c, // crimson (kill-call)
+  claim_opened:     0xf59e0b, // amber
+  claim_approved:   0x7f1d1d, // deep crimson (kill-confirmation)
+  claim_rejected:   0xef4444, // red
+  cancelled:        0x94a3b8, // slate (issuer self-cancel)
+  cancelled_by_mod: 0x475569, // darker slate (mod override)
+  edited:           0x6366f1, // indigo (informational, mod admin)
+  expired:          0x64748b, // slate-deeper (auto-close)
 };
 
 const HEADLINE: Record<BountyEventKind, string> = {
-  published:      "🩸 BOUNTY LIVE",
-  claim_opened:   "🛎️ Claim submitted",
-  claim_approved: "💀 TARGET ELIMINATED",
-  claim_rejected: "🚫 Claim rejected",
-  cancelled:      "🛑 Bounty cancelled",
-  expired:        "⌛ Bounty expired",
+  published:        "🩸 BOUNTY LIVE",
+  claim_opened:     "🛎️ Claim submitted",
+  claim_approved:   "💀 TARGET ELIMINATED",
+  claim_rejected:   "🚫 Claim rejected",
+  cancelled:        "🛑 Bounty cancelled",
+  cancelled_by_mod: "🚷 Bounty cancelled (mod override)",
+  edited:           "✏️ Bounty edited",
+  expired:          "⌛ Bounty expired",
 };
 
 interface DiscordEmbed {
@@ -248,6 +261,24 @@ function buildEmbed(payload: BountyEventPayload, channel: "board" | "mod-log"): 
     case "cancelled": {
       const issuerMention = mention(payload.issuer.discordUserId) ?? payload.issuer.displayName;
       description = `${issuerMention} cancelled this bounty.${payload.reason ? `\n**Reason:** ${trunc(payload.reason, 1024)}` : ""}`;
+      break;
+    }
+    case "cancelled_by_mod": {
+      // Mod-override cancel. Mentions the original issuer + the mod for the
+      // mod-log audit trail. The reason is required by the action layer.
+      const issuerMention = mention(payload.issuer.discordUserId) ?? payload.issuer.displayName;
+      const modName       = payload.mod?.displayName ?? "A moderator";
+      description = `**${modName}** cancelled this bounty (admin override). Original issuer: ${issuerMention}.${payload.reason ? `\n**Reason:** ${trunc(payload.reason, 1024)}` : ""}`;
+      break;
+    }
+    case "edited": {
+      // Mod-log only — informational, summarises which fields changed.
+      const modName = payload.mod?.displayName ?? "A moderator";
+      const lines   = (payload.changes ?? []).slice(0, 8).map(c =>
+        `• \`${c.field}\`: ${trunc(c.from || "—", 80)} → ${trunc(c.to || "—", 80)}`,
+      );
+      description = `**${modName}** edited this bounty.\n` +
+        (lines.length > 0 ? lines.join("\n") : "_No diff captured._");
       break;
     }
     case "expired": {

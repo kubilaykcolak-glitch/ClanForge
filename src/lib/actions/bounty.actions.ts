@@ -24,6 +24,9 @@ import {
   BOUNTY_DEFAULT_TTL_DAYS,
   BOUNTY_MAX_XP,
   BOUNTY_MIN_XP,
+  type ActivityEntry,
+  type ActivityFieldChange,
+  type ActivityKind,
   type Bounty,
 } from "@/types/bounty";
 import type { GameSlug } from "@/lib/games/types";
@@ -56,6 +59,84 @@ async function readIdentity(uid: string): Promise<IdentitySnapshot> {
     };
   } catch {
     return { displayName: "Unknown", discordUserId: null };
+  }
+}
+
+// ─── Activity-feed helper ────────────────────────────────────────────────────
+//
+// Appends a single entry to /bounties/{bountyId}/activity. Every mod action
+// (publish, edit, claim_opened, claim_approved/rejected, cancel, note) calls
+// this so the admin detail panel can render a coherent audit timeline.
+// Best-effort — failures log but don't throw, because losing an audit entry
+// is preferable to rolling back the lifecycle action itself.
+
+interface ActivityInput {
+  bountyId:   string;
+  kind:       ActivityKind;
+  actorUid:   string;
+  actorName:  string;
+  actorRole?: ActivityEntry["actorRole"];
+  reason?:    string;
+  body?:      string;
+  changes?:   ActivityFieldChange[];
+}
+
+async function appendActivity(input: ActivityInput): Promise<void> {
+  try {
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const entry: Omit<ActivityEntry, "id"> = {
+      kind:       input.kind,
+      actorUid:   input.actorUid,
+      actorName:  input.actorName,
+      actorRole:  input.actorRole,
+      createdAt:  new Date(),
+      // Only include the fields that were actually provided — Firestore
+      // doesn't like `undefined` field values and the panel filters by
+      // presence anyway.
+      ...(input.reason  !== undefined ? { reason:  input.reason  } : {}),
+      ...(input.body    !== undefined ? { body:    input.body    } : {}),
+      ...(input.changes !== undefined ? { changes: input.changes } : {}),
+    };
+    await adminDb
+      .collection("bounties").doc(input.bountyId)
+      .collection("activity")
+      .add(entry);
+  } catch (err) {
+    console.error("[appendActivity]", err);
+  }
+}
+
+// Public helper so other modules (e.g. listBounties admin panel reads) can
+// fetch the feed without re-implementing the hydration.
+export async function listBountyActivity(bountyId: string): Promise<ActivityEntry[]> {
+  try {
+    const session = await getSessionWithRole();
+    if (!meetsRole(session.role, "moderator")) return [];
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const snap = await adminDb
+      .collection("bounties").doc(bountyId)
+      .collection("activity")
+      .orderBy("createdAt", "desc")
+      .limit(100)
+      .get();
+    return snap.docs.map(d => {
+      const data = d.data();
+      const createdAt = (data.createdAt as { toDate?: () => Date } | undefined)?.toDate?.() ?? new Date(0);
+      return {
+        id:        d.id,
+        kind:      data.kind as ActivityKind,
+        actorUid:  data.actorUid as string,
+        actorName: data.actorName as string,
+        actorRole: data.actorRole as ActivityEntry["actorRole"],
+        createdAt,
+        reason:    data.reason as string | undefined,
+        body:      data.body as string | undefined,
+        changes:   data.changes as ActivityFieldChange[] | undefined,
+      };
+    });
+  } catch (err) {
+    console.error("[listBountyActivity]", err);
+    return [];
   }
 }
 
@@ -134,6 +215,17 @@ export async function adminPublishBounty(input: PublishBountyInput): Promise<Act
     revalidatePath(`/games/${input.gameSlug}/wanted`);
     revalidatePath("/admin/bounties");
 
+    // Activity feed — first entry on a fresh bounty is the publish event.
+    // The mod is the actor; the issuer's identity is captured on the
+    // bounty doc itself (issuedBy/issuedByName).
+    void appendActivity({
+      bountyId:  docRef.id,
+      kind:      "published",
+      actorUid:  session.uid,
+      actorName: modName,
+      actorRole: "mod",
+    });
+
     // Discord announcement — public board only on publish. Issuer's
     // discordUserId is read alongside the displayName above (issuerSnap)
     // so we don't refetch.
@@ -205,9 +297,18 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
     revalidatePath("/games/arc-raiders/wanted");
     revalidatePath("/admin/bounties");
 
-    // Mod-log only — claim opened. The brainstorm matrix keeps this off
-    // the public channel to avoid revealing the queue depth.
-    if (bountyForPost) void postBountyModLog(bountyForPost);
+    // Activity feed + Discord mod-log post.
+    if (bountyForPost) {
+      const huntPayload = bountyForPost as BountyEventPayload;
+      void appendActivity({
+        bountyId,
+        kind:      "claim_opened",
+        actorUid:  sessionUid,
+        actorName: huntPayload.hunter?.displayName ?? "Hunter",
+        actorRole: "hunter",
+      });
+      void postBountyModLog(huntPayload);
+    }
 
     return { success: true };
   } catch (err) {
@@ -308,6 +409,16 @@ export async function adminResolveBounty(
     revalidatePath(`/games/${result.gameSlug}/wanted`);
     revalidatePath("/admin/bounties");
 
+    // Activity feed entry — captures who resolved + the reason for audit.
+    void appendActivity({
+      bountyId,
+      kind:      approved ? "claim_approved" : "claim_rejected",
+      actorUid:  session.uid,
+      actorName: modName,
+      actorRole: "mod",
+      reason:    trimmedReason || undefined,
+    });
+
     // Discord notification per the brainstorm matrix:
     //   approved → board (celebration + winner ping) + mod-log (audit)
     //   rejected → mod-log only (with rejection reason + claimer ping)
@@ -389,6 +500,17 @@ export async function cancelBounty(bountyId: string): Promise<ActionResult> {
         ...(bountyForPost as BountyEventPayload),
         issuer: issuerIdentity,
       };
+
+      // Activity feed — note the actorRole=issuer so the panel + future
+      // mod-cancel can render different copy.
+      void appendActivity({
+        bountyId,
+        kind:      "cancelled",
+        actorUid:  sessionUid,
+        actorName: issuerIdentity.displayName,
+        actorRole: "issuer",
+      });
+
       void postBountyModLog(finalPayload);
     }
 
@@ -396,6 +518,388 @@ export async function cancelBounty(bountyId: string): Promise<ActionResult> {
   } catch (err) {
     console.error("[cancelBounty]", err);
     return { success: false, error: friendlyActionError(err, "Could not cancel bounty") };
+  }
+}
+
+// ─── adminEditBounty ─────────────────────────────────────────────────────────
+//
+// Mod-only post-publish edits. Accepts a partial patch of the fields that
+// make sense to change after the fact:
+//   - title / description / targetDescription / rewardXp / expiresAt /
+//     discordTicketUrl
+// Status-bound: refuses to edit a resolved bounty (XP already awarded —
+// editing the reward retroactively would be a trust violation).
+//
+// Side effects:
+//   - Writes an `edited` activity entry with per-field before/after pairs.
+//   - Fires the mod-log Discord webhook with the diff summary.
+//   - Sends an in-site notification to the issuer + (if claimed) hunter.
+
+export interface AdminEditBountyPatch {
+  title?:             string;
+  description?:       string;
+  targetDescription?: string;
+  rewardXp?:          number;
+  /** ISO timestamp or Date — coerced server-side. */
+  expiresAt?:         Date | string;
+  discordTicketUrl?:  string | null;
+}
+
+const EDITABLE_FIELDS: (keyof AdminEditBountyPatch)[] = [
+  "title", "description", "targetDescription", "rewardXp", "expiresAt", "discordTicketUrl",
+];
+
+export async function adminEditBounty(
+  bountyId: string,
+  patch:    AdminEditBountyPatch,
+): Promise<ActionResult> {
+  try {
+    const session = await getSessionWithRole();
+    if (!meetsRole(session.role, "moderator")) return { success: false, error: "Forbidden" };
+
+    // Validate patch fields against the same bounds adminPublishBounty enforces.
+    const cleanPatch: Record<string, unknown> = {};
+    if (patch.title !== undefined) {
+      const v = (patch.title ?? "").trim();
+      if (!v) return { success: false, error: "Title cannot be blank" };
+      if (v.length > MAX_TITLE) return { success: false, error: `Title must be ${MAX_TITLE} chars or fewer` };
+      cleanPatch.title = v;
+    }
+    if (patch.description !== undefined) {
+      const v = (patch.description ?? "").trim();
+      if (!v) return { success: false, error: "Description cannot be blank" };
+      if (v.length > MAX_DESC) return { success: false, error: `Description must be ${MAX_DESC} chars or fewer` };
+      cleanPatch.description = v;
+    }
+    if (patch.targetDescription !== undefined) {
+      const v = (patch.targetDescription ?? "").trim();
+      if (!v) return { success: false, error: "Target description cannot be blank" };
+      if (v.length > MAX_TARGET_DESC) return { success: false, error: `Target description must be ${MAX_TARGET_DESC} chars or fewer` };
+      cleanPatch.targetDescription = v;
+    }
+    if (patch.rewardXp !== undefined) {
+      const xp = Math.floor(patch.rewardXp);
+      if (!Number.isFinite(xp) || xp < BOUNTY_MIN_XP || xp > BOUNTY_MAX_XP) {
+        return { success: false, error: `Reward XP must be between ${BOUNTY_MIN_XP} and ${BOUNTY_MAX_XP}` };
+      }
+      cleanPatch.rewardXp = xp;
+    }
+    if (patch.expiresAt !== undefined) {
+      const d = patch.expiresAt instanceof Date ? patch.expiresAt : new Date(patch.expiresAt);
+      if (Number.isNaN(d.getTime())) return { success: false, error: "Invalid expiry date" };
+      // Must be in the future — editing to a past date would auto-expire it
+      // on next read, which is confusing. Refuse with a clear error.
+      if (d.getTime() <= Date.now()) return { success: false, error: "Expiry must be in the future" };
+      cleanPatch.expiresAt = d;
+    }
+    if (patch.discordTicketUrl !== undefined) {
+      cleanPatch.discordTicketUrl = patch.discordTicketUrl || null;
+    }
+
+    if (Object.keys(cleanPatch).length === 0) {
+      return { success: false, error: "No editable fields supplied" };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const ref = adminDb.collection("bounties").doc(bountyId);
+
+    // Resolve mod identity once outside the tx (Firestore tx reads must
+    // happen before writes, and we want the mod name in the activity entry).
+    const modSnap = await adminDb.collection("profiles").doc(session.uid).get();
+    const modName = (modSnap.exists ? (modSnap.data()?.displayName as string | undefined) : undefined) ?? "Moderator";
+
+    interface EditResult {
+      changes:           Array<{ field: string; from: string; to: string }>;
+      gameSlug:          GameSlug;
+      title:             string;
+      targetDescription: string;
+      rewardXp:          number;
+      issuedBy:          string;
+      issuedByName:      string;
+      claimedBy?:        string;
+    }
+    const result = await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error("Bounty not found");
+      const data = snap.data() as Bounty;
+
+      // Resolved bounties are immutable — XP has already been awarded.
+      // Mods can still re-open via adminResolveBounty(false), but not via
+      // edit. This avoids accidental tampering with closed records.
+      if (data.status === "resolved") throw new Error("Resolved bounties cannot be edited");
+
+      // Compute the per-field diff for the activity feed + webhook embed.
+      const changes: Array<{ field: string; from: string; to: string }> = [];
+      for (const f of EDITABLE_FIELDS) {
+        if (!(f in cleanPatch)) continue;
+        const before = (data as unknown as Record<string, unknown>)[f];
+        const after  = cleanPatch[f];
+        const fmt = (v: unknown): string => {
+          if (v === null || v === undefined) return "—";
+          if (v instanceof Date) return v.toISOString().slice(0, 10);
+          const maybeDate = (v as { toDate?: () => Date })?.toDate?.();
+          if (maybeDate instanceof Date) return maybeDate.toISOString().slice(0, 10);
+          return String(v);
+        };
+        const beforeStr = fmt(before);
+        const afterStr  = fmt(after);
+        if (beforeStr !== afterStr) {
+          changes.push({ field: f, from: beforeStr, to: afterStr });
+        }
+      }
+
+      if (changes.length === 0) {
+        // No actual change — short-circuit cleanly so we don't write an
+        // empty "edited" entry. Returning a sentinel result that we
+        // identify after the tx commits.
+        return { changes: [] as EditResult["changes"], gameSlug: data.gameSlug, title: data.title, targetDescription: data.targetDescription, rewardXp: data.rewardXp, issuedBy: data.issuedBy, issuedByName: data.issuedByName, claimedBy: data.claimedBy };
+      }
+
+      tx.update(ref, {
+        ...cleanPatch,
+        updatedAt: new Date(),
+      });
+
+      // Build the result snapshot from the post-patch state so the webhook
+      // / notification layer reflects the new values.
+      return {
+        changes,
+        gameSlug:          data.gameSlug,
+        title:             (cleanPatch.title             as string | undefined) ?? data.title,
+        targetDescription: (cleanPatch.targetDescription as string | undefined) ?? data.targetDescription,
+        rewardXp:          (cleanPatch.rewardXp          as number | undefined) ?? data.rewardXp,
+        issuedBy:          data.issuedBy,
+        issuedByName:      data.issuedByName,
+        claimedBy:         data.claimedBy,
+      } as EditResult;
+    });
+
+    if (result.changes.length === 0) {
+      // No-op edit — no activity entry, no webhook, no notification.
+      return { success: true };
+    }
+
+    revalidatePath(`/games/${result.gameSlug}/wanted`);
+    revalidatePath("/admin/bounties");
+
+    void appendActivity({
+      bountyId,
+      kind:      "edited",
+      actorUid:  session.uid,
+      actorName: modName,
+      actorRole: "mod",
+      changes:   result.changes,
+    });
+
+    // Mod-log webhook — diff summary embed.
+    const modIdentity = await readIdentity(session.uid);
+    void postBountyModLog({
+      kind:        "edited",
+      gameSlug:    result.gameSlug,
+      bountyId,
+      title:       result.title,
+      targetLabel: result.targetDescription,
+      rewardXp:    result.rewardXp,
+      issuer:      { displayName: result.issuedByName, discordUserId: null },
+      mod:         modIdentity,
+      changes:     result.changes,
+    });
+
+    // In-site notification fan-out — issuer + (if claimed) hunter.
+    try {
+      const { createNotification } = await import("@/lib/server/notifications");
+      const summary = result.changes.map(c => c.field).join(", ");
+      const body    = `A moderator updated this bounty (${summary}).`;
+      const href    = `/games/${result.gameSlug}/wanted#bounty-${bountyId}`;
+      await createNotification(result.issuedBy, {
+        type:  "bounty_edited",
+        title: `Bounty updated: ${result.title}`,
+        body,
+        href,
+      });
+      if (result.claimedBy && result.claimedBy !== result.issuedBy) {
+        await createNotification(result.claimedBy, {
+          type:  "bounty_edited",
+          title: `Bounty you claimed was updated: ${result.title}`,
+          body,
+          href,
+        });
+      }
+    } catch (err) {
+      console.error("[adminEditBounty→notify]", err);
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[adminEditBounty]", err);
+    return { success: false, error: friendlyActionError(err, "Could not edit bounty") };
+  }
+}
+
+// ─── adminCancelBounty ───────────────────────────────────────────────────────
+//
+// Mod-override cancel. Distinct from cancelBounty (issuer self-cancel) so
+// audit trail + Discord webhook can render different copy. Requires a reason
+// (the issuer + hunter notifications include it, so they know why their work
+// went away).
+//
+// Allowed from any non-terminal status (open / claimed). Refuses on resolved
+// for the same reason adminEditBounty does — XP has been awarded.
+
+export async function adminCancelBounty(bountyId: string, reason: string): Promise<ActionResult> {
+  try {
+    const session = await getSessionWithRole();
+    if (!meetsRole(session.role, "moderator")) return { success: false, error: "Forbidden" };
+
+    const trimmed = (reason ?? "").trim();
+    if (!trimmed)                       return { success: false, error: "A cancellation reason is required" };
+    if (trimmed.length > MAX_REASON)    return { success: false, error: `Reason must be ${MAX_REASON} chars or fewer` };
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const ref = adminDb.collection("bounties").doc(bountyId);
+
+    const modSnap = await adminDb.collection("profiles").doc(session.uid).get();
+    const modName = (modSnap.exists ? (modSnap.data()?.displayName as string | undefined) : undefined) ?? "Moderator";
+
+    interface ModCancelResult {
+      gameSlug:          GameSlug;
+      title:             string;
+      targetDescription: string;
+      rewardXp:          number;
+      issuedBy:          string;
+      issuedByName:      string;
+      claimedBy?:        string;
+    }
+    const result = await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error("Bounty not found");
+      const data = snap.data() as Bounty;
+      if (data.status === "resolved")  throw new Error("Resolved bounties cannot be cancelled");
+      if (data.status === "cancelled" || data.status === "expired") {
+        throw new Error("Bounty is already closed");
+      }
+
+      tx.update(ref, {
+        status:            "cancelled",
+        resolutionReason:  trimmed,
+        // Stamp the mod as the resolver so the bounty doc captures who
+        // closed it without needing to load the activity feed.
+        resolvedBy:        session.uid,
+        resolvedByName:    modName,
+        resolvedAt:        new Date(),
+        resolution:        "rejected",
+      });
+
+      return {
+        gameSlug:          data.gameSlug,
+        title:             data.title,
+        targetDescription: data.targetDescription,
+        rewardXp:          data.rewardXp,
+        issuedBy:          data.issuedBy,
+        issuedByName:      data.issuedByName,
+        claimedBy:         data.claimedBy,
+      } as ModCancelResult;
+    });
+
+    revalidatePath(`/games/${result.gameSlug}/wanted`);
+    revalidatePath("/admin/bounties");
+
+    void appendActivity({
+      bountyId,
+      kind:      "cancelled",
+      actorUid:  session.uid,
+      actorName: modName,
+      actorRole: "mod",
+      reason:    trimmed,
+    });
+
+    // Discord mod-log — distinct embed kind so the copy differentiates from
+    // issuer-cancel.
+    const modIdentity    = await readIdentity(session.uid);
+    const issuerIdentity = await readIdentity(result.issuedBy);
+    void postBountyModLog({
+      kind:        "cancelled_by_mod",
+      gameSlug:    result.gameSlug,
+      bountyId,
+      title:       result.title,
+      targetLabel: result.targetDescription,
+      rewardXp:    result.rewardXp,
+      issuer:      issuerIdentity,
+      mod:         modIdentity,
+      reason:      trimmed,
+    });
+
+    // Notifications — issuer always; hunter if a claim was open at the
+    // moment of cancel.
+    try {
+      const { createNotification } = await import("@/lib/server/notifications");
+      const href = `/games/${result.gameSlug}/wanted`;
+      await createNotification(result.issuedBy, {
+        type:  "bounty_cancelled_by_mod",
+        title: `Your bounty was cancelled by a moderator`,
+        body:  `"${result.title}" — ${trimmed}`,
+        href,
+      });
+      if (result.claimedBy && result.claimedBy !== result.issuedBy) {
+        await createNotification(result.claimedBy, {
+          type:  "bounty_cancelled_by_mod",
+          title: `Bounty you claimed was cancelled`,
+          body:  `"${result.title}" — ${trimmed}`,
+          href,
+        });
+      }
+    } catch (err) {
+      console.error("[adminCancelBounty→notify]", err);
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[adminCancelBounty]", err);
+    return { success: false, error: friendlyActionError(err, "Could not cancel bounty") };
+  }
+}
+
+// ─── adminAddBountyNote ──────────────────────────────────────────────────────
+//
+// Mod-only internal note appended to the activity feed. Never user-visible;
+// never reaches Discord. Used by mods to leave context for other mods
+// (e.g. "issuer requested via DM — flagging in case of follow-up").
+
+export async function adminAddBountyNote(bountyId: string, body: string): Promise<ActionResult> {
+  try {
+    const session = await getSessionWithRole();
+    if (!meetsRole(session.role, "moderator")) return { success: false, error: "Forbidden" };
+
+    const trimmed = (body ?? "").trim();
+    if (!trimmed) return { success: false, error: "Note body cannot be empty" };
+
+    const { ACTIVITY_NOTE_MAX } = await import("@/types/bounty");
+    if (trimmed.length > ACTIVITY_NOTE_MAX) {
+      return { success: false, error: `Note must be ${ACTIVITY_NOTE_MAX} chars or fewer` };
+    }
+
+    const { adminDb } = await import("@/lib/firebase/admin");
+    // Quick existence check so we don't write notes against a deleted bounty.
+    const snap = await adminDb.collection("bounties").doc(bountyId).get();
+    if (!snap.exists) return { success: false, error: "Bounty not found" };
+
+    const modSnap = await adminDb.collection("profiles").doc(session.uid).get();
+    const modName = (modSnap.exists ? (modSnap.data()?.displayName as string | undefined) : undefined) ?? "Moderator";
+
+    await appendActivity({
+      bountyId,
+      kind:      "note",
+      actorUid:  session.uid,
+      actorName: modName,
+      actorRole: "mod",
+      body:      trimmed,
+    });
+
+    revalidatePath("/admin/bounties");
+    return { success: true };
+  } catch (err) {
+    console.error("[adminAddBountyNote]", err);
+    return { success: false, error: friendlyActionError(err, "Could not add note") };
   }
 }
 

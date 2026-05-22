@@ -193,6 +193,15 @@ service cloud.firestore {
       return isSignedIn() &&
         (request.auth.token.role == 'admin' || request.auth.token.role == 'super_admin');
     }
+    // Mirrors meetsRole(role, 'moderator') in src/lib/auth/roles.ts — moderator
+    // tier OR higher. Used for read access to mod-only audit surfaces like
+    // the bounty activity feed.
+    function hasModeratorClaim() {
+      return isSignedIn() &&
+        (request.auth.token.role == 'moderator' ||
+         request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'super_admin');
+    }
     match /admin_audit/{id} {
       allow read:                if hasAdminClaim();
       allow create, update, delete: if false;
@@ -382,6 +391,18 @@ service cloud.firestore {
     match /bounties/{bountyId} {
       allow read: if true;
       allow write: if false;
+
+      // ─── /bounties/{bountyId}/activity/{entryId} ───────────────────────────
+      // Per-bounty audit timeline (publish, edit, claim, resolve, cancel,
+      // notes). Used by the admin detail panel only. Mod-only reads because
+      // entries can include internal notes — never expose those to the
+      // issuer or the public Wanted card. All writes go through the bounty
+      // server actions (Admin SDK bypasses rules) so a forged feed entry
+      // can't appear.
+      match /activity/{entryId} {
+        allow read:  if hasModeratorClaim();
+        allow write: if false;
+      }
     }
   }
 }
