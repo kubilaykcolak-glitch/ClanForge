@@ -58,12 +58,42 @@ export interface Bounty {
 
   /** Optional link to the intake Discord ticket (mods can see context). */
   discordTicketUrl?:    string | null;
+
+  // ─── Latest claim's evidence ───────────────────────────────────────────────
+  // Hunters upload video evidence to Discord (the bounty's intake ticket or
+  // any Discord channel). They paste an optional direct link in the claim
+  // form so mods can one-click to the message; otherwise they rely on the
+  // notes field to point to where the clip lives. These fields are stamped
+  // at claim time and OVERWRITTEN on each successful re-claim — the per-
+  // claim history is preserved in the activity subcollection.
+  /** Direct link to the hunter's evidence (Discord message link, YouTube,
+   *  Streamable, etc.). Null when the hunter didn't include one. */
+  evidenceUrl?:         string | null;
+  /** Hunter's free-form notes attached to the claim — context for mods.
+   *  10–500 chars, validated server-side. Null when no claim is active. */
+  evidenceNotes?:       string | null;
+
+  // ─── Re-claim cooldown ─────────────────────────────────────────────────────
+  // When adminResolveBounty rejects a claim, the bounty bounces to `open`
+  // and these fields are stamped so the same hunter can't immediately spam-
+  // resubmit. Other hunters can claim immediately. Cleared on successful
+  // approval. 15-minute window — long enough to discourage retry-spam, short
+  // enough that a legitimate "blurry video, redo" retry isn't punished.
+  reclaimCooldownUntil?: Date | null;
+  lastRejectedHunterUid?: string | null;
 }
 
 export const BOUNTY_MIN_XP = 50;
 export const BOUNTY_MAX_XP = 500;
 export const BOUNTY_DEFAULT_TTL_DAYS = 14;
 export const BOUNTY_CANCEL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+// ─── Claim evidence + re-claim cooldown bounds ───────────────────────────────
+export const BOUNTY_NOTES_MIN_LEN = 10;
+export const BOUNTY_NOTES_MAX_LEN = 500;
+/** After a claim is rejected, the SAME hunter has to wait this long before
+ *  re-claiming. Other hunters are unaffected. */
+export const BOUNTY_RECLAIM_COOLDOWN_MS = 15 * 60 * 1000;
 
 // ─── Activity feed (subcollection /bounties/{id}/activity) ───────────────────
 //

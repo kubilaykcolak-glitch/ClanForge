@@ -99,6 +99,11 @@ export interface BountyEventPayload {
   /** For `edited` events: which fields changed and their before/after values.
    *  Stringified on the way in so the embed builder can render uniformly. */
   changes?:    Array<{ field: string; from: string; to: string }>;
+  /** For `claim_opened` / `claim_approved` / `claim_rejected`: the hunter's
+   *  evidence link + notes. Surfaced inline in the mod-log so mods can click
+   *  through directly from chat instead of opening the side panel first. */
+  evidenceUrl?:   string | null;
+  evidenceNotes?: string | null;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -232,7 +237,18 @@ function buildEmbed(payload: BountyEventPayload, channel: "board" | "mod-log"): 
     }
     case "claim_opened": {
       const hunterMention = payload.hunter ? (mention(payload.hunter.discordUserId) ?? payload.hunter.displayName) : "Someone";
-      description = `${hunterMention} just claimed this bounty. Mods, review the evidence and approve / reject.`;
+      const lines = [`${hunterMention} just claimed this bounty. Mods, review the evidence and approve / reject.`];
+      if (payload.evidenceNotes) {
+        lines.push(`\n**Notes:** ${trunc(payload.evidenceNotes, 500)}`);
+      }
+      description = lines.join("\n");
+      // Evidence link gets its own field so it's obviously clickable. Falls
+      // back to the bounty's intake ticket URL when the hunter didn't
+      // include a direct link.
+      const evidence = payload.evidenceUrl || payload.discordTicketUrl;
+      if (evidence) {
+        fields.push({ name: "Evidence", value: `[Open](${evidence})`, inline: false });
+      }
       break;
     }
     case "claim_approved": {
@@ -248,6 +264,12 @@ function buildEmbed(payload: BountyEventPayload, channel: "board" | "mod-log"): 
         `- ~~${trunc(payload.targetLabel, 196)}~~\n` +
         "```\n" +
         `🏆 ${winnerMention} claimed the bounty and banked **${payload.rewardXp} XP**.`;
+      // Public-board evidence link rounds out the audit trail — viewers can
+      // click through to see what got approved.
+      const evidence = payload.evidenceUrl || payload.discordTicketUrl;
+      if (evidence) {
+        fields.push({ name: "Evidence", value: `[Open](${evidence})`, inline: false });
+      }
       break;
     }
     case "claim_rejected": {
@@ -256,6 +278,12 @@ function buildEmbed(payload: BountyEventPayload, channel: "board" | "mod-log"): 
         ? (mention(payload.hunter.discordUserId) ?? payload.hunter.displayName)
         : "the claimer";
       description = `${claimerMention}, the mod team couldn't approve this claim.${payload.reason ? `\n**Reason:** ${trunc(payload.reason, 1024)}` : ""}`;
+      // Link to the rejected evidence so the hunter (and any reviewing
+      // mods) can revisit what was submitted.
+      const evidence = payload.evidenceUrl || payload.discordTicketUrl;
+      if (evidence) {
+        fields.push({ name: "Submitted evidence", value: `[Open](${evidence})`, inline: false });
+      }
       break;
     }
     case "cancelled": {

@@ -311,6 +311,51 @@ export function AdminBountyDetailPanel({ bounty, open, onOpenChange }: Props) {
           </p>
         </div>
 
+        {/* ── Current claim's evidence (claimed status only) ───────────── */}
+        {bounty.status === "claimed" && (bounty.evidenceNotes || bounty.evidenceUrl) && (
+          <div
+            className="rounded-lg p-4 mb-5"
+            style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}
+          >
+            <p
+              className="text-[10px] uppercase tracking-wider mb-2"
+              style={{ color: "var(--warning)", letterSpacing: "0.08em" }}
+            >
+              Claim evidence — submitted by {bounty.claimedByName ?? "hunter"}
+            </p>
+            {bounty.evidenceNotes && (
+              <p className="text-xs leading-relaxed whitespace-pre-wrap mb-2" style={{ color: "var(--text-secondary)" }}>
+                {bounty.evidenceNotes}
+              </p>
+            )}
+            {bounty.evidenceUrl ? (
+              <a
+                href={bounty.evidenceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium underline-offset-2 hover:underline"
+                style={{ color: "var(--accent)" }}
+              >
+                <ExternalLink size={12} /> Open evidence link
+              </a>
+            ) : bounty.discordTicketUrl ? (
+              <a
+                href={bounty.discordTicketUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium underline-offset-2 hover:underline"
+                style={{ color: "var(--accent)" }}
+              >
+                <ExternalLink size={12} /> Hunter referenced the intake ticket — open it
+              </a>
+            ) : (
+              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                No direct link provided — evidence should be in the bounty&apos;s Discord ticket.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* ── Mod actions ─────────────────────────────────────────────── */}
         {!isResolved && !isClosed && (
           <div className="flex flex-wrap gap-2 mb-4">

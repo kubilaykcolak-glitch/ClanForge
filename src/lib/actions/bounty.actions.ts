@@ -24,6 +24,9 @@ import {
   BOUNTY_DEFAULT_TTL_DAYS,
   BOUNTY_MAX_XP,
   BOUNTY_MIN_XP,
+  BOUNTY_NOTES_MIN_LEN,
+  BOUNTY_NOTES_MAX_LEN,
+  BOUNTY_RECLAIM_COOLDOWN_MS,
   type ActivityEntry,
   type ActivityFieldChange,
   type ActivityKind,
@@ -248,9 +251,48 @@ export async function adminPublishBounty(input: PublishBountyInput): Promise<Act
   }
 }
 
-export async function claimBounty(bountyId: string): Promise<ActionResult> {
+export interface ClaimBountyInput {
+  /** Hunter's free-form context for the mod review (10–500 chars). Required —
+   *  this is "where to look in the evidence". */
+  notes:        string;
+  /** Optional direct link to the evidence (Discord message link, YouTube,
+   *  Streamable, etc.). When omitted, mods rely on the bounty's existing
+   *  discordTicketUrl to find the clip. */
+  evidenceUrl?: string;
+}
+
+export async function claimBounty(
+  bountyId: string,
+  input:    ClaimBountyInput,
+): Promise<ActionResult> {
   try {
     const sessionUid = await getSessionUid();
+
+    // ── Pre-tx validation ────────────────────────────────────────────────────
+    const notes = (input.notes ?? "").trim();
+    if (notes.length < BOUNTY_NOTES_MIN_LEN) {
+      return { success: false, error: `Notes must be at least ${BOUNTY_NOTES_MIN_LEN} characters` };
+    }
+    if (notes.length > BOUNTY_NOTES_MAX_LEN) {
+      return { success: false, error: `Notes must be ${BOUNTY_NOTES_MAX_LEN} characters or fewer` };
+    }
+    const evidenceUrl = (input.evidenceUrl ?? "").trim();
+    if (evidenceUrl) {
+      // Light shape check only — no host whitelist. We just want a real URL
+      // so the mod side can render it as a clickable link without surprise.
+      try {
+        const parsed = new URL(evidenceUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          return { success: false, error: "Evidence URL must use http or https" };
+        }
+      } catch {
+        return { success: false, error: "Evidence URL is not a valid URL" };
+      }
+      if (evidenceUrl.length > 2048) {
+        return { success: false, error: "Evidence URL is too long" };
+      }
+    }
+
     const { adminDb } = await import("@/lib/firebase/admin");
     const ref  = adminDb.collection("bounties").doc(bountyId);
 
@@ -264,6 +306,19 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
       const data = snap.data() as Bounty;
       if (data.status !== "open") throw new Error("Bounty is not open");
       if (data.issuedBy === sessionUid) throw new Error("You cannot claim your own bounty");
+
+      // Re-claim cooldown — same hunter must wait after a rejection. Other
+      // hunters can claim immediately. Stamped by adminResolveBounty on
+      // reject; cleared on successful approval / cancel / publish (the
+      // bounty doc gets reset on those paths).
+      const cooldown = data.reclaimCooldownUntil instanceof Date
+        ? data.reclaimCooldownUntil
+        : (data.reclaimCooldownUntil as unknown as { toDate?: () => Date })?.toDate?.();
+      if (data.lastRejectedHunterUid === sessionUid && cooldown && cooldown > new Date()) {
+        const remainMin = Math.ceil((cooldown.getTime() - Date.now()) / 60000);
+        throw new Error(`Your previous claim was rejected — wait ${remainMin}m before re-claiming`);
+      }
+
       // Auto-expire on read if past expiry.
       if (data.expiresAt instanceof Date ? data.expiresAt < new Date() : false) {
         tx.update(ref, { status: "expired" });
@@ -275,10 +330,18 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
       const hunterDiscordUserId = (profSnap.exists ? (profSnap.data()?.discordUserId as string | undefined) : undefined) ?? null;
 
       tx.update(ref, {
-        status:        "claimed",
-        claimedBy:     sessionUid,
-        claimedByName: hunterName,
-        claimedAt:     new Date(),
+        status:         "claimed",
+        claimedBy:      sessionUid,
+        claimedByName:  hunterName,
+        claimedAt:      new Date(),
+        evidenceUrl:    evidenceUrl || null,
+        evidenceNotes:  notes,
+        // A fresh claim by anyone clears the reject cooldown — if a new
+        // hunter is claiming, the old reject state no longer applies, and
+        // if the previously-rejected hunter is re-claiming after the
+        // cooldown then they've earned a fresh chance.
+        lastRejectedHunterUid:  null,
+        reclaimCooldownUntil:   null,
       });
 
       // Stash everything the webhook needs so we don't refetch later.
@@ -291,6 +354,9 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
         rewardXp:    data.rewardXp,
         issuer:      { displayName: data.issuedByName ?? "Unknown", discordUserId: null }, // not needed for this event
         hunter:      { displayName: hunterName, discordUserId: hunterDiscordUserId },
+        // Carry evidence so the mod-log embed surfaces the link inline.
+        evidenceUrl:   evidenceUrl || null,
+        evidenceNotes: notes,
       };
     });
 
@@ -306,6 +372,10 @@ export async function claimBounty(bountyId: string): Promise<ActionResult> {
         actorUid:  sessionUid,
         actorName: huntPayload.hunter?.displayName ?? "Hunter",
         actorRole: "hunter",
+        // Reason is the evidence URL (when present), body is the notes.
+        // The activity row renderer in the mod panel surfaces both.
+        reason:    huntPayload.evidenceUrl ?? undefined,
+        body:      huntPayload.evidenceNotes ?? undefined,
       });
       void postBountyModLog(huntPayload);
     }
@@ -355,7 +425,9 @@ export async function adminResolveBounty(
           resolutionReason: trimmedReason || null,
         });
       } else {
-        // Rejected: bounce back to open so another hunter can claim.
+        // Rejected: bounce back to open so another hunter can claim. Stamp
+        // the re-claim cooldown so the SAME hunter can't immediately spam-
+        // resubmit; other hunters are unaffected. claimBounty enforces it.
         tx.update(ref, {
           status:           "open",
           resolution:       "rejected",
@@ -366,6 +438,12 @@ export async function adminResolveBounty(
           claimedBy:        null,
           claimedByName:    null,
           claimedAt:        null,
+          // Clear the now-stale evidence so the bounty card doesn't show
+          // a rejected hunter's link to other viewers.
+          evidenceUrl:           null,
+          evidenceNotes:         null,
+          lastRejectedHunterUid: hunterUid ?? null,
+          reclaimCooldownUntil:  new Date(Date.now() + BOUNTY_RECLAIM_COOLDOWN_MS),
         });
       }
 
@@ -379,6 +457,13 @@ export async function adminResolveBounty(
         targetDescription: data.targetDescription,
         claimedByName:     (data.claimedByName as string | undefined) ?? "Hunter",
         issuedByName:      (data.issuedByName  as string | undefined) ?? "Unknown",
+        // Carry the claim's evidence so the resolution webhook embed can
+        // link to what was reviewed. On reject the doc-level fields are
+        // about to be wiped (see the reject branch above), so snapshotting
+        // pre-write is the right time.
+        evidenceUrl:       (data.evidenceUrl   as string | undefined) ?? null,
+        evidenceNotes:     (data.evidenceNotes as string | undefined) ?? null,
+        discordTicketUrl:  (data.discordTicketUrl as string | undefined) ?? null,
       };
     });
 
@@ -436,6 +521,11 @@ export async function adminResolveBounty(
         issuer:      { displayName: result.issuedByName, discordUserId: null },
         hunter:      hunterIdentity,
         reason:      trimmedReason || null,
+        // Pass the claim's evidence through so the resolution embed renders
+        // an "Open evidence" / "Submitted evidence" link.
+        evidenceUrl:      result.evidenceUrl,
+        evidenceNotes:    result.evidenceNotes,
+        discordTicketUrl: result.discordTicketUrl,
       };
       if (approved) {
         void postBountyBoard(baseEmbed);
@@ -966,5 +1056,9 @@ function hydrate(id: string, data: FirebaseFirestore.DocumentData): Bounty {
     resolution:          data.resolution ?? undefined,
     resolutionReason:    data.resolutionReason ?? undefined,
     discordTicketUrl:    data.discordTicketUrl ?? null,
+    evidenceUrl:         data.evidenceUrl   ?? null,
+    evidenceNotes:       data.evidenceNotes ?? null,
+    reclaimCooldownUntil:   toDate(data.reclaimCooldownUntil)   ?? null,
+    lastRejectedHunterUid:  data.lastRejectedHunterUid ?? null,
   };
 }

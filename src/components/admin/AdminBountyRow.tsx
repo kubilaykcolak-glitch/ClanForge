@@ -76,6 +76,35 @@ export function AdminBountyRow({ bounty }: { bounty: Bounty }) {
               Note: {bounty.resolutionReason}
             </p>
           )}
+          {/* Evidence surfaced inline on claimed rows so mods see it in the
+              queue without opening the side panel. The notes excerpt gives
+              them context for the link; the link itself is the fast path
+              to actually review. */}
+          {bounty.status === "claimed" && (bounty.evidenceNotes || bounty.evidenceUrl) && (
+            <div
+              className="mt-2 rounded-md px-2 py-1.5 text-[11px]"
+              style={{
+                background: "rgba(245,158,11,0.08)",
+                border:     "1px solid rgba(245,158,11,0.20)",
+                color:      "var(--text-secondary)",
+              }}
+            >
+              {bounty.evidenceNotes && (
+                <p className="leading-snug whitespace-pre-wrap">{bounty.evidenceNotes}</p>
+              )}
+              {bounty.evidenceUrl && (
+                <a
+                  href={bounty.evidenceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-1 underline-offset-2 hover:underline"
+                  style={{ color: "var(--accent)" }}
+                >
+                  <ExternalLink size={10} /> Evidence link
+                </a>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {bounty.discordTicketUrl && (
